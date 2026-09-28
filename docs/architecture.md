@@ -8,7 +8,9 @@ One JARVIS will serve multiple devices with one identity, personality, memory, t
 
 - `backend.api`: FastAPI application factory, startup initialization, liveness and readiness checks.
 - `backend.core`: environment configuration, logging, SQLite connection and schema bootstrap.
-- `backend.providers`: a contract for complete and streamed LLM responses. There is no provider implementation yet.
+- `backend.providers`: a contract for complete and streamed LLM responses, with an OpenAI adapter added as the first Phase 1 increment.
+
+The first Phase 1 increment adds an OpenAI Responses API adapter behind that contract. The adapter uses explicit model configuration, passes `store=False`, checks that each response completed, and keeps the API key server-side. Streaming exposes text deltas and closes the SDK stream after use. Chat API wiring and other provider adapters remain later work.
 
 The application factory accepts explicit settings so tests and future embedding can use isolated databases. SQLite is opened for each operation and connections are closed. Schema version 1 creates `schema_migrations` only in an empty, unversioned database. An existing unversioned database containing tables or other objects is rejected to avoid claiming unrelated data. Initialization holds a write transaction while checking and updating the version. Later migrations must be explicit and preserve existing data.
 
