@@ -56,6 +56,23 @@ def test_rejects_inconsistent_schema_history(tmp_path: Path) -> None:
         Database(db_path).initialize()
 
 
+def test_rejects_nonempty_unversioned_database_without_changing_it(tmp_path: Path) -> None:
+    db_path = tmp_path / "existing.sqlite3"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE existing_data (value TEXT NOT NULL)")
+        connection.execute("INSERT INTO existing_data (value) VALUES ('keep me')")
+
+    with pytest.raises(DatabaseError, match="Unversioned SQLite database is not empty"):
+        Database(db_path).initialize()
+
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
+        assert connection.execute("SELECT value FROM existing_data").fetchone()[0] == "keep me"
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'schema_migrations'"
+        ).fetchone() is None
+
+
 def test_invalid_environment_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("JARVIS_DB_PATH", " ")
     with pytest.raises(ConfigError, match="JARVIS_DB_PATH"):

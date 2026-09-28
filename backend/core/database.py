@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 SCHEMA_VERSION = 1
+_HISTORY_MISMATCH = "SQLite schema version and migration history disagree"
 
 
 class DatabaseError(RuntimeError):
@@ -38,35 +39,44 @@ class Database:
             else:
                 os.close(descriptor)
             with self.connect() as connection:
-                version = connection.execute("PRAGMA user_version").fetchone()[0]
-                if version > SCHEMA_VERSION:
-                    raise DatabaseError(
-                        f"Database schema {version} is newer than supported schema {SCHEMA_VERSION}"
-                    )
-                if version == 0:
-                    with connection:
+                with connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    version = connection.execute("PRAGMA user_version").fetchone()[0]
+                    if version > SCHEMA_VERSION:
+                        raise DatabaseError(
+                            f"Database schema {version} is newer than supported schema "
+                            f"{SCHEMA_VERSION}"
+                        )
+                    if version == 0:
+                        existing_object = connection.execute(
+                            "SELECT 1 FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' LIMIT 1"
+                        ).fetchone()
+                        if existing_object is not None:
+                            raise DatabaseError(
+                                "Unversioned SQLite database is not empty; refusing to claim it"
+                            )
                         connection.execute(
-                            "CREATE TABLE IF NOT EXISTS schema_migrations "
+                            "CREATE TABLE schema_migrations "
                             "(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
                         )
                         connection.execute(
-                            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) "
+                            "INSERT INTO schema_migrations (version, applied_at) "
                             "VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                             (SCHEMA_VERSION,),
                         )
                         connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-                else:
-                    has_history = connection.execute(
-                        "SELECT 1 FROM sqlite_master "
-                        "WHERE type = 'table' AND name = 'schema_migrations'"
-                    ).fetchone()
-                    if has_history is None:
-                        raise DatabaseError("SQLite schema version and migration history disagree")
-                    applied = connection.execute(
-                        "SELECT 1 FROM schema_migrations WHERE version = ?", (SCHEMA_VERSION,)
-                    ).fetchone()
-                    if applied is None:
-                        raise DatabaseError("SQLite schema version and migration history disagree")
+                    else:
+                        has_history = connection.execute(
+                            "SELECT 1 FROM sqlite_master "
+                            "WHERE type = 'table' AND name = 'schema_migrations'"
+                        ).fetchone()
+                        if has_history is None:
+                            raise DatabaseError(_HISTORY_MISMATCH)
+                        applied = connection.execute(
+                            "SELECT 1 FROM schema_migrations WHERE version = ?", (SCHEMA_VERSION,)
+                        ).fetchone()
+                        if applied is None:
+                            raise DatabaseError(_HISTORY_MISMATCH)
         except (OSError, sqlite3.Error) as exc:
             raise DatabaseError(f"Could not initialize SQLite database at {self.path}") from exc
 

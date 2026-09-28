@@ -10,7 +10,7 @@ One JARVIS will serve multiple devices with one identity, personality, memory, t
 - `backend.core`: environment configuration, logging, SQLite connection and schema bootstrap.
 - `backend.providers`: a contract for complete and streamed LLM responses. There is no provider implementation yet.
 
-The application factory accepts explicit settings so tests and future embedding can use isolated databases. SQLite is opened for each operation and connections are closed. Schema version 1 creates `schema_migrations`; later migrations must be explicit and preserve existing data.
+The application factory accepts explicit settings so tests and future embedding can use isolated databases. SQLite is opened for each operation and connections are closed. Schema version 1 creates `schema_migrations` only in an empty, unversioned database. An existing unversioned database containing tables or other objects is rejected to avoid claiming unrelated data. Initialization holds a write transaction while checking and updating the version. Later migrations must be explicit and preserve existing data.
 
 ## Planned boundaries
 
