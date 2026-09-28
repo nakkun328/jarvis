@@ -8,3 +8,7 @@ __pycache__/
 .DS_Store
 node_modules/
 .next/
+data/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
