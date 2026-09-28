@@ -1,0 +1,75 @@
+"""SQLite connection and schema bootstrap."""
+
+import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+
+SCHEMA_VERSION = 1
+
+
+class DatabaseError(RuntimeError):
+    """The SQLite database could not be prepared or queried."""
+
+
+class Database:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    @contextmanager
+    def connect(self, *, read_only: bool = False) -> Iterator[sqlite3.Connection]:
+        target = f"{self.path.resolve().as_uri()}?mode=ro" if read_only else self.path
+        connection = sqlite3.connect(target, timeout=5, uri=read_only)
+        try:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            yield connection
+        finally:
+            connection.close()
+
+    def initialize(self) -> None:
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.connect() as connection:
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+                if version > SCHEMA_VERSION:
+                    raise DatabaseError(
+                        f"Database schema {version} is newer than supported schema {SCHEMA_VERSION}"
+                    )
+                if version == 0:
+                    with connection:
+                        connection.execute(
+                            "CREATE TABLE IF NOT EXISTS schema_migrations "
+                            "(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+                        )
+                        connection.execute(
+                            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) "
+                            "VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                            (SCHEMA_VERSION,),
+                        )
+                        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                else:
+                    has_history = connection.execute(
+                        "SELECT 1 FROM sqlite_master "
+                        "WHERE type = 'table' AND name = 'schema_migrations'"
+                    ).fetchone()
+                    if has_history is None:
+                        raise DatabaseError("SQLite schema version and migration history disagree")
+                    applied = connection.execute(
+                        "SELECT 1 FROM schema_migrations WHERE version = ?", (SCHEMA_VERSION,)
+                    ).fetchone()
+                    if applied is None:
+                        raise DatabaseError("SQLite schema version and migration history disagree")
+        except (OSError, sqlite3.Error) as exc:
+            raise DatabaseError(f"Could not initialize SQLite database at {self.path}") from exc
+
+    def is_ready(self) -> bool:
+        try:
+            with self.connect(read_only=True) as connection:
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+                applied = connection.execute(
+                    "SELECT 1 FROM schema_migrations WHERE version = ?", (SCHEMA_VERSION,)
+                ).fetchone()
+                return version == SCHEMA_VERSION and applied is not None
+        except sqlite3.Error:
+            return False
