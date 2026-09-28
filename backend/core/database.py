@@ -1,5 +1,6 @@
 """SQLite connection and schema bootstrap."""
 
+import os
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -29,7 +30,13 @@ class Database:
 
     def initialize(self) -> None:
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            try:
+                descriptor = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            except FileExistsError:
+                pass
+            else:
+                os.close(descriptor)
             with self.connect() as connection:
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
                 if version > SCHEMA_VERSION:

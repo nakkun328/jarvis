@@ -1,6 +1,8 @@
 """Foundation integration and failure-path tests."""
 
+import os
 import sqlite3
+import stat
 from pathlib import Path
 
 import pytest
@@ -21,6 +23,9 @@ def test_app_bootstraps_database_and_reports_ready(tmp_path: Path) -> None:
         assert client.get("/docs").status_code == 404
 
     assert db_path.is_file()
+    if os.name == "posix":
+        assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(db_path.parent.stat().st_mode) == 0o700
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert connection.execute("SELECT version FROM schema_migrations").fetchone()[0] == 1
