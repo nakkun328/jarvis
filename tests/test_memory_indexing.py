@@ -330,6 +330,8 @@ def test_inactive_cleanup_requires_terminal_review_state(tmp_path: Path) -> None
     writer.submit(approved)
     writer.approve(approved.id)
     asyncio.run(builder.populate_empty())
+    other_space = "fake/local@v2:d2"
+    asyncio.run(index.upsert((VectorRecord(str(approved.id), other_space, (0.0, 1.0)),)))
 
     async def rejected_cleanup() -> None:
         with pytest.raises(IndexBuildError, match="not superseded or retired"):
@@ -343,6 +345,34 @@ def test_inactive_cleanup_requires_terminal_review_state(tmp_path: Path) -> None
     repository.get = lambda _id: SimpleNamespace(status=SimpleNamespace(value="superseded"))
     asyncio.run(builder.remove_inactive(approved.id))
     assert asyncio.run(index.list_ids(provider.space.identifier)) == ()
+    assert asyncio.run(index.list_ids(other_space)) == ()
+
+
+def test_inactive_cleanup_detects_partial_delete_across_spaces(tmp_path: Path) -> None:
+    repository, _, writer, provider, index, builder = _setup(tmp_path)
+    approved = _record("Approved content")
+    writer.submit(approved)
+    writer.approve(approved.id)
+
+    async def run() -> None:
+        await builder.populate_empty()
+        other_space = "fake/local@v2:d2"
+        await index.upsert((VectorRecord(str(approved.id), other_space, (0.0, 1.0)),))
+        assert await index.list_spaces() == tuple(sorted((provider.space.identifier, other_space)))
+        repository.get = lambda _id: SimpleNamespace(status=SimpleNamespace(value="retired"))
+
+        async def partial_delete(memory_ids):
+            for collection in index.client.list_collections():
+                if (collection.metadata or {}).get("space") == provider.space.identifier:
+                    collection.delete(ids=list(memory_ids))
+
+        index.delete = partial_delete
+        with pytest.raises(IndexBuildError, match="remains in vector index"):
+            await builder.remove_inactive(approved.id)
+        assert await index.list_ids(provider.space.identifier) == ()
+        assert await index.list_ids(other_space) == (str(approved.id),)
+
+    asyncio.run(run())
 
 
 def test_reviewed_correction_and_retirement_clean_real_index(tmp_path: Path) -> None:

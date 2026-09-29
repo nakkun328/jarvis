@@ -51,8 +51,8 @@ dimension requires a new `EmbeddingSpace` version and rebuild. Human edits after
 the build may make vectors stale. After an explicitly reviewed change, a caller
 can run `await builder.refresh_approved(memory_id)` to replace that one vector
 from the current note. Retrieval must still resolve every result against current
-SQLite and vault state. Automatic edit detection, active-index switching, and
-supersession cleanup remain follow-up work.
+SQLite and vault state. The read-only audit detects edits when run; no watcher
+automatically triggers it. Active-index switching remains a caller operation.
 
 `await builder.audit_ids()` is a read-only operational check. It validates
 every approved current vault note, then reports approved IDs missing from the
@@ -80,6 +80,7 @@ Run this synchronous path from a CLI or worker thread, not inside an active
 event loop. It does not watch Obsidian edits or select an embedding provider.
 After a reviewed correction or retirement moves the old SQLite record into a
 terminal inactive state, `remove_inactive(old_id)` removes its ID from every
-derived vector space. The synchronous adapter exposes the same operation for
+derived vector space and verifies absence from each stored space. The synchronous
+adapter exposes the same operation for
 offline publication. It refuses a still-approved ID. If cleanup fails, the
 canonical review state remains durable; retry cleanup and run `audit_ids`.

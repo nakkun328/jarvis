@@ -16,7 +16,9 @@ class IndexBuildError(RuntimeError):
 
 
 class InspectableVectorIndex(VectorIndex, Protocol):
-    """A vector index that can verify all IDs in one embedding space."""
+    """A vector index that can verify IDs and spaces in a derived cache."""
+
+    async def list_spaces(self) -> tuple[str, ...]: ...
 
     async def list_ids(self, space: str) -> tuple[str, ...]: ...
 
@@ -146,9 +148,12 @@ class MemoryIndexBuilder:
         stored = self.repository.get(memory_id)
         if stored is None or stored.status.value not in {"superseded", "retired"}:
             raise IndexBuildError("Memory is not superseded or retired")
+        spaces_before = await self.index.list_spaces()
         await self.index.delete((str(memory_id),))
-        if str(memory_id) in await self.index.list_ids(self.provider.space.identifier):
-            raise IndexBuildError("Inactive memory ID remains in vector index")
+        spaces_after = await self.index.list_spaces()
+        for space in sorted(set(spaces_before) | set(spaces_after)):
+            if str(memory_id) in await self.index.list_ids(space):
+                raise IndexBuildError("Inactive memory ID remains in vector index")
 
     async def audit_ids(self) -> IndexIdAudit:
         """Compare canonical approved IDs with one derived space without mutation.

@@ -97,6 +97,15 @@ class ChromaVectorIndex:
         except Exception as exc:
             raise ChromaIndexError("Could not inspect vector index") from exc
 
+    async def list_spaces(self) -> tuple[str, ...]:
+        """List the JARVIS embedding spaces stored in this derived index."""
+        try:
+            return await asyncio.to_thread(self._list_spaces)
+        except ChromaIndexError:
+            raise
+        except Exception as exc:
+            raise ChromaIndexError("Could not inspect vector index") from exc
+
     def _upsert(self, records: Sequence[VectorRecord]) -> None:
         groups: dict[str, dict[str, VectorRecord]] = {}
         for record in records:
@@ -165,6 +174,20 @@ class ChromaVectorIndex:
 
     def _list_ids(self, space: str) -> tuple[str, ...]:
         return tuple(memory_id for memory_id, _ in self._list_entries(space))
+
+    def _list_spaces(self) -> tuple[str, ...]:
+        with self._lock:
+            spaces: list[str] = []
+            for item in self.client.list_collections():
+                name = getattr(item, "name", item)
+                if not isinstance(name, str) or not name.startswith(_PREFIX):
+                    continue
+                collection = self.client.get_collection(name=name, embedding_function=None)
+                space = (collection.metadata or {}).get("space")
+                if not isinstance(space, str) or _name(space) != name:
+                    raise ChromaIndexError("Vector collection space does not match")
+                spaces.append(space)
+            return tuple(sorted(spaces))
 
     def _list_entries(self, space: str) -> tuple[tuple[str, str | None], ...]:
         with self._lock:
