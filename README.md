@@ -25,6 +25,8 @@ See [.env.example](.env.example). Copy it to `.env` if useful, but export the va
 
 Install the optional provider with `.venv/bin/python -m pip install -e '.[openai]'`. Set `JARVIS_LLM_PROVIDER=openai`, `OPENAI_API_KEY`, and `JARVIS_OPENAI_MODEL` to enable live chat. Leave `JARVIS_LLM_PROVIDER=none` to browse the UI and use health checks without an LLM; chat requests then return 503. The adapter passes `store=False` to the OpenAI Responses API and keeps credentials on the server.
 
+For local vector indexing, install `.venv/bin/python -m pip install -e '.[vector]'` and use `backend.memory.chroma.ChromaVectorIndex`. It accepts caller-generated embeddings and is not yet connected to the chat API. See [vector search](docs/vector-search.md).
+
 ## Run
 
 ```sh
