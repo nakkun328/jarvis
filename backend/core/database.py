@@ -20,8 +20,9 @@ class Database:
 
     @contextmanager
     def connect(self, *, read_only: bool = False) -> Iterator[sqlite3.Connection]:
-        target = f"{self.path.resolve().as_uri()}?mode=ro" if read_only else self.path
-        connection = sqlite3.connect(target, timeout=5, uri=read_only)
+        mode = "ro" if read_only else "rw"
+        target = f"{self.path.resolve().as_uri()}?mode={mode}"
+        connection = sqlite3.connect(target, timeout=5, uri=True)
         try:
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys = ON")
