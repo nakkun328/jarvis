@@ -23,7 +23,7 @@ PR #1 is an older conflicting Phase 0 draft and is outside this landing plan.
 | #18 | Versioned embedding contract | #8 | Draft, CI green |
 | #19 | Local review CLI and actor history | #22 | Ready, CI green |
 | #20 | Conservative consolidation candidates | #17 | Draft, CI green |
-| #21 | Approved-note index rebuild | `feature/phase2-index-base` | Draft, CI green; synthetic base needs cleanup |
+| #21 | Approved-note index rebuild and read-only ID audit | `feature/phase2-index-base` | Draft, CI green; synthetic base needs cleanup |
 | #22 | Atomic review audit | #20 | Draft, CI green |
 | #23 | Opt-in reviewed memory in chat | #14 | Draft, CI green |
 | #24 | Index refresh after explicit publication | #21 | Draft, CI green |
@@ -45,7 +45,7 @@ rebasing for `main`.
 - Later unique commits were replayed from the Stage 1 result into a temporary
   integration branch. Two test-file import/doc prose conflicts were resolved
   while keeping both intended changes. A further temporary branch combines
-  #17 through #26. Its latest run passed Python 118 (with real Chroma),
+  #17 through #26. Its latest run passed Python 119 (with real Chroma),
   frontend 4, Ruff, compile, and diff checks. A fake OpenAI client verifies
   the embedding adapter; no live key was used.
 - #26's vector CI explicitly includes `tests/test_semantic_memory.py`.
@@ -84,9 +84,10 @@ with duplicated parent or synthetic integration commits.
 - Approved corrections and older-note supersession need a reviewed lifecycle
   decision. Current approved/rejected states are terminal; nothing silently
   overwrites or deletes an old note.
-- Index maintenance can rebuild a new space and refresh after an explicit
-  publication, but does not watch human Obsidian edits or atomically switch an
-  active reader. Canonical SQLite and vault data remain authoritative.
+- Index maintenance can rebuild a new space, audit missing/extra IDs, and
+  refresh after an explicit publication, but does not watch human Obsidian
+  edits or atomically switch an active reader. Canonical SQLite and vault
+  data remain authoritative.
 - The optional OpenAI embedding provider and semantic query path are tested
   with fakes and Chroma. A real provider selection, private-data transfer
   decision, representative quality/latency evaluation, and key-backed run
