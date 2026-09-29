@@ -71,7 +71,10 @@ rebasing for `main`.
   real Chroma, migration tests, Ruff, compileall, JavaScript syntax, and
   `git diff --check` passed. The full diff changed 57 files; the only `.env`
   match was the unpopulated `.env.example`, and common secret-token patterns
-  matched zero added lines. This branch is temporary and must not be merged.
+  matched zero added lines. #30 and #29 both edit `docs/memory.md`; the replay
+  kept the lifecycle and current index descriptions in one resolved paragraph.
+  Reapply that resolution when rebasing #29 after #30. This branch is temporary
+  and must not be merged.
 
 These runs prove compatibility of the tested trees. They do not prove live
 OpenAI quality, real browser behavior, or permission to merge.
