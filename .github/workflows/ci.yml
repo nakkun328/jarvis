@@ -36,4 +36,4 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install -e '.[dev,vector]'
-      - run: pytest -q tests/test_chroma_vector.py tests/test_vector_retrieval_integration.py
+      - run: pytest -q tests/test_chroma_vector.py tests/test_vector_retrieval_integration.py tests/test_memory_indexing.py
