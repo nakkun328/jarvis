@@ -47,3 +47,10 @@ can run `await builder.refresh_approved(memory_id)` to replace that one vector
 from the current note. Retrieval must still resolve every result against current
 SQLite and vault state. Automatic edit detection, active-index switching, and
 supersession cleanup remain follow-up work.
+
+`await builder.audit_ids()` is a read-only operational check. It validates
+every approved current vault note, then reports approved IDs missing from the
+configured index space and indexed IDs that are not approved. A missing or
+invalid approved note raises an error instead of producing a reassuring
+report. An empty difference means ID membership matches; it does not prove
+that vectors reflect recent human edits or that semantic ranking is good.

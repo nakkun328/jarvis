@@ -15,6 +15,7 @@ from backend.memory.model import MemoryCategory, MemoryOrigin, MemoryRecord
 from backend.memory.obsidian import ObsidianVault
 from backend.memory.repository import MemoryRepository, MemoryStatus
 from backend.memory.retrieval import MemoryRetriever
+from backend.memory.vector import VectorRecord
 from backend.memory.writer import MemoryWriter
 
 
@@ -96,8 +97,42 @@ def test_missing_approved_note_fails_before_embedding_or_indexing(tmp_path: Path
     async def run() -> None:
         with pytest.raises(IndexBuildError, match="needs repair"):
             await builder.populate_empty()
+        with pytest.raises(IndexBuildError, match="needs repair"):
+            await builder.audit_ids()
         assert provider.calls == []
         assert await index.list_ids(provider.space.identifier) == ()
+
+    asyncio.run(run())
+
+
+def test_id_audit_reports_missing_and_extra_without_changing_index(tmp_path: Path) -> None:
+    _, _, writer, provider, index, builder = _setup(tmp_path)
+    first = _record("First approved note")
+    second = _record("Second approved note")
+    stray = _record("Unreviewed stray note")
+    for record in (first, second, stray):
+        writer.submit(record)
+    writer.approve(first.id)
+
+    async def run() -> None:
+        initial = await builder.populate_empty()
+        assert initial.memory_ids == (str(first.id),)
+        assert (await builder.audit_ids()).healthy
+        writer.approve(second.id)
+        await index.upsert(
+            (VectorRecord(str(stray.id), provider.space.identifier, (1.0, 0.0)),)
+        )
+        calls_before = list(provider.calls)
+        ids_before = await index.list_ids(provider.space.identifier)
+        report = await builder.audit_ids()
+        assert report.space == provider.space.identifier
+        assert report.approved_ids == tuple(sorted((str(first.id), str(second.id))))
+        assert report.indexed_ids == ids_before
+        assert report.missing_ids == (str(second.id),)
+        assert report.extra_ids == (str(stray.id),)
+        assert not report.healthy
+        assert provider.calls == calls_before
+        assert await index.list_ids(provider.space.identifier) == ids_before
 
     asyncio.run(run())
 

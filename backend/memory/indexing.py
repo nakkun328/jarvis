@@ -30,6 +30,19 @@ class IndexBuildReport:
         return len(self.memory_ids)
 
 
+@dataclass(frozen=True)
+class IndexIdAudit:
+    space: str
+    approved_ids: tuple[str, ...]
+    indexed_ids: tuple[str, ...]
+    missing_ids: tuple[str, ...]
+    extra_ids: tuple[str, ...]
+
+    @property
+    def healthy(self) -> bool:
+        return not self.missing_ids and not self.extra_ids
+
+
 class MemoryIndexBuilder:
     """Populate an empty index space and verify it before callers switch to it.
 
@@ -102,6 +115,25 @@ class MemoryIndexBuilder:
         await self.index.upsert((self.provider.space.record(str(memory_id), values),))
         if str(memory_id) not in await self.index.list_ids(self.provider.space.identifier):
             raise IndexBuildError("Refreshed memory ID is missing from vector index")
+
+    async def audit_ids(self) -> IndexIdAudit:
+        """Compare canonical approved IDs with one derived space without mutation.
+
+        This checks membership only. It cannot prove that stored embeddings
+        match current note text or that semantic ranking is useful.
+        """
+        approved = self._approved_snapshot()
+        canonical = tuple(sorted(str(item.record.id) for item in approved))
+        indexed = await self.index.list_ids(self.provider.space.identifier)
+        canonical_set = set(canonical)
+        indexed_set = set(indexed)
+        return IndexIdAudit(
+            space=self.provider.space.identifier,
+            approved_ids=canonical,
+            indexed_ids=indexed,
+            missing_ids=tuple(sorted(canonical_set - indexed_set)),
+            extra_ids=tuple(sorted(indexed_set - canonical_set)),
+        )
 
     def _approved_snapshot(self) -> tuple[RetrievedMemory, ...]:
         result: list[RetrievedMemory] = []
