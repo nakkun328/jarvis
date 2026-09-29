@@ -6,13 +6,14 @@ import sqlite3
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.api.app import create_app
 from backend.chat.persistence import SQLiteConversationStore
 from backend.chat.service import ChatService
 from backend.core.config import Settings
-from backend.core.database import SCHEMA_VERSION, Database
+from backend.core.database import SCHEMA_VERSION, Database, DatabaseError
 from backend.providers.base import CompletionRequest, CompletionResponse, ProviderError
 
 
@@ -96,6 +97,8 @@ def test_v1_database_migrates_without_losing_history(tmp_path: Path) -> None:
         connection.execute(
             "INSERT INTO schema_migrations VALUES (1, '2026-01-01T00:00:00Z')"
         )
+        connection.execute("CREATE TABLE legacy_data (value TEXT NOT NULL)")
+        connection.execute("INSERT INTO legacy_data VALUES ('preserve me')")
         connection.execute("PRAGMA user_version = 1")
     database = Database(db_path)
     database.initialize()
@@ -108,6 +111,30 @@ def test_v1_database_migrates_without_losing_history(tmp_path: Path) -> None:
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE name = 'conversation_messages'"
         ).fetchone() is not None
+        assert connection.execute("SELECT value FROM legacy_data").fetchone()[0] == "preserve me"
+
+
+def test_failed_v1_migration_rolls_back_without_changing_database(tmp_path: Path) -> None:
+    db_path = tmp_path / "v1-conflict.sqlite3"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
+        connection.execute("INSERT INTO schema_migrations VALUES (1, 'original')")
+        connection.execute("CREATE TABLE conversations (legacy_value TEXT NOT NULL)")
+        connection.execute("INSERT INTO conversations VALUES ('keep')")
+        connection.execute("PRAGMA user_version = 1")
+    with pytest.raises(DatabaseError, match="Could not initialize"):
+        Database(db_path).initialize()
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert connection.execute("SELECT version FROM schema_migrations").fetchall() == [(1,)]
+        assert connection.execute("SELECT legacy_value FROM conversations").fetchall() == [
+            ("keep",)
+        ]
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'conversation_messages'"
+        ).fetchone() is None
 
 
 def test_unknown_conversation_is_not_created(tmp_path: Path) -> None:
@@ -175,3 +202,19 @@ def test_prompt_window_is_bounded_while_full_transcript_remains(tmp_path: Path) 
     ]
     with sqlite3.connect(database.path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM conversation_messages").fetchone()[0] == 6
+
+
+def test_closing_stream_before_completion_does_not_save_turn(tmp_path: Path) -> None:
+    database = Database(tmp_path / "interrupted.sqlite3")
+    database.initialize()
+
+    async def run() -> None:
+        service = ChatService(Provider(), SQLiteConversationStore(database))
+        stream = service.stream("interrupted")
+        first = await anext(stream)
+        assert first.text == "partial"
+        await stream.aclose()
+
+    asyncio.run(run())
+    with sqlite3.connect(database.path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == 0
