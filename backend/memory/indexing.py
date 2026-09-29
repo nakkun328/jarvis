@@ -139,6 +139,17 @@ class MemoryIndexBuilder:
         if not isinstance(final, RetrievedMemory) or final.note_revision != current.note_revision:
             raise IndexBuildError("Approved note changed during index refresh")
 
+    async def remove_inactive(self, memory_id: UUID) -> None:
+        """Remove a reviewed superseded or retired ID from every derived space."""
+        if not isinstance(memory_id, UUID):
+            raise ValueError("memory_id must be a UUID")
+        stored = self.repository.get(memory_id)
+        if stored is None or stored.status.value not in {"superseded", "retired"}:
+            raise IndexBuildError("Memory is not superseded or retired")
+        await self.index.delete((str(memory_id),))
+        if str(memory_id) in await self.index.list_ids(self.provider.space.identifier):
+            raise IndexBuildError("Inactive memory ID remains in vector index")
+
     async def audit_ids(self) -> IndexIdAudit:
         """Compare canonical approved IDs with one derived space without mutation.
 
@@ -236,3 +247,13 @@ class SynchronousIndexRefresher:
         ):
             raise IndexBuildError("Approved note changed before index refresh")
         asyncio.run(self.builder.refresh_approved(memory.record.id))
+
+    def remove_inactive(self, memory_id: UUID) -> None:
+        """Retryable cleanup after a reviewed correction or retirement."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("Run synchronous index cleanup outside an event loop")
+        asyncio.run(self.builder.remove_inactive(memory_id))

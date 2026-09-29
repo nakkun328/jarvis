@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -321,6 +322,27 @@ def test_note_edit_during_audit_cannot_report_healthy(tmp_path: Path) -> None:
             await builder.audit_ids()
 
     asyncio.run(run())
+
+
+def test_inactive_cleanup_requires_terminal_review_state(tmp_path: Path) -> None:
+    repository, _, writer, provider, index, builder = _setup(tmp_path)
+    approved = _record("Approved content")
+    writer.submit(approved)
+    writer.approve(approved.id)
+    asyncio.run(builder.populate_empty())
+
+    async def rejected_cleanup() -> None:
+        with pytest.raises(IndexBuildError, match="not superseded or retired"):
+            await builder.remove_inactive(approved.id)
+        assert await index.list_ids(provider.space.identifier) == (str(approved.id),)
+
+    asyncio.run(rejected_cleanup())
+
+    # The lifecycle PR supplies these terminal states. Exercise the index
+    # cleanup here without duplicating its schema or transition implementation.
+    repository.get = lambda _id: SimpleNamespace(status=SimpleNamespace(value="superseded"))
+    asyncio.run(builder.remove_inactive(approved.id))
+    assert asyncio.run(index.list_ids(provider.space.identifier)) == ()
 
 
 def test_reviewed_publication_refreshes_real_chroma_index(tmp_path: Path) -> None:
