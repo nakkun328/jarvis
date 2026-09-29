@@ -20,6 +20,8 @@ class InspectableVectorIndex(VectorIndex, Protocol):
 
     async def list_ids(self, space: str) -> tuple[str, ...]: ...
 
+    async def list_entries(self, space: str) -> tuple[tuple[str, str | None], ...]: ...
+
 
 @dataclass(frozen=True)
 class IndexBuildReport:
@@ -38,10 +40,14 @@ class IndexIdAudit:
     indexed_ids: tuple[str, ...]
     missing_ids: tuple[str, ...]
     extra_ids: tuple[str, ...]
+    stale_ids: tuple[str, ...]
+    untracked_ids: tuple[str, ...]
 
     @property
     def healthy(self) -> bool:
-        return not self.missing_ids and not self.extra_ids
+        return not (
+            self.missing_ids or self.extra_ids or self.stale_ids or self.untracked_ids
+        )
 
 
 class MemoryIndexBuilder:
@@ -82,7 +88,9 @@ class MemoryIndexBuilder:
             batch = approved[start : start + batch_size]
             vectors = await embed_texts(self.provider, [item.record.content for item in batch])
             records.extend(
-                space.record(str(item.record.id), values)
+                space.record(
+                    str(item.record.id), values, source_revision=item.note_revision
+                )
                 for item, values in zip(batch, vectors, strict=True)
             )
 
@@ -99,6 +107,9 @@ class MemoryIndexBuilder:
         actual = await self.index.list_ids(space.identifier)
         if actual != expected:
             raise IndexBuildError("Vector IDs differ from approved canonical memories")
+        self._check_revisions(latest, await self.index.list_entries(space.identifier))
+        if self._revision_snapshot() != self._revisions(latest):
+            raise IndexBuildError("Approved memories changed during index build")
         return IndexBuildReport(space.identifier, actual)
 
     async def refresh_approved(self, memory_id: UUID) -> None:
@@ -112,19 +123,34 @@ class MemoryIndexBuilder:
         latest = self.retriever.get_approved(memory_id)
         if not isinstance(latest, RetrievedMemory) or latest.note_revision != current.note_revision:
             raise IndexBuildError("Approved note changed during index refresh")
-        await self.index.upsert((self.provider.space.record(str(memory_id), values),))
+        await self.index.upsert(
+            (
+                self.provider.space.record(
+                    str(memory_id), values, source_revision=current.note_revision
+                ),
+            )
+        )
         if str(memory_id) not in await self.index.list_ids(self.provider.space.identifier):
             raise IndexBuildError("Refreshed memory ID is missing from vector index")
+        entries = dict(await self.index.list_entries(self.provider.space.identifier))
+        if entries.get(str(memory_id)) != current.note_revision:
+            raise IndexBuildError("Refreshed memory revision is missing from vector index")
+        final = self.retriever.get_approved(memory_id)
+        if not isinstance(final, RetrievedMemory) or final.note_revision != current.note_revision:
+            raise IndexBuildError("Approved note changed during index refresh")
 
     async def audit_ids(self) -> IndexIdAudit:
         """Compare canonical approved IDs with one derived space without mutation.
 
-        This checks membership only. It cannot prove that stored embeddings
-        match current note text or that semantic ranking is useful.
+        Revision checks detect human edits since indexing. They cannot prove
+        that the provider returned useful embeddings.
         """
         approved = self._approved_snapshot()
         canonical = tuple(sorted(str(item.record.id) for item in approved))
-        indexed = await self.index.list_ids(self.provider.space.identifier)
+        entries = await self.index.list_entries(self.provider.space.identifier)
+        indexed = tuple(memory_id for memory_id, _ in entries)
+        revisions = dict(entries)
+        current = {str(item.record.id): item.note_revision for item in approved}
         canonical_set = set(canonical)
         indexed_set = set(indexed)
         return IndexIdAudit(
@@ -133,7 +159,36 @@ class MemoryIndexBuilder:
             indexed_ids=indexed,
             missing_ids=tuple(sorted(canonical_set - indexed_set)),
             extra_ids=tuple(sorted(indexed_set - canonical_set)),
+            stale_ids=tuple(
+                sorted(
+                    memory_id for memory_id in canonical_set & indexed_set
+                    if revisions[memory_id] is not None
+                    and revisions[memory_id] != current[memory_id]
+                )
+            ),
+            untracked_ids=tuple(
+                sorted(
+                    memory_id for memory_id in canonical_set & indexed_set
+                    if revisions[memory_id] is None
+                )
+            ),
         )
+
+    def _revision_snapshot(self) -> tuple[tuple[UUID, str], ...]:
+        return self._revisions(self._approved_snapshot())
+
+    @staticmethod
+    def _revisions(items: tuple[RetrievedMemory, ...]) -> tuple[tuple[UUID, str], ...]:
+        return tuple((item.record.id, item.note_revision) for item in items)
+
+    def _check_revisions(
+        self,
+        approved: tuple[RetrievedMemory, ...],
+        entries: tuple[tuple[str, str | None], ...],
+    ) -> None:
+        expected = {str(item.record.id): item.note_revision for item in approved}
+        if dict(entries) != expected:
+            raise IndexBuildError("Vector revisions differ from approved canonical memories")
 
     def _approved_snapshot(self) -> tuple[RetrievedMemory, ...]:
         result: list[RetrievedMemory] = []

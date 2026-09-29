@@ -28,8 +28,9 @@ linked capabilities and this project's current single-user scope, not a benchmar
 
 SQLite memory IDs, content, provenance, importance and confidence, plus editable
 Obsidian notes, remain authoritative. The vector index is a derived cache. Each
-record carries only a memory ID, an embedding and a `space` identifying the exact
-model/version. Retrieval resolves returned IDs through the canonical memory store
+record carries a memory ID, an embedding, a `space` identifying the exact
+model/version, and optionally the source note revision hash for stale index
+audits. It never stores note text. Retrieval resolves returned IDs through the canonical memory store
 and applies its access, freshness and conflict rules there. Scores are only ranked
 within one space; they are not confidence values or probabilities.
 

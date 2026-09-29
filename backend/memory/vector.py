@@ -54,11 +54,16 @@ class VectorRecord:
     memory_id: str
     space: str
     values: tuple[float, ...]
+    source_revision: str | None = None
 
     def __post_init__(self) -> None:
         _required(self.memory_id, "memory_id")
         _required(self.space, "space")
         object.__setattr__(self, "values", _embedding(self.values))
+        if self.source_revision is not None:
+            _required(self.source_revision, "source_revision")
+            if len(self.source_revision) > 256:
+                raise ValueError("source_revision is too long")
 
 
 @dataclass(frozen=True, slots=True)

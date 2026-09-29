@@ -86,6 +86,17 @@ class ChromaVectorIndex:
         except Exception as exc:
             raise ChromaIndexError("Could not inspect vector index") from exc
 
+    async def list_entries(self, space: str) -> tuple[tuple[str, str | None], ...]:
+        """Return IDs and source revisions, with None for legacy or unknown entries."""
+        if not isinstance(space, str) or not space.strip():
+            raise ValueError("space must be a nonempty string")
+        try:
+            return await asyncio.to_thread(self._list_entries, space)
+        except ChromaIndexError:
+            raise
+        except Exception as exc:
+            raise ChromaIndexError("Could not inspect vector index") from exc
+
     def _upsert(self, records: Sequence[VectorRecord]) -> None:
         groups: dict[str, dict[str, VectorRecord]] = {}
         for record in records:
@@ -108,6 +119,10 @@ class ChromaVectorIndex:
                     collection.upsert(
                         ids=[item.memory_id for item in batch],
                         embeddings=[list(item.values) for item in batch],
+                        metadatas=[
+                            {"source_revision": item.source_revision or "unknown"}
+                            for item in batch
+                        ],
                     )
 
     def _delete(self, memory_ids: tuple[str, ...]) -> None:
@@ -149,6 +164,9 @@ class ChromaVectorIndex:
             )
 
     def _list_ids(self, space: str) -> tuple[str, ...]:
+        return tuple(memory_id for memory_id, _ in self._list_entries(space))
+
+    def _list_entries(self, space: str) -> tuple[tuple[str, str | None], ...]:
         with self._lock:
             try:
                 collection = self.client.get_collection(
@@ -159,13 +177,22 @@ class ChromaVectorIndex:
             if (collection.metadata or {}).get("space") != space:
                 raise ChromaIndexError("Vector collection space does not match")
             total = collection.count()
-            ids: list[str] = []
+            entries: list[tuple[str, str | None]] = []
             for offset in range(0, total, 1000):
-                batch = collection.get(limit=min(1000, total - offset), offset=offset, include=[])
-                ids.extend(batch["ids"])
-            if len(ids) != total or len(set(ids)) != total:
+                batch = collection.get(
+                    limit=min(1000, total - offset), offset=offset, include=["metadatas"]
+                )
+                metadata = batch["metadatas"] or [None] * len(batch["ids"])
+                if len(metadata) != len(batch["ids"]):
+                    raise ChromaIndexError("Vector collection metadata could not be verified")
+                for memory_id, item in zip(batch["ids"], metadata, strict=True):
+                    revision = item.get("source_revision") if isinstance(item, dict) else None
+                    if not isinstance(revision, str) or revision == "unknown":
+                        revision = None
+                    entries.append((memory_id, revision))
+            if len(entries) != total or len({item[0] for item in entries}) != total:
                 raise ChromaIndexError("Vector collection IDs could not be verified")
-            return tuple(sorted(ids))
+            return tuple(sorted(entries))
 
 
 def _name(space: str) -> str:

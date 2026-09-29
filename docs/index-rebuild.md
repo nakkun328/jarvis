@@ -2,16 +2,16 @@
 
 `MemoryIndexBuilder.populate_empty` reads every approved memory from SQLite and
 the **current** Obsidian note, validates provenance, generates embeddings with a
-caller-supplied `EmbeddingProvider`, and writes only IDs and vectors to an empty
-index space. It verifies that the indexed ID set exactly matches the approved
-canonical ID set before reporting success. Pending, conflicted, and rejected
+caller-supplied `EmbeddingProvider`, and writes IDs, vectors, and the current
+note revision hash to an empty index space. It verifies that indexed IDs and
+revisions exactly match the approved canonical set before reporting success.
+Pending, conflicted, and rejected
 candidates are never embedded by this builder.
 
-The builder re-reads the full approved set immediately before writing. It
-aborts if a note revision changed or a new memory was approved while embeddings
-were generated. A review operation after that final check may still make the
-derived index lag; run `audit_ids` and refresh or rebuild before switching a
-reader.
+The builder re-reads the full approved set immediately before and after writing.
+It aborts if a note revision changed or a new memory was approved during that
+window. A review operation after the final check may still make the derived
+index lag; run `audit_ids` and refresh or rebuild before switching a reader.
 
 Use a **new, private Chroma directory** for each rebuild. The builder refuses an
 already populated space so stale IDs from an earlier build cannot survive. It
@@ -56,10 +56,13 @@ supersession cleanup remain follow-up work.
 
 `await builder.audit_ids()` is a read-only operational check. It validates
 every approved current vault note, then reports approved IDs missing from the
-configured index space and indexed IDs that are not approved. A missing or
-invalid approved note raises an error instead of producing a reassuring
-report. An empty difference means ID membership matches; it does not prove
-that vectors reflect recent human edits or that semantic ranking is good.
+configured index space, extra indexed IDs, `stale_ids` whose indexed note hash
+differs from the current note, and `untracked_ids` indexed before revision
+tracking. A missing or invalid approved note raises an error instead of
+producing a reassuring report. `healthy` requires all four lists to be empty.
+This detects human edits and unknown legacy revisions, but cannot prove that
+the embedding provider generated a useful vector. Refresh an untracked ID or
+rebuild the space before treating it as current.
 
 ## Refresh after explicit review
 

@@ -86,6 +86,9 @@ def test_build_uses_current_approved_note_and_verifies_exact_ids(tmp_path: Path)
         assert report.count == 1
         assert provider.calls == [("Edited approved content",)]
         assert await index.list_ids(provider.space.identifier) == report.memory_ids
+        assert await index.list_entries(provider.space.identifier) == (
+            (str(approved.id), vault.read(approved.id).revision),
+        )
         matches = await index.search(provider.space.query((1.0, 0.0)))
         assert [match.memory_id for match in matches] == [str(approved.id)]
         with pytest.raises(IndexBuildError, match="not empty"):
@@ -140,6 +143,8 @@ def test_id_audit_reports_missing_and_extra_without_changing_index(tmp_path: Pat
         assert report.indexed_ids == ids_before
         assert report.missing_ids == (str(second.id),)
         assert report.extra_ids == (str(stray.id),)
+        assert report.stale_ids == ()
+        assert report.untracked_ids == ()
         assert not report.healthy
         assert provider.calls == calls_before
         assert await index.list_ids(provider.space.identifier) == ids_before
@@ -231,12 +236,62 @@ def test_manual_refresh_replaces_vector_from_current_approved_note(tmp_path: Pat
             note.path.read_text(encoding="utf-8").replace("Original", "Edited"),
             encoding="utf-8",
         )
+        stale = await builder.audit_ids()
+        assert stale.stale_ids == (str(approved.id),)
+        assert not stale.healthy
         await builder.refresh_approved(approved.id)
+        assert (await builder.audit_ids()).healthy
         assert provider.calls == [("Original content",), ("Edited content",)]
         assert await index.list_ids(provider.space.identifier) == (str(approved.id),)
         matches = await index.search(provider.space.query((1.0, 0.0)))
         assert matches[0].memory_id == str(approved.id)
         assert matches[0].score == pytest.approx(0.0)
+
+    asyncio.run(run())
+
+
+def test_audit_marks_legacy_vector_without_revision_untracked(tmp_path: Path) -> None:
+    _, _, writer, provider, index, builder = _setup(tmp_path)
+    approved = _record("Approved content")
+    writer.submit(approved)
+    writer.approve(approved.id)
+
+    async def run() -> None:
+        await index.upsert(
+            (VectorRecord(str(approved.id), provider.space.identifier, (0.0, 1.0)),)
+        )
+        report = await builder.audit_ids()
+        assert report.missing_ids == report.extra_ids == report.stale_ids == ()
+        assert report.untracked_ids == (str(approved.id),)
+        assert not report.healthy
+        await builder.refresh_approved(approved.id)
+        assert (await builder.audit_ids()).healthy
+
+    asyncio.run(run())
+
+
+def test_note_edit_during_index_write_is_detected(tmp_path: Path) -> None:
+    _, vault, writer, provider, index, builder = _setup(tmp_path)
+    approved = _record("Approved content")
+    writer.submit(approved)
+    writer.approve(approved.id)
+    note = vault.read(approved.id)
+    assert note is not None
+    original_upsert = index.upsert
+
+    async def edit_after_upsert(records):
+        await original_upsert(records)
+        note.path.write_text(
+            note.path.read_text(encoding="utf-8").replace("Approved", "Edited"),
+            encoding="utf-8",
+        )
+
+    index.upsert = edit_after_upsert
+
+    async def run() -> None:
+        with pytest.raises(IndexBuildError, match="changed during"):
+            await builder.populate_empty()
+        assert (await builder.audit_ids()).stale_ids == (str(approved.id),)
 
     asyncio.run(run())
 
