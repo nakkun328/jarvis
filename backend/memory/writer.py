@@ -11,6 +11,7 @@ from backend.memory.repository import (
     StoredMemory,
     validate_review_actor,
 )
+from backend.memory.retrieval import MemoryRetriever, RetrievedMemory
 
 
 class MemoryWriteError(RuntimeError):
@@ -37,6 +38,15 @@ class MemoryWriter:
         """Stage a candidate without treating its content as an approved fact."""
         return self.repository.add(record)
 
+    def submit_correction(self, old_id: UUID, record: MemoryRecord) -> StoredMemory:
+        """Stage a replacement for human review; the old note remains current."""
+        canonical = MemoryRetriever(self.repository, self.vault).get_approved(old_id)
+        if not isinstance(canonical, RetrievedMemory):
+            raise MemoryWriteConflict("Original approved note needs repair or review")
+        return self.repository.add(
+            record, supersedes_id=old_id, supersedes_revision=canonical.note_revision
+        )
+
     def approve(self, memory_id: UUID, *, actor: str | None = None) -> StoredMemory:
         """Publish one explicitly reviewed candidate and record its note revision."""
         validate_review_actor(actor)
@@ -48,6 +58,8 @@ class MemoryWriter:
         if stored.status is MemoryStatus.APPROVED:
             self._read_existing(memory_id)
             return stored
+        if stored.status not in (MemoryStatus.PENDING, MemoryStatus.CONFLICT):
+            raise MemoryWriteConflict("Inactive memory cannot be approved")
 
         record = stored.record
         metadata = _metadata(record)
@@ -63,6 +75,15 @@ class MemoryWriter:
         verified = self._read_existing(memory_id)
         if verified.revision != note.revision:
             raise MemoryWriteConflict("Vault note changed during publication")
+        if stored.supersedes_id is not None:
+            original = MemoryRetriever(self.repository, self.vault).get_approved(
+                stored.supersedes_id
+            )
+            if (
+                not isinstance(original, RetrievedMemory)
+                or original.note_revision != stored.supersedes_revision
+            ):
+                raise MemoryWriteConflict("Original memory changed before correction approval")
 
         try:
             return self.repository.transition(
@@ -74,6 +95,21 @@ class MemoryWriter:
             )
         except MemoryStateChanged as exc:
             raise MemoryWriteConflict("Memory review state changed during publication") from exc
+
+    def retire(self, memory_id: UUID, *, actor: str, reason: str) -> StoredMemory:
+        """Retire one canonical note after explicit review, without deleting history."""
+        canonical = MemoryRetriever(self.repository, self.vault).get_approved(memory_id)
+        if not isinstance(canonical, RetrievedMemory):
+            raise MemoryWriteConflict("Original approved note needs repair or review")
+        try:
+            return self.repository.retire(
+                memory_id,
+                vault_revision=canonical.note_revision,
+                actor=actor,
+                reason=reason,
+            )
+        except MemoryStateChanged as exc:
+            raise MemoryWriteConflict("Memory review state changed during retirement") from exc
 
     def _read_existing(self, memory_id: UUID) -> VaultDocument:
         try:

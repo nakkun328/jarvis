@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import UUID
 
 from backend.core.database import Database
+from backend.memory.model import MemoryOrigin, MemoryRecord
 from backend.memory.obsidian import ObsidianVault, VaultError
 from backend.memory.repository import (
     MemoryRepository,
@@ -49,10 +50,13 @@ def _summary(stored: StoredMemory, *, include_content: bool = False) -> dict[str
         "updated_at": record.updated_at.isoformat(),
         "project": record.project,
         "tags": list(record.tags),
+        "supersedes_id": str(stored.supersedes_id) if stored.supersedes_id else None,
+        "replaced_by_id": str(stored.replaced_by_id) if stored.replaced_by_id else None,
     }
     if include_content:
         result["content"] = record.content
         result["vault_revision"] = stored.vault_revision
+        result["supersedes_revision"] = stored.supersedes_revision
     return result
 
 
@@ -67,13 +71,21 @@ def _parser() -> argparse.ArgumentParser:
     )
     listing.add_argument("--limit", type=_limit, default=100)
 
-    for name in ("show", "history", "approve", "reject", "flag-conflict"):
+    for name in ("show", "history", "approve", "reject", "flag-conflict", "retire", "correct"):
         command = commands.add_parser(name)
         command.add_argument("memory_id", type=_uuid)
-        if name in ("approve", "reject", "flag-conflict"):
+        if name in ("approve", "reject", "flag-conflict", "retire"):
             command.add_argument("--actor", required=True, help="Operator label for the audit log")
-        if name == "approve":
+        if name in ("approve", "retire", "correct"):
             command.add_argument("--vault", type=Path, required=True)
+        if name == "retire":
+            command.add_argument("--reason", required=True)
+        if name == "correct":
+            command.add_argument("--content-file", type=Path, required=True)
+            command.add_argument("--source", required=True)
+            command.add_argument(
+                "--origin", type=MemoryOrigin, choices=list(MemoryOrigin), required=True
+            )
     return parser
 
 
@@ -101,6 +113,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.command == "history":
             events = repository.review_events(args.memory_id)
+            lifecycle = repository.lifecycle_events(args.memory_id)
             print(
                 json.dumps(
                     [
@@ -115,6 +128,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                             "vault_revision": event.vault_revision,
                         }
                         for event in events
+                    ]
+                    + [
+                        {
+                            "id": event.id,
+                            "memory_id": str(event.memory_id),
+                            "related_id": str(event.related_id) if event.related_id else None,
+                            "action": event.action,
+                            "actor": event.actor,
+                            "reason": event.reason,
+                            "occurred_at": event.occurred_at.isoformat(),
+                            "vault_revision": event.vault_revision,
+                        }
+                        for event in lifecycle
                     ],
                     ensure_ascii=False,
                 )
@@ -124,6 +150,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             updated = MemoryWriter(repository, ObsidianVault(args.vault)).approve(
                 args.memory_id, actor=args.actor
             )
+        elif args.command == "retire":
+            updated = MemoryWriter(repository, ObsidianVault(args.vault)).retire(
+                args.memory_id, actor=args.actor, reason=args.reason
+            )
+        elif args.command == "correct":
+            content = args.content_file.read_text(encoding="utf-8")
+            record = MemoryRecord(
+                category=stored.record.category,
+                content=content,
+                source=args.source,
+                origin=args.origin,
+                importance=stored.record.importance,
+                confidence=stored.record.confidence,
+                tags=stored.record.tags,
+                project=stored.record.project,
+            )
+            updated = MemoryWriter(repository, ObsidianVault(args.vault)).submit_correction(
+                args.memory_id, record
+            )
         else:
             new = MemoryStatus.REJECTED if args.command == "reject" else MemoryStatus.CONFLICT
             updated = repository.transition(
@@ -131,7 +176,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         print(json.dumps(_summary(updated), ensure_ascii=False))
         return 0
-    except (MemoryRepositoryError, MemoryWriteError, VaultError, ValueError) as exc:
+    except (
+        OSError,
+        UnicodeError,
+        MemoryRepositoryError,
+        MemoryWriteError,
+        VaultError,
+        ValueError,
+    ) as exc:
         print(f"Review failed: {exc}", file=sys.stderr)
         return 1
 
