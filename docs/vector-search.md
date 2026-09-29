@@ -99,3 +99,16 @@ or remote embedding provider, model selection, credential handling, index rebuil
 and retrieval quality measurement are separate follow-up work. Do not reuse an
 old space after a model or text preparation change; build a parallel derived
 index and switch after validating its IDs and search results.
+
+## Semantic query path
+
+`SemanticMemorySearcher` takes a configured `EmbeddingProvider` and a
+`MemoryRetriever` with a vector index. It validates and embeds a bounded query
+in the provider's exact `EmbeddingSpace`, then uses Chroma only for candidate
+IDs. The retriever resolves each ID through current SQLite review state and
+the current Obsidian note. Pending and rejected IDs are excluded, conflicts
+remain separate, and a human-edited approved note supplies the returned text
+even if its cached vector is stale. Queries may be sent to a remote embedding
+provider when one is explicitly configured; this class does not choose one or
+connect itself to chat. Search quality still needs evaluation with real queries
+and a deliberately selected embedding model.
