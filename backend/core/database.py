@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 _HISTORY_MISMATCH = "SQLite schema version and migration history disagree"
 
 
@@ -115,6 +115,26 @@ class Database:
                         )
                         self._record_migration(connection, 3)
                         connection.execute("PRAGMA user_version = 3")
+                    if version < 4:
+                        connection.execute(
+                            "CREATE TABLE memory_review_events ("
+                            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                            "memory_id TEXT NOT NULL REFERENCES memory_records(id), "
+                            "previous_status TEXT NOT NULL CHECK(previous_status IN "
+                            "('pending', 'conflict')), "
+                            "new_status TEXT NOT NULL CHECK(new_status IN "
+                            "('conflict', 'approved', 'rejected')), "
+                            "action TEXT NOT NULL CHECK(action IN "
+                            "('flag_conflict', 'approve', 'reject')), "
+                            "actor TEXT NOT NULL, "
+                            "occurred_at TEXT NOT NULL, vault_revision TEXT)"
+                        )
+                        connection.execute(
+                            "CREATE INDEX memory_review_events_by_memory "
+                            "ON memory_review_events(memory_id, id)"
+                        )
+                        self._record_migration(connection, 4)
+                        connection.execute("PRAGMA user_version = 4")
         except (OSError, sqlite3.Error) as exc:
             raise DatabaseError(f"Could not initialize SQLite database at {self.path}") from exc
 

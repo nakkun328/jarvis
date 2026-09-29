@@ -9,6 +9,7 @@ from backend.memory.repository import (
     MemoryStateChanged,
     MemoryStatus,
     StoredMemory,
+    validate_review_actor,
 )
 
 
@@ -36,8 +37,9 @@ class MemoryWriter:
         """Stage a candidate without treating its content as an approved fact."""
         return self.repository.add(record)
 
-    def approve(self, memory_id: UUID) -> StoredMemory:
+    def approve(self, memory_id: UUID, *, actor: str | None = None) -> StoredMemory:
         """Publish one explicitly reviewed candidate and record its note revision."""
+        validate_review_actor(actor)
         stored = self.repository.get(memory_id)
         if stored is None:
             raise MemoryWriteConflict("Memory candidate does not exist")
@@ -68,6 +70,7 @@ class MemoryWriter:
                 expected=stored.status,
                 new=MemoryStatus.APPROVED,
                 vault_revision=verified.revision,
+                actor=actor,
             )
         except MemoryStateChanged as exc:
             raise MemoryWriteConflict("Memory review state changed during publication") from exc
