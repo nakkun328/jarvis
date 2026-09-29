@@ -37,6 +37,9 @@ stale correction. `retire` explicitly removes an approved fact from retrieval
 without deleting its vault note. `history` shows review and lifecycle audit events;
 `show` includes replacement IDs. If a command fails, inspect the candidate and
 vault note before retrying.
+`correct` copies the current approved note's importance, confidence, tags, and
+project into the new candidate. A revision change between the CLI's read and
+the writer's check blocks staging; approval checks the original again.
 The required `--actor` label is supplied by the local operator and recorded with
 each successful state transition. It is not an authenticated identity. Repeating
 approval of an already approved note does not create another transition event.

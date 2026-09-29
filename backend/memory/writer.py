@@ -38,11 +38,19 @@ class MemoryWriter:
         """Stage a candidate without treating its content as an approved fact."""
         return self.repository.add(record)
 
-    def submit_correction(self, old_id: UUID, record: MemoryRecord) -> StoredMemory:
+    def submit_correction(
+        self,
+        old_id: UUID,
+        record: MemoryRecord,
+        *,
+        expected_old_revision: str | None = None,
+    ) -> StoredMemory:
         """Stage a replacement for human review; the old note remains current."""
         canonical = MemoryRetriever(self.repository, self.vault).get_approved(old_id)
         if not isinstance(canonical, RetrievedMemory):
             raise MemoryWriteConflict("Original approved note needs repair or review")
+        if expected_old_revision is not None and canonical.note_revision != expected_old_revision:
+            raise MemoryWriteConflict("Original memory changed while staging correction")
         return self.repository.add(
             record, supersedes_id=old_id, supersedes_revision=canonical.note_revision
         )

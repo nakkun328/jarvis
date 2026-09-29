@@ -16,7 +16,8 @@ from backend.memory.repository import (
     MemoryStatus,
     StoredMemory,
 )
-from backend.memory.writer import MemoryWriteError, MemoryWriter
+from backend.memory.retrieval import MemoryRetriever, RetrievedMemory
+from backend.memory.writer import MemoryWriteConflict, MemoryWriteError, MemoryWriter
 
 
 def _uuid(value: str) -> UUID:
@@ -155,19 +156,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.memory_id, actor=args.actor, reason=args.reason
             )
         elif args.command == "correct":
+            vault = ObsidianVault(args.vault)
+            canonical = MemoryRetriever(repository, vault).get_approved(args.memory_id)
+            if not isinstance(canonical, RetrievedMemory):
+                raise MemoryWriteConflict("Original approved note needs repair or review")
             content = args.content_file.read_text(encoding="utf-8")
             record = MemoryRecord(
-                category=stored.record.category,
+                category=canonical.record.category,
                 content=content,
                 source=args.source,
                 origin=args.origin,
-                importance=stored.record.importance,
-                confidence=stored.record.confidence,
-                tags=stored.record.tags,
-                project=stored.record.project,
+                importance=canonical.record.importance,
+                confidence=canonical.record.confidence,
+                tags=canonical.record.tags,
+                project=canonical.record.project,
             )
-            updated = MemoryWriter(repository, ObsidianVault(args.vault)).submit_correction(
-                args.memory_id, record
+            updated = MemoryWriter(repository, vault).submit_correction(
+                args.memory_id, record, expected_old_revision=canonical.note_revision
             )
         else:
             new = MemoryStatus.REJECTED if args.command == "reject" else MemoryStatus.CONFLICT

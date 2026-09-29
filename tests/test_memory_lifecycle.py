@@ -116,6 +116,26 @@ def test_human_edit_to_original_blocks_stale_correction(tmp_path: Path) -> None:
     assert repository.get(correction.id).status is MemoryStatus.PENDING
 
 
+def test_correction_staging_rejects_edit_after_canonical_read(tmp_path: Path) -> None:
+    writer, repository, _ = _system(tmp_path)
+    original = _record()
+    writer.submit(original)
+    writer.approve(original.id)
+    observed_revision = writer.vault.read(original.id).revision
+    note = writer.vault.read(original.id)
+    writer.vault.update(
+        original.id,
+        "Human-edited preference",
+        note.metadata,
+        expected_revision=observed_revision,
+    )
+    correction = _record("Replacement")
+    with pytest.raises(MemoryWriteConflict, match="changed while staging"):
+        writer.submit_correction(original.id, correction, expected_old_revision=observed_revision)
+    assert repository.get(correction.id) is None
+    assert repository.get(original.id).status is MemoryStatus.APPROVED
+
+
 def test_audit_failure_rolls_back_both_halves_of_correction(tmp_path: Path) -> None:
     writer, repository, _ = _system(tmp_path)
     original = _record()
@@ -287,6 +307,54 @@ def test_cli_correct_then_approve_and_retire(tmp_path: Path, capsys) -> None:
     assert main(["--db", db, "history", str(original.id)]) == 0
     events = __import__("json").loads(capsys.readouterr().out)
     assert [event["action"] for event in events] == ["approve", "supersede"]
+
+
+def test_cli_correction_inherits_current_vault_metadata(tmp_path: Path, capsys) -> None:
+    writer, repository, _ = _system(tmp_path)
+    original = _record()
+    writer.submit(original)
+    writer.approve(original.id)
+    note = writer.vault.read(original.id)
+    writer.vault.update(
+        original.id,
+        note.body,
+        {
+            **note.metadata,
+            "importance": 0.35,
+            "confidence": 0.7,
+            "tags": ["current-preference"],
+            "project": "active-project",
+        },
+        expected_revision=note.revision,
+    )
+    text_path = tmp_path / "correction.txt"
+    text_path.write_text("Prefers detailed replies", encoding="utf-8")
+    assert (
+        main(
+            [
+                "--db",
+                str(repository.database.path),
+                "correct",
+                str(original.id),
+                "--vault",
+                str(writer.vault.root),
+                "--content-file",
+                str(text_path),
+                "--source",
+                "user:latest",
+                "--origin",
+                "user_explicit",
+            ]
+        )
+        == 0
+    )
+    staged_id = UUID(__import__("json").loads(capsys.readouterr().out)["id"])
+    staged = repository.get(staged_id)
+    assert staged.record.importance == 0.35
+    assert staged.record.confidence == 0.7
+    assert staged.record.tags == ("current-preference",)
+    assert staged.record.project == "active-project"
+    assert staged.supersedes_revision == writer.vault.read(original.id).revision
 
 
 def test_consolidation_retries_correction_and_retirement_index_cleanup(tmp_path: Path) -> None:
