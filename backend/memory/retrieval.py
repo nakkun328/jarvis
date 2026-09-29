@@ -108,29 +108,37 @@ class MemoryRetriever:
         conflicts: list[StoredMemory] = []
         issues: list[RetrievalIssue] = []
         seen: set[UUID] = set()
-        for match in await self.vector_index.search(query):
-            try:
-                memory_id = UUID(match.memory_id)
-            except ValueError:
-                continue
-            if memory_id in seen:
-                continue
-            seen.add(memory_id)
-            stored = self.repository.get(memory_id)
-            if stored is None:
-                continue
-            if stored.status is MemoryStatus.CONFLICT:
-                conflicts.append(stored)
-            elif stored.status is MemoryStatus.APPROVED:
-                resolved = self._resolve(stored, now)
-                if isinstance(resolved, RetrievalIssue):
-                    issues.append(resolved)
-                else:
-                    matches.append(
-                        replace(resolved, match_score=match.score, match_kind="vector")
-                    )
-            if len(matches) >= query.limit:
+        candidate_limit = query.limit
+        while True:
+            # The index cannot filter on canonical review status. Expand the
+            # candidate window when pending, missing or invalid rows occupy it.
+            candidates = await self.vector_index.search(replace(query, limit=candidate_limit))
+            for match in candidates:
+                try:
+                    memory_id = UUID(match.memory_id)
+                except ValueError:
+                    continue
+                if memory_id in seen:
+                    continue
+                seen.add(memory_id)
+                stored = self.repository.get(memory_id)
+                if stored is None:
+                    continue
+                if stored.status is MemoryStatus.CONFLICT:
+                    conflicts.append(stored)
+                elif stored.status is MemoryStatus.APPROVED:
+                    resolved = self._resolve(stored, now)
+                    if isinstance(resolved, RetrievalIssue):
+                        issues.append(resolved)
+                    else:
+                        matches.append(
+                            replace(resolved, match_score=match.score, match_kind="vector")
+                        )
+                if len(matches) >= query.limit:
+                    break
+            if len(matches) >= query.limit or len(candidates) < candidate_limit:
                 break
+            candidate_limit *= 2
         return RetrievalResult(tuple(matches), tuple(conflicts), tuple(issues))
 
     def _iter_status(self, status: MemoryStatus) -> Iterator[StoredMemory]:
