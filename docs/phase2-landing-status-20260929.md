@@ -31,7 +31,8 @@ PR #1 is an older conflicting Phase 0 draft and is outside this landing plan.
 | #26 | Semantic query to canonical memory | #24 | Draft, CI green |
 | #27 | This landing record | `main` | Ready, CI green |
 | #28 | Root agent handoff rules | `main` | Ready, CI green |
-| #29 | Indexed note revisions and stale-index audit | #26 | Draft, CI green |
+| #29 | Indexed revisions, stale audit, and inactive-ID cleanup | #26 | Draft, CI green; lifecycle integration test runs with #30 |
+| #30 | Reviewed correction, supersession, retirement, and schema v5 | #19 | Draft, CI green |
 
 `feature/phase2-integration` combines early branches for development.
 `feature/phase2-index-base` combines work through #20 to make #21 reviewable.
@@ -48,17 +49,21 @@ rebasing for `main`.
 - Later unique commits were replayed from the Stage 1 result into a temporary
   integration branch. Two test-file import/doc prose conflicts were resolved
   while keeping both intended changes. A further temporary branch combines
-  #17 through #26, plus the latest #23, #28, and #29 changes. Its latest run
-  passed Python 127 (with real Chroma),
+  #17 through #26, plus the latest #23, #28, #29, and #30 changes. Its latest
+  run passed Python 145 (with real Chroma),
   frontend 4, Ruff, compile, and diff checks. The index rebuild now checks
   the approved-note set again after embedding, including a note newly approved
   during that step. The vector cache now carries note revision hashes and
-  reports stale or untracked entries. Chat fails closed on a corrupt memory
+  reports stale or untracked entries. Reviewed corrections preserve old notes
+  and audit history, while index cleanup removes inactive IDs; a real Chroma
+  test covers failed deletion and retry. Chat fails closed on a corrupt memory
   record or review-state race. A fake OpenAI client verifies the embedding
   adapter; no live key was used.
 - #26's vector CI explicitly includes `tests/test_semantic_memory.py`.
   Current #21, #24, #26, and #29 backend/frontend/vector checks passed;
-  #23 and #28 backend/frontend checks passed. Recheck every head before landing.
+  #23, #28, and #30 backend/frontend checks passed. #29's cross-stack lifecycle
+  test is skipped on its isolated branch and passed in the combined tree.
+  Recheck every head before landing.
 
 These runs prove compatibility of the tested trees. They do not prove live
 OpenAI quality, real browser behavior, or permission to merge.
@@ -75,12 +80,14 @@ OpenAI quality, real browser behavior, or permission to merge.
 3. Land #15 after #8, then rebuild #16 from only its unique integration change
    after #14 and #15. Land #17 after #14. #18 can land after #8. Resolve the
    docs overlap between #15 and #18 while retaining both descriptions.
-4. Land #20 after #17, #22 after #20, and #19 after #22. #23 depends on #14;
-   #25 depends on #18. #28 is an independent documentation PR. Rebase and
+4. Land #20 after #17, #22 after #20, #19 after #22, and #30 after #19.
+   #23 depends on #14; #25 depends on #18. #28 is an independent documentation
+   PR. Rebase and
    retest their unique diffs before landing.
 5. Rebuild #21 from only its index-rebuild changes after #14, #15, and #18
    are present, replacing `feature/phase2-index-base`. #24 then needs #20 and
-   #21; #26 needs #21 and is currently stacked on #24; #29 follows #26.
+   #21; #26 needs #21 and is currently stacked on #24; #29 follows #26 and
+   needs #30's lifecycle states for inactive cleanup and its integration test.
    Rebase each onto the
    latest intended parent, verify the PR file list and commit list, run the
    full Python/frontend/vector suite, and seek target-specific main approval.
@@ -92,9 +99,10 @@ with duplicated parent or synthetic integration commits.
 
 ## Phase 2 still open
 
-- Approved corrections and older-note supersession need a reviewed lifecycle
-  decision. Current approved/rejected states are terminal; nothing silently
-  overwrites or deletes an old note.
+- Approved corrections, supersession, and retirement are implemented on #30
+  with schema migration and review audit. The old vault note remains available
+  for inspection; it is excluded from retrieval after the reviewed transition.
+  This stack still requires authorized landing and operational review.
 - Index maintenance can rebuild a new space, audit missing/extra/stale IDs,
   and refresh after an explicit publication, but does not automatically watch
   human Obsidian edits or atomically switch an active reader. Canonical SQLite
