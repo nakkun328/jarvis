@@ -10,18 +10,24 @@ class ConfigError(ValueError):
 
 
 _LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
+_LLM_PROVIDERS = frozenset({"none", "openai"})
 
 
 @dataclass(frozen=True)
 class Settings:
     db_path: Path
     log_level: str = "INFO"
+    llm_provider: str = "none"
 
     def __post_init__(self) -> None:
         if not str(self.db_path).strip():
             raise ConfigError("JARVIS_DB_PATH must not be empty")
         if self.log_level not in _LOG_LEVELS:
             raise ConfigError(f"JARVIS_LOG_LEVEL must be one of: {', '.join(sorted(_LOG_LEVELS))}")
+        if self.llm_provider not in _LLM_PROVIDERS:
+            raise ConfigError(
+                f"JARVIS_LLM_PROVIDER must be one of: {', '.join(sorted(_LLM_PROVIDERS))}"
+            )
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -31,4 +37,5 @@ class Settings:
         return cls(
             db_path=Path(raw_path).expanduser(),
             log_level=os.environ.get("JARVIS_LOG_LEVEL", "INFO").upper(),
+            llm_provider=os.environ.get("JARVIS_LLM_PROVIDER", "none").lower(),
         )

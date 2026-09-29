@@ -2,17 +2,27 @@
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
+from backend.api.chat import build_chat_router
+from backend.chat.service import ChatService
 from backend.core.config import Settings
 from backend.core.database import Database
 from backend.core.logging import configure_logging
+from backend.providers.base import LLMProvider
+from backend.providers.factory import create_provider
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, provider: LLMProvider | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     database = Database(settings.db_path)
+    if provider is None:
+        provider = create_provider(settings)
+    chat_service = ChatService(provider) if provider is not None else None
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -39,6 +49,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not database.is_ready():
             raise HTTPException(status_code=503, detail="database unavailable")
         return {"status": "ok"}
+
+    app.include_router(build_chat_router(chat_service))
+
+    frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
+    if (frontend_dir / "index.html").is_file():
+        app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
+
+        @app.get("/", include_in_schema=False)
+        def web_client() -> FileResponse:
+            return FileResponse(frontend_dir / "index.html")
 
     return app
 
