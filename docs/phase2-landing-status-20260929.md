@@ -31,8 +31,8 @@ PR #1 is an older conflicting Phase 0 draft and is outside this landing plan.
 | #26 | Semantic query to canonical memory | #24 | Draft, CI green |
 | #27 | This landing record | `main` | Ready, CI green |
 | #28 | Root agent handoff rules | `main` | Ready, CI green |
-| #29 | Indexed revisions, stale audit, and inactive-ID cleanup | #26 | Draft, CI green; lifecycle integration test runs with #30 |
-| #30 | Reviewed correction, supersession, retirement, and schema v5 | #19 | Draft, CI green |
+| #29 | Indexed revisions, stale audit, and inactive-ID cleanup across embedding spaces | #26 | Draft, CI green; lifecycle integration test runs with #30 |
+| #30 | Reviewed correction, supersession, retirement, and schema v5 | #19 | Draft, CI green; CLI correction uses current vault metadata |
 
 `feature/phase2-integration` combines early branches for development.
 `feature/phase2-index-base` combines work through #20 to make #21 reviewable.
@@ -75,6 +75,16 @@ rebasing for `main`.
   kept the lifecycle and current index descriptions in one resolved paragraph.
   Reapply that resolution when rebasing #29 after #30. This branch is temporary
   and must not be merged.
+- A follow-up verification worktree at `verify/phase2-goal-20260930` starts from
+  the exact-order replay above and includes the new #30 correction fix
+  (`eef765e`) and #29 cross-space cleanup fix (`636c6b1`). Against unchanged
+  `origin/main` at `769d3c7`, it passed all 148 Python tests without skips,
+  including real Chroma and lifecycle integration, plus four frontend tests,
+  Ruff, compileall, JavaScript syntax, and `git diff --check`. The full
+  57-file diff has no added common secret-token pattern; `.env.example` is
+  the only environment-file match and contains no key. #30's backend/frontend
+  and #29's backend/frontend/vector CI checks passed at these heads. Neither
+  verification worktree is a PR or a main merge candidate.
 
 These runs prove compatibility of the tested trees. They do not prove live
 OpenAI quality, real browser behavior, or permission to merge.
