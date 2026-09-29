@@ -305,8 +305,13 @@ class MemoryRepository:
     ) -> StoredMemory:
         """Explicitly retire an approved memory while preserving its note and history."""
         actor_name = validate_review_actor(actor)
-        if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
-            raise ValueError("Retirement reason must be 1 to 1000 characters")
+        if (
+            not isinstance(reason, str)
+            or not reason.strip()
+            or len(reason) > 1000
+            or any(ord(character) < 32 or ord(character) == 127 for character in reason)
+        ):
+            raise ValueError("Retirement reason must be printable text of 1 to 1000 characters")
         if not isinstance(vault_revision, str) or not vault_revision.strip():
             raise ValueError("Retirement requires observed note revision")
         occurred_at = datetime.now(UTC).isoformat()

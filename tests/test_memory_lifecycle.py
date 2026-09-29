@@ -188,6 +188,17 @@ def test_retirement_audit_failure_rolls_back_state(tmp_path: Path) -> None:
     assert repository.lifecycle_events(original.id) == []
 
 
+def test_retirement_rejects_control_characters_in_audit_reason(tmp_path: Path) -> None:
+    writer, repository, _ = _system(tmp_path)
+    original = _record()
+    writer.submit(original)
+    writer.approve(original.id)
+    with pytest.raises(ValueError, match="printable text"):
+        writer.retire(original.id, actor="reviewer:a", reason="outdated\nforged log line")
+    assert repository.get(original.id).status is MemoryStatus.APPROVED
+    assert repository.lifecycle_events(original.id) == []
+
+
 def test_self_correction_is_staged_against_prior_self_memory(tmp_path: Path) -> None:
     writer, repository, retriever = _system(tmp_path)
     recorder = SelfMemoryRecorder(writer)
