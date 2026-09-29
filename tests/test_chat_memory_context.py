@@ -95,6 +95,8 @@ def test_only_current_approved_notes_enter_opted_in_chat(tmp_path: Path) -> None
     assert references[0]["content"] == "Observatory opens on Sunday"
     assert references[0]["source"] == approved.source
     assert references[0]["origin"] == "user_explicit"
+    assert references[0]["importance"] == 0.7
+    assert references[0]["confidence"] == 1.0
     assert references[0]["edited_since_approval"] is True
     first_prompt = repr(provider.requests[0])
     assert pending.content not in first_prompt

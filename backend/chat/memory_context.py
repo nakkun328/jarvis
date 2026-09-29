@@ -41,6 +41,8 @@ class MemoryContext:
                 "source": record.source[:_MAX_SOURCE],
                 "source_truncated": len(record.source) > _MAX_SOURCE,
                 "origin": record.origin.value,
+                "importance": record.importance,
+                "confidence": record.confidence,
                 "content": record.content[:_MAX_CONTENT],
                 "content_truncated": len(record.content) > _MAX_CONTENT,
                 "stale": match.stale,
