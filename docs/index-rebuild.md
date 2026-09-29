@@ -7,6 +7,12 @@ index space. It verifies that the indexed ID set exactly matches the approved
 canonical ID set before reporting success. Pending, conflicted, and rejected
 candidates are never embedded by this builder.
 
+The builder re-reads the full approved set immediately before writing. It
+aborts if a note revision changed or a new memory was approved while embeddings
+were generated. A review operation after that final check may still make the
+derived index lag; run `audit_ids` and refresh or rebuild before switching a
+reader.
+
 Use a **new, private Chroma directory** for each rebuild. The builder refuses an
 already populated space so stale IDs from an earlier build cannot survive. It
 does not switch an active reader to the new directory. Keep the old index until

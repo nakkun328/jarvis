@@ -162,6 +162,28 @@ def test_note_edit_during_embedding_fails_before_upsert(tmp_path: Path) -> None:
     asyncio.run(run())
 
 
+def test_new_approval_during_embedding_fails_before_upsert(tmp_path: Path) -> None:
+    _, _, writer, provider, index, builder = _setup(tmp_path)
+    original = _record("Original approved content")
+    newly_approved = _record("New approved content")
+    writer.submit(original)
+    writer.submit(newly_approved)
+    writer.approve(original.id)
+
+    async def approve_during_embedding(texts):
+        writer.approve(newly_approved.id)
+        return [(0.0, 1.0) for _ in texts]
+
+    provider.embed = approve_during_embedding
+
+    async def run() -> None:
+        with pytest.raises(IndexBuildError, match="changed during"):
+            await builder.populate_empty()
+        assert await index.list_ids(provider.space.identifier) == ()
+
+    asyncio.run(run())
+
+
 def test_invalid_provider_dimension_leaves_fresh_index_empty(tmp_path: Path) -> None:
     _, _, writer, provider, index, builder = _setup(tmp_path)
     approved = _record("Approved content")

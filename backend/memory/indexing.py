@@ -85,14 +85,13 @@ class MemoryIndexBuilder:
                 for item, values in zip(batch, vectors, strict=True)
             )
 
-        # An edit made while embedding would make this candidate index stale.
-        for item in approved:
-            current = self.retriever.get_approved(item.record.id)
-            if (
-                not isinstance(current, RetrievedMemory)
-                or current.note_revision != item.note_revision
-            ):
-                raise IndexBuildError("Approved note changed during index build")
+        # Recheck the whole set: a new approval during embedding would also
+        # make this supposedly complete candidate index stale.
+        latest = self._approved_snapshot()
+        if tuple((item.record.id, item.note_revision) for item in latest) != tuple(
+            (item.record.id, item.note_revision) for item in approved
+        ):
+            raise IndexBuildError("Approved memories changed during index build")
 
         await self.index.upsert(records)
         expected = tuple(sorted(record.memory_id for record in records))
