@@ -17,3 +17,13 @@ jobs:
       - run: ruff check .
       - run: python -m compileall -q backend tests
       - run: git diff --check
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test frontend/test/chat-api.test.mjs
+      - run: for script in frontend/*.js; do node --check "$script"; done
