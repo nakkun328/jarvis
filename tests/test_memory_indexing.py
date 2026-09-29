@@ -345,6 +345,54 @@ def test_inactive_cleanup_requires_terminal_review_state(tmp_path: Path) -> None
     assert asyncio.run(index.list_ids(provider.space.identifier)) == ()
 
 
+def test_reviewed_correction_and_retirement_clean_real_index(tmp_path: Path) -> None:
+    if not hasattr(MemoryStatus, "SUPERSEDED"):
+        pytest.skip("Requires the reviewed lifecycle PR #30")
+    repository, vault, writer, provider, index, builder = _setup(tmp_path)
+    retriever = MemoryRetriever(repository, vault)
+    pipeline = MemoryConsolidator(
+        repository.database,
+        writer,
+        retriever,
+        index_refresher=SynchronousIndexRefresher(builder),
+    )
+    original = _record("Original approved content")
+    correction = _record("Corrected approved content")
+    writer.submit(original)
+    writer.approve(original.id)
+    asyncio.run(builder.populate_empty())
+    writer.submit_correction(original.id, correction)
+
+    original_delete = index.delete
+    failed = False
+
+    async def fail_once(memory_ids):
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise RuntimeError("private index failure")
+        await original_delete(memory_ids)
+
+    index.delete = fail_once
+    with pytest.raises(IndexRefreshError, match="retry publish_reviewed") as error:
+        pipeline.publish_reviewed(correction.id, actor="reviewer:alice")
+    assert "private index failure" not in str(error.value)
+    assert repository.get(original.id).status is MemoryStatus.SUPERSEDED
+    assert vault.read(original.id).body == original.content
+    stale = asyncio.run(builder.audit_ids())
+    assert stale.extra_ids == (str(original.id),)
+    assert not stale.healthy
+
+    pipeline.publish_reviewed(correction.id, actor="reviewer:alice")
+    assert asyncio.run(builder.audit_ids()).healthy
+    assert asyncio.run(index.list_ids(provider.space.identifier)) == (str(correction.id),)
+    assert retriever.get_approved(original.id) is None
+    pipeline.retire_reviewed(correction.id, actor="reviewer:alice", reason="Outdated")
+    assert asyncio.run(index.list_ids(provider.space.identifier)) == ()
+    assert asyncio.run(builder.audit_ids()).healthy
+    assert vault.read(correction.id).body == correction.content
+
+
 def test_reviewed_publication_refreshes_real_chroma_index(tmp_path: Path) -> None:
     repository, vault, writer, provider, index, builder = _setup(tmp_path)
     retriever = MemoryRetriever(repository, vault)
