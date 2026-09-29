@@ -26,6 +26,6 @@ The provider contract and documentation can be developed independently once pack
 
 ## Phase 1 implementation order
 
-The first small task is an OpenAI Responses adapter behind the existing provider contract. It can be tested without a live API key. Next, the chat service will combine the personality instructions and bounded conversation context with an injected provider. The chat API and streaming endpoint depend on that service; the minimal web UI depends on the API shape. Keep the adapter, chat service, and UI in focused branches and run the full test suite after integration.
+The OpenAI adapter, chat service/API, and web UI were developed in separate branches from the Phase 0 baseline. The provider contract and HTTP/SSE event shapes were set before parallel work. They were then merged in a local integration worktree and tested together. The integration smoke test exercises static asset delivery, streaming, context reuse, and a regular follow-up response with a simulated provider. A real OpenAI request still needs configured credentials for a live smoke check.
 
 Keep every phase runnable. Use feature branches or worktrees, tests, diff review, and PR review. Do not merge into `main` without explicit user authorization. Avoid broad rewrites outside the active phase.
