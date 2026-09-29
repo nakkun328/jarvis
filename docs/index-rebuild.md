@@ -59,7 +59,9 @@ every approved current vault note, then reports approved IDs missing from the
 configured index space, extra indexed IDs, `stale_ids` whose indexed note hash
 differs from the current note, and `untracked_ids` indexed before revision
 tracking. A missing or invalid approved note raises an error instead of
-producing a reassuring report. `healthy` requires all four lists to be empty.
+producing a reassuring report. The canonical set is read again after inspecting
+the index; a change during the audit also raises instead of reporting healthy.
+`healthy` requires all four lists to be empty.
 This detects human edits and unknown legacy revisions, but cannot prove that
 the embedding provider generated a useful vector. Refresh an untracked ID or
 rebuild the space before treating it as current.

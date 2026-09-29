@@ -148,6 +148,8 @@ class MemoryIndexBuilder:
         approved = self._approved_snapshot()
         canonical = tuple(sorted(str(item.record.id) for item in approved))
         entries = await self.index.list_entries(self.provider.space.identifier)
+        if self._revision_snapshot() != self._revisions(approved):
+            raise IndexBuildError("Approved memories changed during index audit")
         indexed = tuple(memory_id for memory_id, _ in entries)
         revisions = dict(entries)
         current = {str(item.record.id): item.note_revision for item in approved}

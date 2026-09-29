@@ -296,6 +296,33 @@ def test_note_edit_during_index_write_is_detected(tmp_path: Path) -> None:
     asyncio.run(run())
 
 
+def test_note_edit_during_audit_cannot_report_healthy(tmp_path: Path) -> None:
+    _, vault, writer, _, index, builder = _setup(tmp_path)
+    approved = _record("Approved content")
+    writer.submit(approved)
+    writer.approve(approved.id)
+    asyncio.run(builder.populate_empty())
+    note = vault.read(approved.id)
+    assert note is not None
+    original_list_entries = index.list_entries
+
+    async def edit_during_list(space):
+        entries = await original_list_entries(space)
+        note.path.write_text(
+            note.path.read_text(encoding="utf-8").replace("Approved", "Edited"),
+            encoding="utf-8",
+        )
+        return entries
+
+    index.list_entries = edit_during_list
+
+    async def run() -> None:
+        with pytest.raises(IndexBuildError, match="changed during index audit"):
+            await builder.audit_ids()
+
+    asyncio.run(run())
+
+
 def test_reviewed_publication_refreshes_real_chroma_index(tmp_path: Path) -> None:
     repository, vault, writer, provider, index, builder = _setup(tmp_path)
     retriever = MemoryRetriever(repository, vault)
