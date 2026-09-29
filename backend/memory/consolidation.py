@@ -9,7 +9,7 @@ import re
 import sqlite3
 import unicodedata
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 from uuid import UUID, uuid5
 
@@ -249,6 +249,18 @@ class MemoryConsolidator:
                 ):
                     duplicates.append(candidate)
                     continue
+            else:
+                historical = self.writer.repository.get(record.id)
+                if historical is not None and historical.status in (
+                    MemoryStatus.SUPERSEDED,
+                    MemoryStatus.RETIRED,
+                ):
+                    # A retired/superseded identity may be proposed again from
+                    # new evidence, but must receive a fresh reviewable ID.
+                    record = replace(
+                        record,
+                        id=uuid5(_NAMESPACE, f"revival\x1f{record.id}\x1f{candidate.source}"),
+                    )
             peers = [
                 item
                 for item in known

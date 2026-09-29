@@ -18,7 +18,9 @@ The pipeline reads the **current vault note** for every approved memory and vali
 
 Superseded and retired records remain available for history but do not count as
 current duplicates or conflicts. A rejected deterministic candidate still cannot
-be silently restaged.
+be silently restaged. If new evidence proposes the same content as an inactive
+record, the pipeline gives that proposal a new deterministic ID tied to its
+source, so it can receive another review without reactivating old history.
 
 These are **review cues**, not semantic truth judgments. Paraphrases with different wording can evade exact duplicate detection; unrelated assertions under one broad topic can be marked as conflicting. Choose narrow topics and review candidate content alongside its source transcript or event. An extractor must not treat assistant text or speculative content as `user_explicit`.
 
