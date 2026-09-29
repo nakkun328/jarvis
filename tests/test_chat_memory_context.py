@@ -13,6 +13,7 @@ from backend.core.database import Database
 from backend.memory.model import MemoryCategory, MemoryOrigin, MemoryRecord
 from backend.memory.obsidian import ObsidianVault
 from backend.memory.repository import MemoryRepository, MemoryStatus
+from backend.memory.retrieval import MemoryRetriever
 from backend.memory.writer import MemoryWriter
 from backend.providers.base import CompletionRequest, CompletionResponse
 
@@ -129,6 +130,34 @@ def test_stream_uses_bounded_memory_without_persisting_it(tmp_path: Path) -> Non
     assert [row["content"] for row in rows] == ["Observatory", "Okay"]
 
 
+def test_multiple_matches_keep_reference_and_source_bounded(tmp_path: Path) -> None:
+    database, _, vault, writer = _setup(tmp_path)
+    for number in range(5):
+        record = MemoryRecord(
+            category=MemoryCategory.USER,
+            content=f"Observatory {number} " + "X" * 1000,
+            source="conversation:" + "s" * 1000,
+            origin=MemoryOrigin.USER_EXPLICIT,
+            importance=0.7,
+            confidence=1.0,
+        )
+        writer.submit(record)
+        writer.approve(record.id)
+
+    provider = FakeProvider()
+    with TestClient(
+        create_app(Settings(db_path=database.path, memory_vault_path=vault.root), provider)
+    ) as client:
+        response = client.post("/api/chat", json={"message": "Observatory"})
+    assert response.status_code == 200
+    references = _reference(provider.requests[0])
+    assert 1 <= len(references) <= 3
+    assert all(len(str(item["content"])) == 500 for item in references)
+    assert all(len(str(item["source"])) == 200 for item in references)
+    assert all(item["content_truncated"] and item["source_truncated"] for item in references)
+    assert len(json.dumps(references, ensure_ascii=False, separators=(",", ":"))) <= 2400
+
+
 def test_broken_approved_note_stops_chat_before_provider_call(tmp_path: Path) -> None:
     database, _, vault, writer = _setup(tmp_path)
     record = _record("Observatory opens on Saturday")
@@ -150,6 +179,55 @@ def test_broken_approved_note_stops_chat_before_provider_call(tmp_path: Path) ->
     with database.connect(read_only=True) as connection:
         count = connection.execute("SELECT COUNT(*) FROM conversation_messages").fetchone()[0]
     assert count == 0
+
+
+def test_corrupt_approved_metadata_stops_chat_before_provider_call(tmp_path: Path) -> None:
+    database, _, vault, writer = _setup(tmp_path)
+    record = _record("Observatory opens on Saturday")
+    writer.submit(record)
+    writer.approve(record.id)
+    with database.connect() as connection, connection:
+        connection.execute(
+            "UPDATE memory_records SET source = '' WHERE id = ?", (str(record.id),)
+        )
+
+    provider = FakeProvider()
+    with TestClient(
+        create_app(Settings(db_path=database.path, memory_vault_path=vault.root), provider)
+    ) as client:
+        response = client.post("/api/chat", json={"message": "Observatory"})
+    assert response.status_code == 503
+    assert response.json()["detail"] == "memory context unavailable"
+    assert provider.requests == []
+
+
+def test_review_change_during_retrieval_stops_chat_before_provider_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database, _, vault, writer = _setup(tmp_path)
+    record = _record("Observatory opens on Saturday")
+    writer.submit(record)
+    writer.approve(record.id)
+    original_search = MemoryRetriever.search_text
+
+    def search_then_change_review(self: MemoryRetriever, query: str, *, limit: int = 10):
+        result = original_search(self, query, limit=limit)
+        with database.connect() as connection, connection:
+            connection.execute(
+                "UPDATE memory_records SET status = 'rejected' WHERE id = ?",
+                (str(record.id),),
+            )
+        return result
+
+    monkeypatch.setattr(MemoryRetriever, "search_text", search_then_change_review)
+    provider = FakeProvider()
+    with TestClient(
+        create_app(Settings(db_path=database.path, memory_vault_path=vault.root), provider)
+    ) as client:
+        response = client.post("/api/chat", json={"message": "Observatory"})
+    assert response.status_code == 503
+    assert response.json()["detail"] == "memory context unavailable"
+    assert provider.requests == []
 
 
 def test_memory_is_opt_in(tmp_path: Path) -> None:

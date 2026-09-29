@@ -3,8 +3,8 @@
 import asyncio
 import json
 
-from backend.memory.repository import MemoryRepositoryError
-from backend.memory.retrieval import MemoryRetriever
+from backend.memory.repository import MemoryRepositoryError, MemoryStatus
+from backend.memory.retrieval import MemoryRetriever, RetrievalResult
 
 _MAX_MATCHES = 3
 _MAX_CONTENT = 500
@@ -22,10 +22,8 @@ class MemoryContext:
 
     async def for_query(self, query: str) -> str | None:
         try:
-            result = await asyncio.to_thread(
-                self.retriever.search_text, query, limit=_MAX_MATCHES
-            )
-        except (MemoryRepositoryError, OSError) as exc:
+            result = await asyncio.to_thread(self._verified_search, query)
+        except (MemoryRepositoryError, OSError, TypeError, ValueError) as exc:
             raise MemoryContextError("Memory retrieval unavailable") from exc
         if result.issues:
             raise MemoryContextError("An approved memory note could not be verified")
@@ -55,3 +53,13 @@ class MemoryContext:
         if not items:
             raise MemoryContextError("Retrieved memory exceeds the context limit")
         return json.dumps(items, ensure_ascii=False, separators=(",", ":"))
+
+    def _verified_search(self, query: str) -> RetrievalResult:
+        result = self.retriever.search_text(query, limit=_MAX_MATCHES)
+        # A review can change while the vault is being scanned. Check the
+        # canonical state again immediately before the context is assembled.
+        for match in result.matches:
+            current = self.retriever.repository.get(match.record.id)
+            if current is None or current.status is not MemoryStatus.APPROVED:
+                raise MemoryContextError("Memory review state changed during retrieval")
+        return result
