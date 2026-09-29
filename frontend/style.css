@@ -1,0 +1,87 @@
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  background: #0b1420;
+  color: #e7eff7;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 280px; }
+button, textarea { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: wait; opacity: .55; }
+:focus-visible { outline: 2px solid #75d4ea; outline-offset: 3px; }
+
+.app-shell { min-height: 100dvh; display: flex; flex-direction: column; }
+.app-header {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: .8rem max(1rem, calc((100vw - 900px) / 2));
+  border-bottom: 1px solid #263a4c; background: #0b1420ed;
+  backdrop-filter: blur(12px);
+}
+.brand { display: flex; align-items: center; gap: .7rem; }
+.brand-mark, .welcome-mark {
+  display: grid; place-items: center; color: #091620; font-weight: 800;
+  background: linear-gradient(145deg, #74e0ea, #a8a5ff);
+  box-shadow: 0 0 24px #65d7e83d;
+}
+.brand-mark { width: 2rem; height: 2rem; border-radius: .55rem; }
+.brand strong { display: block; font-size: .86rem; letter-spacing: .18em; }
+.brand span:not(.brand-mark) { display: block; color: #9fb2c2; font-size: .69rem; }
+.new-chat {
+  border: 1px solid #385165; border-radius: .65rem; background: #152738;
+  color: #e7eff7; padding: .55rem .8rem;
+}
+.new-chat:hover { background: #20394d; }
+
+.chat { flex: 1; width: 100%; }
+.conversation { width: min(100%, 800px); margin: 0 auto; padding: 1.5rem 1rem 2rem; }
+.welcome { text-align: center; padding: min(15vh, 7rem) .5rem 3rem; }
+.welcome-mark { width: 3.4rem; height: 3.4rem; border-radius: 1rem; margin: 0 auto 1.5rem; font-size: 1.7rem; }
+.welcome h1 { margin: 0; font-size: clamp(1.4rem, 4vw, 2rem); font-weight: 650; }
+.welcome p { margin: .8rem 0 0; color: #9fb2c2; line-height: 1.6; }
+.message { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .75rem; margin: 0 0 1.5rem; }
+.message-avatar {
+  display: grid; place-items: center; width: 2rem; height: 2rem;
+  border-radius: .65rem; background: #22475b; color: #b4f4fa; font-size: .78rem; font-weight: 700;
+}
+.message-user .message-avatar { background: #353559; color: #d6d3ff; }
+.message-label { display: block; margin: .15rem 0 .35rem; color: #aabed0; font-size: .76rem; }
+.message-text { min-width: 0; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-error .message-text { color: #ffc6be; }
+.message-meta { margin-top: .5rem; color: #849aaa; font-size: .7rem; }
+
+.composer-wrap { position: sticky; bottom: 0; background: linear-gradient(transparent, #0b1420 1.4rem); padding: 1.4rem 1rem env(safe-area-inset-bottom); }
+.composer-inner { width: min(100%, 800px); margin: 0 auto; }
+.status { min-height: 1.25rem; margin: 0 0 .25rem; color: #a9c1d1; font-size: .8rem; }
+.status.error { color: #ffc6be; }
+.composer {
+  display: flex; align-items: flex-end; gap: .7rem;
+  padding: .55rem; border: 1px solid #426077; border-radius: 1rem;
+  background: #172838; box-shadow: 0 8px 30px #0004;
+}
+.composer:focus-within { border-color: #78ccdc; }
+.composer textarea {
+  flex: 1; min-width: 0; max-height: 11rem; resize: none; overflow-y: auto;
+  padding: .55rem .45rem; border: 0; outline: 0;
+  background: transparent; color: #e7eff7; line-height: 1.4;
+}
+.composer textarea::placeholder { color: #91a5b6; }
+.composer button {
+  flex: none; border: 0; border-radius: .6rem; padding: .56rem .85rem;
+  background: #82dce8; color: #09202b; font-weight: 700;
+}
+.composer button:hover:not(:disabled) { background: #b0f1f4; }
+.hint { margin: .5rem 0 .2rem; color: #8298a9; text-align: center; font-size: .68rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+@media (max-width: 600px) {
+  .app-header { padding: .75rem 1rem; }
+  .new-chat { font-size: .8rem; }
+  .conversation { padding: 1.2rem 1rem; }
+  .welcome { padding-top: 12vh; }
+  .composer-wrap { padding-left: .65rem; padding-right: .65rem; }
+  .hint { display: none; }
+}
