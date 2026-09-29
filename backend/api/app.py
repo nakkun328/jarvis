@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.chat import build_chat_router
+from backend.chat.persistence import SQLiteConversationStore
 from backend.chat.service import ChatService
 from backend.core.config import Settings
 from backend.core.database import Database
@@ -22,7 +23,9 @@ def create_app(settings: Settings | None = None, provider: LLMProvider | None = 
     database = Database(settings.db_path)
     if provider is None:
         provider = create_provider(settings)
-    chat_service = ChatService(provider) if provider is not None else None
+    chat_service = (
+        ChatService(provider, SQLiteConversationStore(database)) if provider is not None else None
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
