@@ -14,4 +14,6 @@ Before implementing the vector index in Phase 2, compare Chroma and Qdrant again
 
 Candidate metadata: ID, type, source, creation and update times, importance, confidence, tags, project, and last access. AI inferences must be marked as such. Explicit user statements take precedence; conflicting memories need review instead of blind overwrite.
 
+The [Phase 2 task plan](phase2-plan.md) defines dependency and parallel work. The first slice defines a storage-neutral record and persists successful conversation turns in SQLite. This transcript is not treated as an approved long-term memory fact.
+
 Consolidation will extract useful facts from logs, search for existing memories, detect duplicates and conflicts, update the vault and metadata, then refresh the vector index. Retrieved facts will retain source and freshness information.

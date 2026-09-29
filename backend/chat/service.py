@@ -54,7 +54,7 @@ class ChatService:
             response = await self.provider.complete(self._request(conversation.messages, message))
             if not response.text.strip():
                 raise ProviderError("Provider returned no text")
-            self.store.remember(conversation, message, response.text)
+            await self.store.remember(current_id, conversation, message, response.text)
             return ChatResult(current_id, response.text, response.provider, response.model)
 
     async def stream(
@@ -69,7 +69,7 @@ class ChatService:
             reply = "".join(chunks)
             if not reply.strip():
                 raise ProviderError("Provider returned no text")
-            self.store.remember(conversation, message, reply)
+            await self.store.remember(current_id, conversation, message, reply)
             yield ChatDone(
                 conversation_id=current_id,
                 provider=str(getattr(self.provider, "name", "custom")),
