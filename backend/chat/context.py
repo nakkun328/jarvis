@@ -11,7 +11,7 @@ from backend.providers.base import ChatMessage
 
 
 class ConversationNotFound(LookupError):
-    """A conversation ID has expired or belongs to another process."""
+    """A conversation ID is not present in this store."""
 
 
 class ConversationCapacityError(RuntimeError):
@@ -62,7 +62,9 @@ class ConversationStore:
             async with self._lock:
                 conversation.active_requests -= 1
 
-    def remember(self, conversation: Conversation, user: str, assistant: str) -> None:
+    async def remember(
+        self, conversation_id: UUID, conversation: Conversation, user: str, assistant: str
+    ) -> None:
         conversation.messages.extend(
             (
                 ChatMessage(role="user", content=user),
