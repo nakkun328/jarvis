@@ -9,11 +9,15 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.chat import build_chat_router
+from backend.chat.memory_context import MemoryContext
 from backend.chat.persistence import SQLiteConversationStore
 from backend.chat.service import ChatService
-from backend.core.config import Settings
+from backend.core.config import ConfigError, Settings
 from backend.core.database import Database
 from backend.core.logging import configure_logging
+from backend.memory.obsidian import ObsidianVault
+from backend.memory.repository import MemoryRepository
+from backend.memory.retrieval import MemoryRetriever
 from backend.providers.base import LLMProvider
 from backend.providers.factory import create_provider
 
@@ -23,8 +27,18 @@ def create_app(settings: Settings | None = None, provider: LLMProvider | None = 
     database = Database(settings.db_path)
     if provider is None:
         provider = create_provider(settings)
+    memory_context = None
+    if settings.memory_vault_path is not None:
+        vault_path = settings.memory_vault_path
+        if vault_path.is_symlink() or not vault_path.is_dir():
+            raise ConfigError("JARVIS_MEMORY_VAULT_PATH must be an existing vault directory")
+        memory_context = MemoryContext(
+            MemoryRetriever(MemoryRepository(database), ObsidianVault(vault_path))
+        )
     chat_service = (
-        ChatService(provider, SQLiteConversationStore(database)) if provider is not None else None
+        ChatService(provider, SQLiteConversationStore(database), memory_context=memory_context)
+        if provider is not None
+        else None
     )
 
     @asynccontextmanager

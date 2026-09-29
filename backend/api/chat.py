@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.chat.context import ConversationCapacityError, ConversationNotFound
+from backend.chat.memory_context import MemoryContextError
 from backend.chat.persistence import ConversationStorageError
 from backend.chat.service import ChatDelta, ChatService
 from backend.providers.base import ProviderError
@@ -57,6 +58,9 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
         except ConversationStorageError as exc:
             _LOG.warning("Conversation storage failed: %s", type(exc).__name__)
             raise HTTPException(status_code=503, detail="conversation storage unavailable") from exc
+        except MemoryContextError as exc:
+            _LOG.warning("Memory context failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="memory context unavailable") from exc
         except ProviderError as exc:
             _LOG.warning("Chat provider failed: %s", type(exc).__name__)
             raise HTTPException(status_code=502, detail="chat provider failed") from exc
@@ -93,6 +97,9 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
             except ConversationStorageError as exc:
                 _LOG.warning("Conversation storage stream failed: %s", type(exc).__name__)
                 yield _sse("error", {"message": "conversation storage unavailable"})
+            except MemoryContextError as exc:
+                _LOG.warning("Memory context stream failed: %s", type(exc).__name__)
+                yield _sse("error", {"message": "memory context unavailable"})
             except ProviderError as exc:
                 _LOG.warning("Chat provider stream failed: %s", type(exc).__name__)
                 yield _sse("error", {"message": "chat provider failed"})
