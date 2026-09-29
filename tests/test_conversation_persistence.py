@@ -13,7 +13,7 @@ from backend.api.app import create_app
 from backend.chat.persistence import SQLiteConversationStore
 from backend.chat.service import ChatService
 from backend.core.config import Settings
-from backend.core.database import Database, DatabaseError
+from backend.core.database import SCHEMA_VERSION, Database, DatabaseError
 from backend.providers.base import CompletionRequest, CompletionResponse, ProviderError
 
 
@@ -104,7 +104,7 @@ def test_v1_database_migrates_without_losing_history(tmp_path: Path) -> None:
     database.initialize()
     assert database.is_ready()
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert connection.execute(
             "SELECT version, applied_at FROM schema_migrations ORDER BY version"
         ).fetchall()[0] == (1, "2026-01-01T00:00:00Z")
