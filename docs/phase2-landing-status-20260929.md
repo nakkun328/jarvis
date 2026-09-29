@@ -64,6 +64,14 @@ rebasing for `main`.
   #23, #28, and #30 backend/frontend checks passed. #29's cross-stack lifecycle
   test is skipped on its isolated branch and passed in the combined tree.
   Recheck every head before landing.
+- A fresh temporary branch from the current `main` replayed Stage 1 followed
+  by #11 → #12 → #13 → #14 → #15 → #16 → #17 → #18 → #20 → #22 → #19 →
+  #30 → #23 → #21 → #24 → #25 → #26 → #29 → #28 → #27. Its final code
+  tree matches the earlier combined verification tree. Python 145, frontend 4,
+  real Chroma, migration tests, Ruff, compileall, JavaScript syntax, and
+  `git diff --check` passed. The full diff changed 57 files; the only `.env`
+  match was the unpopulated `.env.example`, and common secret-token patterns
+  matched zero added lines. This branch is temporary and must not be merged.
 
 These runs prove compatibility of the tested trees. They do not prove live
 OpenAI quality, real browser behavior, or permission to merge.
