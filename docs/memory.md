@@ -16,4 +16,6 @@ Candidate metadata: ID, type, source, creation and update times, importance, con
 
 The [Phase 2 task plan](phase2-plan.md) defines dependency and parallel work. The first slice defines a storage-neutral record and persists successful conversation turns in SQLite. This transcript is not treated as an approved long-term memory fact.
 
+The next SQLite migration adds `memory_records` for candidates. `MemoryRepository.add` always creates a `pending` candidate and refuses to replace an existing ID. Review may move it to `conflict` or `rejected`; approval requires a vault note revision and uses a compare-and-swap state update. Approved and rejected states are terminal in this repository. This layer does not automatically extract facts from conversations or write Obsidian notes. That coordination belongs to the later memory writer, which must persist the note before recording approval. Candidate content is retained in SQLite for review; an approved vault note will be the user-editable long-term copy.
+
 Consolidation will extract useful facts from logs, search for existing memories, detect duplicates and conflicts, update the vault and metadata, then refresh the vector index. Retrieved facts will retain source and freshness information.
