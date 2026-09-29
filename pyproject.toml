@@ -13,8 +13,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+openai = ["openai>=2,<3"]
 dev = [
   "httpx>=0.27,<1",
+  "openai>=2,<3",
   "pytest>=8,<10",
   "ruff>=0.9,<1",
 ]

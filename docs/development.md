@@ -24,4 +24,8 @@ The provider contract and documentation can be developed independently once pack
 6. **Multiple devices:** device agents, registry, remote execution, synchronization, and Raspberry Pi node.
 7. **Voice and home:** wake word, speech input and output, smart home.
 
+## Phase 1 implementation order
+
+The first small task is an OpenAI Responses adapter behind the existing provider contract. It can be tested without a live API key. Next, the chat service will combine the personality instructions and bounded conversation context with an injected provider. The chat API and streaming endpoint depend on that service; the minimal web UI depends on the API shape. Keep the adapter, chat service, and UI in focused branches and run the full test suite after integration.
+
 Keep every phase runnable. Use feature branches or worktrees, tests, diff review, and PR review. Do not merge into `main` without explicit user authorization. Avoid broad rewrites outside the active phase.
