@@ -67,9 +67,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     listing.add_argument("--limit", type=_limit, default=100)
 
-    for name in ("show", "approve", "reject", "flag-conflict"):
+    for name in ("show", "history", "approve", "reject", "flag-conflict"):
         command = commands.add_parser(name)
         command.add_argument("memory_id", type=_uuid)
+        if name in ("approve", "reject", "flag-conflict"):
+            command.add_argument("--actor", required=True, help="Operator label for the audit log")
         if name == "approve":
             command.add_argument("--vault", type=Path, required=True)
     return parser
@@ -97,11 +99,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "show":
             print(json.dumps(_summary(stored, include_content=True), ensure_ascii=False))
             return 0
+        if args.command == "history":
+            events = repository.review_events(args.memory_id)
+            print(
+                json.dumps(
+                    [
+                        {
+                            "id": event.id,
+                            "memory_id": str(event.memory_id),
+                            "previous_status": event.previous_status.value,
+                            "new_status": event.new_status.value,
+                            "action": event.action,
+                            "actor": event.actor,
+                            "occurred_at": event.occurred_at.isoformat(),
+                            "vault_revision": event.vault_revision,
+                        }
+                        for event in events
+                    ],
+                    ensure_ascii=False,
+                )
+            )
+            return 0
         if args.command == "approve":
-            updated = MemoryWriter(repository, ObsidianVault(args.vault)).approve(args.memory_id)
+            updated = MemoryWriter(repository, ObsidianVault(args.vault)).approve(
+                args.memory_id, actor=args.actor
+            )
         else:
             new = MemoryStatus.REJECTED if args.command == "reject" else MemoryStatus.CONFLICT
-            updated = repository.transition(args.memory_id, expected=stored.status, new=new)
+            updated = repository.transition(
+                args.memory_id, expected=stored.status, new=new, actor=args.actor
+            )
         print(json.dumps(_summary(updated), ensure_ascii=False))
         return 0
     except (MemoryRepositoryError, MemoryWriteError, VaultError, ValueError) as exc:
