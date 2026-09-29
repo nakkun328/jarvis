@@ -158,6 +158,36 @@ def test_retirement_preserves_note_and_excludes_retrieval(tmp_path: Path) -> Non
     assert len(repository.lifecycle_events(original.id)) == 1
 
 
+def test_retirement_racing_with_correction_blocks_stale_approval(tmp_path: Path) -> None:
+    writer, repository, _ = _system(tmp_path)
+    original = _record()
+    writer.submit(original)
+    writer.approve(original.id)
+    correction = _record("Replacement")
+    writer.submit_correction(original.id, correction)
+    writer.retire(original.id, actor="reviewer:a", reason="No longer true")
+    with pytest.raises(MemoryWriteConflict, match="Original memory changed"):
+        writer.approve(correction.id)
+    assert repository.get(correction.id).status is MemoryStatus.PENDING
+    assert repository.get(original.id).status is MemoryStatus.RETIRED
+
+
+def test_retirement_audit_failure_rolls_back_state(tmp_path: Path) -> None:
+    writer, repository, _ = _system(tmp_path)
+    original = _record()
+    writer.submit(original)
+    writer.approve(original.id)
+    with repository.database.connect() as connection, connection:
+        connection.execute(
+            "CREATE TRIGGER fail_retirement BEFORE INSERT ON memory_lifecycle_events "
+            "WHEN NEW.action = 'retire' BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END"
+        )
+    with pytest.raises(MemoryRepositoryError, match="unavailable"):
+        writer.retire(original.id, actor="reviewer:a", reason="No longer true")
+    assert repository.get(original.id).status is MemoryStatus.APPROVED
+    assert repository.lifecycle_events(original.id) == []
+
+
 def test_self_correction_is_staged_against_prior_self_memory(tmp_path: Path) -> None:
     writer, repository, retriever = _system(tmp_path)
     recorder = SelfMemoryRecorder(writer)
