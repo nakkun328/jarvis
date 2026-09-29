@@ -1,4 +1,4 @@
-# Phase 2 landing status — 2026-09-29
+# Phase 2 landing status — 2026-09-29 (updated 2026-09-30)
 
 This is a dated recovery record, not a merge authorization. Check GitHub and
 `origin/main` again before acting. At this snapshot, `main` and `origin/main`
@@ -45,11 +45,14 @@ rebasing for `main`.
 - Later unique commits were replayed from the Stage 1 result into a temporary
   integration branch. Two test-file import/doc prose conflicts were resolved
   while keeping both intended changes. A further temporary branch combines
-  #17 through #26. Its latest run passed Python 119 (with real Chroma),
-  frontend 4, Ruff, compile, and diff checks. A fake OpenAI client verifies
-  the embedding adapter; no live key was used.
+  #17 through #26. Its latest run passed Python 120 (with real Chroma),
+  frontend 4, Ruff, compile, and diff checks. The index rebuild now checks
+  the approved-note set again after embedding, including a note newly approved
+  during that step. A fake OpenAI client verifies the embedding adapter; no
+  live key was used.
 - #26's vector CI explicitly includes `tests/test_semantic_memory.py`.
-  Backend, frontend, and vector checks all passed at `cfbdc3c`.
+  Backend, frontend, and vector checks passed at `cfbdc3c`; the rebased
+  #24/#26 heads and their current CI must be checked again before landing.
 
 These runs prove compatibility of the tested trees. They do not prove live
 OpenAI quality, real browser behavior, or permission to merge.
