@@ -74,3 +74,28 @@ Local persistence, space isolation, replacement, deletion, and dimension validat
 are covered by tests against Chroma itself. No OpenAI API key is required. Live
 embeddings, retrieval quality, latency, and a source-to-index rebuild command remain
 future validation.
+
+## Embedding contract
+
+`backend.memory.embedding.EmbeddingSpace(name, version, dimension)` identifies one
+exact embedding model revision and its positive output dimension. Its `identifier`
+is `name@version:d<dimension>`; model upgrades or changes to text preparation
+need a new versioned space. A dimension change creates a distinct identifier.
+`space.record(memory_id, values)` and `space.query(values)` check
+finite values and exact dimensions before building the existing vector contract
+objects. This prevents a caller from accidentally mixing model outputs in one
+index. The vector adapter also checks dimensions for its persisted collection.
+
+An `EmbeddingProvider` declares its `space` and implements async
+`embed(texts)`, returning one vector per input in the same order. `embed_texts`
+validates input text, output count, finite numbers and dimension before indexing
+or searching. A caller should encode current approved content from SQLite and
+Obsidian, then resolve candidate IDs through that canonical store at retrieval
+time. The vector index stores IDs and vectors only; it does not own content,
+review status, provenance, or credentials.
+
+The contract and tests use a fake provider and need no API key. A concrete local
+or remote embedding provider, model selection, credential handling, index rebuild
+and retrieval quality measurement are separate follow-up work. Do not reuse an
+old space after a model or text preparation change; build a parallel derived
+index and switch after validating its IDs and search results.
