@@ -50,15 +50,17 @@ rebasing for `main`.
   integration branch. Two test-file import/doc prose conflicts were resolved
   while keeping both intended changes. A further temporary branch combines
   #17 through #26, plus the latest #23, #28, #29, and #30 changes. Its latest
-  run passed Python 145 (with real Chroma),
+  run passed Python 148 (with real Chroma),
   frontend 4, Ruff, compile, and diff checks. The index rebuild now checks
   the approved-note set again after embedding, including a note newly approved
   during that step. The vector cache now carries note revision hashes and
   reports stale or untracked entries. Reviewed corrections preserve old notes
   and audit history, while index cleanup removes inactive IDs; a real Chroma
   test covers failed deletion and retry. Chat fails closed on a corrupt memory
-  record or review-state race. A fake OpenAI client verifies the embedding
-  adapter; no live key was used.
+  record or review-state race. The CLI uses current vault metadata when
+  staging a correction, and vector cleanup verifies every stored embedding
+  space. A fake OpenAI client verifies the embedding adapter; no live key was
+  used.
 - #26's vector CI explicitly includes `tests/test_semantic_memory.py`.
   Current #21, #24, #26, and #29 backend/frontend/vector checks passed;
   #23, #28, and #30 backend/frontend checks passed. #29's cross-stack lifecycle
@@ -66,8 +68,8 @@ rebasing for `main`.
   Recheck every head before landing.
 - A fresh temporary branch from the current `main` replayed Stage 1 followed
   by #11 → #12 → #13 → #14 → #15 → #16 → #17 → #18 → #20 → #22 → #19 →
-  #30 → #23 → #21 → #24 → #25 → #26 → #29 → #28 → #27. Its final code
-  tree matches the earlier combined verification tree. Python 145, frontend 4,
+  #30 → #23 → #21 → #24 → #25 → #26 → #29 → #28 → #27 using the current
+  PR heads. Python 148, frontend 4,
   real Chroma, migration tests, Ruff, compileall, JavaScript syntax, and
   `git diff --check` passed. The full diff changed 57 files; the only `.env`
   match was the unpopulated `.env.example`, and common secret-token patterns
