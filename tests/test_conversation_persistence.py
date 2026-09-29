@@ -122,6 +122,41 @@ def test_unknown_conversation_is_not_created(tmp_path: Path) -> None:
         assert connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == 0
 
 
+def test_storage_loss_returns_safe_errors_without_recreating_database(tmp_path: Path) -> None:
+    db_path = tmp_path / "lost.sqlite3"
+    with TestClient(create_app(Settings(db_path=db_path), Provider())) as client:
+        first = client.post("/api/chat", json={"message": "first"}).json()
+        db_path.unlink()
+
+        followup = client.post(
+            "/api/chat",
+            json={"message": "second", "conversation_id": first["conversation_id"]},
+        )
+        assert followup.status_code == 503
+        assert followup.json() == {"detail": "conversation storage unavailable"}
+
+        new_chat = client.post("/api/chat", json={"message": "new conversation"})
+        assert new_chat.status_code == 503
+        assert new_chat.json() == {"detail": "conversation storage unavailable"}
+
+        stream = client.post(
+            "/api/chat/stream",
+            json={"message": "second", "conversation_id": first["conversation_id"]},
+        )
+        assert stream.status_code == 200
+        assert 'event: error\ndata: {"message": "conversation storage unavailable"}' in stream.text
+        assert "event: done" not in stream.text
+
+        new_stream = client.post("/api/chat/stream", json={"message": "new conversation"})
+        assert "event: delta" in new_stream.text
+        assert (
+            'event: error\ndata: {"message": "conversation storage unavailable"}'
+            in new_stream.text
+        )
+        assert "event: done" not in new_stream.text
+        assert not db_path.exists()
+
+
 def test_prompt_window_is_bounded_while_full_transcript_remains(tmp_path: Path) -> None:
     database = Database(tmp_path / "bounded.sqlite3")
     database.initialize()

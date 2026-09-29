@@ -1,6 +1,7 @@
 """SQLite-backed conversation context with a bounded prompt window."""
 
 import asyncio
+import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
@@ -15,6 +16,10 @@ from backend.core.database import Database
 from backend.providers.base import ChatMessage
 
 
+class ConversationStorageError(RuntimeError):
+    """The durable conversation store could not be read or updated."""
+
+
 class SQLiteConversationStore(ConversationStore):
     """Keep complete successful turns on disk and only recent turns in the prompt."""
 
@@ -25,19 +30,22 @@ class SQLiteConversationStore(ConversationStore):
         self.database = database
 
     def _load(self, conversation_id: UUID) -> list[ChatMessage] | None:
-        with self.database.connect(read_only=True) as connection:
-            exists = connection.execute(
-                "SELECT 1 FROM conversations WHERE id = ?", (str(conversation_id),)
-            ).fetchone()
-            if exists is None:
-                return None
-            rows = connection.execute(
-                "SELECT role, content FROM ("
-                "SELECT id, role, content FROM conversation_messages "
-                "WHERE conversation_id = ? ORDER BY id DESC LIMIT ?"
-                ") ORDER BY id",
-                (str(conversation_id), self.max_messages),
-            ).fetchall()
+        try:
+            with self.database.connect(read_only=True) as connection:
+                exists = connection.execute(
+                    "SELECT 1 FROM conversations WHERE id = ?", (str(conversation_id),)
+                ).fetchone()
+                if exists is None:
+                    return None
+                rows = connection.execute(
+                    "SELECT role, content FROM ("
+                    "SELECT id, role, content FROM conversation_messages "
+                    "WHERE conversation_id = ? ORDER BY id DESC LIMIT ?"
+                    ") ORDER BY id",
+                    (str(conversation_id), self.max_messages),
+                ).fetchall()
+        except (OSError, sqlite3.Error) as exc:
+            raise ConversationStorageError("Conversation storage unavailable") from exc
         return [ChatMessage(role=row["role"], content=row["content"]) for row in rows]
 
     @asynccontextmanager
@@ -77,27 +85,30 @@ class SQLiteConversationStore(ConversationStore):
                     self._conversations.pop(conversation_id, None)
 
     def _save(self, conversation_id: UUID, user: str, assistant: str) -> None:
-        with self.database.connect() as connection:
-            with connection:
-                connection.execute("BEGIN IMMEDIATE")
-                now = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
-                connection.execute(
-                    "INSERT OR IGNORE INTO conversations (id, created_at, updated_at) "
-                    f"VALUES (?, {now}, {now})",
-                    (str(conversation_id),),
-                )
-                connection.execute(
-                    f"UPDATE conversations SET updated_at = {now} WHERE id = ?",
-                    (str(conversation_id),),
-                )
-                connection.executemany(
-                    "INSERT INTO conversation_messages "
-                    f"(conversation_id, role, content, created_at) VALUES (?, ?, ?, {now})",
-                    (
-                        (str(conversation_id), "user", user),
-                        (str(conversation_id), "assistant", assistant),
-                    ),
-                )
+        try:
+            with self.database.connect() as connection:
+                with connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    now = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+                    connection.execute(
+                        "INSERT OR IGNORE INTO conversations (id, created_at, updated_at) "
+                        f"VALUES (?, {now}, {now})",
+                        (str(conversation_id),),
+                    )
+                    connection.execute(
+                        f"UPDATE conversations SET updated_at = {now} WHERE id = ?",
+                        (str(conversation_id),),
+                    )
+                    connection.executemany(
+                        "INSERT INTO conversation_messages "
+                        f"(conversation_id, role, content, created_at) VALUES (?, ?, ?, {now})",
+                        (
+                            (str(conversation_id), "user", user),
+                            (str(conversation_id), "assistant", assistant),
+                        ),
+                    )
+        except (OSError, sqlite3.Error) as exc:
+            raise ConversationStorageError("Conversation storage unavailable") from exc
 
     async def remember(
         self, conversation_id: UUID, conversation: Conversation, user: str, assistant: str
