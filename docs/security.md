@@ -1,6 +1,6 @@
 # Security baseline
 
-Phase 0 exposes only health endpoints. Bind to `127.0.0.1`; authentication, authorization, and safe remote access must be built before exposing personal data or control APIs over a network.
+Phase 1 exposes health checks, a local chat API, and a web client. The chat API has no authentication or authorization. Bind the server to `127.0.0.1`; add access control and a secure transport before allowing remote devices to connect. When the OpenAI provider is enabled, chat messages are sent to its API for generation.
 
 - Keep credentials in environment variables or a suitable secret store; never commit `.env` or hard-coded secrets.
 - Never return secrets to frontend code or include them in logs.
