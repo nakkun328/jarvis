@@ -46,7 +46,12 @@ def create_app(settings: Settings | None = None, provider: LLMProvider | None = 
         configure_logging(settings.log_level)
         database.initialize()
         logging.getLogger(__name__).info("JARVIS backend started")
-        yield
+        try:
+            yield
+        finally:
+            close = getattr(provider, "aclose", None)
+            if close is not None:
+                await close()
 
     app = FastAPI(
         title="JARVIS",
