@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.chat.context import ConversationCapacityError, ConversationNotFound
+from backend.chat.persistence import ConversationStorageError
 from backend.chat.service import ChatDelta, ChatService
 from backend.providers.base import ProviderError
 
@@ -53,6 +54,9 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
             raise HTTPException(status_code=404, detail="conversation not found") from exc
         except ConversationCapacityError as exc:
             raise HTTPException(status_code=503, detail="conversation capacity reached") from exc
+        except ConversationStorageError as exc:
+            _LOG.warning("Conversation storage failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="conversation storage unavailable") from exc
         except ProviderError as exc:
             _LOG.warning("Chat provider failed: %s", type(exc).__name__)
             raise HTTPException(status_code=502, detail="chat provider failed") from exc
@@ -86,6 +90,9 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
                 yield _sse("error", {"message": "conversation not found"})
             except ConversationCapacityError:
                 yield _sse("error", {"message": "conversation capacity reached"})
+            except ConversationStorageError as exc:
+                _LOG.warning("Conversation storage stream failed: %s", type(exc).__name__)
+                yield _sse("error", {"message": "conversation storage unavailable"})
             except ProviderError as exc:
                 _LOG.warning("Chat provider stream failed: %s", type(exc).__name__)
                 yield _sse("error", {"message": "chat provider failed"})
