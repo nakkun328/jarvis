@@ -98,6 +98,19 @@ class MemoryRetriever:
         )
         return RetrievalResult(tuple(matches[:limit]), conflicts, tuple(issues))
 
+    def get_approved(
+        self, memory_id: UUID, *, as_of: datetime | None = None
+    ) -> RetrievedMemory | RetrievalIssue | None:
+        """Read one current approved vault note, including provenance validation.
+
+        This is useful to consumers that need a canonical record by ID rather
+        than a ranked text or vector match. Unapproved records stay invisible.
+        """
+        stored = self.repository.get(memory_id)
+        if stored is None or stored.status is not MemoryStatus.APPROVED:
+            return None
+        return self._resolve(stored, _as_of(as_of))
+
     async def search_vector(
         self, query: VectorQuery, *, as_of: datetime | None = None
     ) -> RetrievalResult:
