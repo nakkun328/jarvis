@@ -174,17 +174,21 @@ def test_vector_matches_resolve_canonical_records_and_filter_unapproved(tmp_path
     )
 
     class FakeIndex:
+        calls: list[int] = []
+
         async def search(self, query: VectorQuery) -> list[VectorMatch]:
             assert query.space == "test-model-v1"
+            self.calls.append(query.limit)
             return [
                 VectorMatch(str(pending.id), 0.99),
                 VectorMatch(str(conflicted.id), 0.9),
                 VectorMatch(str(uuid4()), 0.8),
                 VectorMatch(str(approved.id), 0.42),
-            ]
+            ][: query.limit]
 
     query = VectorQuery(space="test-model-v1", values=(0.1, 0.2), limit=2)
-    retriever = MemoryRetriever(repository, vault, vector_index=FakeIndex())
+    index = FakeIndex()
+    retriever = MemoryRetriever(repository, vault, vector_index=index)
     result = asyncio.run(retriever.search_vector(query))
     assert len(result.matches) == 1
     assert result.matches[0].record.id == approved.id
@@ -192,3 +196,4 @@ def test_vector_matches_resolve_canonical_records_and_filter_unapproved(tmp_path
     assert result.matches[0].match_score == 0.42
     assert [item.record.id for item in result.conflicts] == [conflicted.id]
     assert result.issues == ()
+    assert index.calls == [2, 4, 8]
