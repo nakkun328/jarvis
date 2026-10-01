@@ -104,6 +104,27 @@ class MemoryRepository:
             raise MemoryRepositoryError("Memory storage unavailable") from exc
         return [_stored(row) for row in rows]
 
+    def page_by_status(
+        self, status: MemoryStatus, *, after_id: UUID | None = None, limit: int = 100
+    ) -> list[StoredMemory]:
+        """Page by stable ID order so retrieval can inspect the full corpus."""
+        if not isinstance(status, MemoryStatus):
+            raise ValueError("status must be a MemoryStatus")
+        if after_id is not None and not isinstance(after_id, UUID):
+            raise ValueError("after_id must be a UUID")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("limit must be a positive integer")
+        try:
+            with self.database.connect(read_only=True) as connection:
+                rows = connection.execute(
+                    "SELECT * FROM memory_records WHERE status = ? AND id > ? "
+                    "ORDER BY id LIMIT ?",
+                    (status.value, str(after_id) if after_id else "", limit),
+                ).fetchall()
+        except (OSError, sqlite3.Error) as exc:
+            raise MemoryRepositoryError("Memory storage unavailable") from exc
+        return [_stored(row) for row in rows]
+
     def transition(
         self,
         memory_id: UUID,

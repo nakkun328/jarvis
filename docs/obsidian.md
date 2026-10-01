@@ -28,6 +28,10 @@ scalar/list syntax, which YAML accepts. People may edit the Markdown body and th
 simple frontmatter values in Obsidian. Other YAML forms are not yet parsed by this
 adapter. Keep the `id` equal to the filename UUID.
 
+Retrieval uses human edits to the body, importance, confidence, tags, and project.
+Category, source, origin, ID, and creation time are provenance fields; changing them
+requires review before the note can be returned as an approved memory.
+
 `create` fails if the UUID note already exists. `update` requires the SHA-256 revision
 returned by `create` or `read`, and raises `VaultConflictError` when the file changed.
 Callers should re-read and resolve changes rather than blindly retrying. Writes use a
