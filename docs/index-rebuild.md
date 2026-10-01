@@ -78,7 +78,7 @@ durable; `publish_reviewed` reports `IndexRefreshError`. After repairing the
 cause, call `publish_reviewed` again to retry without creating another note.
 Run this synchronous path from a CLI or worker thread, not inside an active
 event loop. It does not watch Obsidian edits or select an embedding provider.
-After a reviewed correction or retirement moves the old SQLite record into a
+The reviewed lifecycle in PR #30 is required to create superseded or retired records. After a reviewed correction or retirement moves the old SQLite record into a
 terminal inactive state, `remove_inactive(old_id)` removes its ID from every
 derived vector space and verifies absence from each stored space. The synchronous
 adapter exposes the same operation for
