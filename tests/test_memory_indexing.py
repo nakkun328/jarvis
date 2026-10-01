@@ -391,6 +391,8 @@ def test_reviewed_correction_and_retirement_clean_real_index(tmp_path: Path) -> 
     writer.submit(original)
     writer.approve(original.id)
     asyncio.run(builder.populate_empty())
+    other_space = "fake/local@v2:d2"
+    asyncio.run(index.upsert((VectorRecord(str(original.id), other_space, (0.0, 1.0)),)))
     writer.submit_correction(original.id, correction)
 
     original_delete = index.delete
@@ -416,9 +418,15 @@ def test_reviewed_correction_and_retirement_clean_real_index(tmp_path: Path) -> 
     pipeline.publish_reviewed(correction.id, actor="reviewer:alice")
     assert asyncio.run(builder.audit_ids()).healthy
     assert asyncio.run(index.list_ids(provider.space.identifier)) == (str(correction.id),)
+    assert asyncio.run(index.list_ids(other_space)) == ()
+    assert len(repository.lifecycle_events(original.id)) == 1
+    assert len(repository.review_events(correction.id)) == 1
     assert retriever.get_approved(original.id) is None
+    asyncio.run(index.upsert((VectorRecord(str(correction.id), other_space, (0.0, 1.0)),)))
     pipeline.retire_reviewed(correction.id, actor="reviewer:alice", reason="Outdated")
     assert asyncio.run(index.list_ids(provider.space.identifier)) == ()
+    assert asyncio.run(index.list_ids(other_space)) == ()
+    assert len(repository.lifecycle_events(correction.id)) == 1
     assert asyncio.run(builder.audit_ids()).healthy
     assert vault.read(correction.id).body == correction.content
 
