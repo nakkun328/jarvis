@@ -2,7 +2,9 @@
 
 The initial chat flow uses the existing vendor-neutral `LLMProvider` contract. A personality prompt is sent as a system message, followed by at most ten recent user/assistant turns and the current user message. A turn enters context only after a complete, nonblank provider response. Provider failures leave the previous context intact.
 
-The process-local context store holds at most 100 conversations and 20 messages per conversation. It serializes requests within a conversation and evicts the oldest idle conversation at capacity. IDs are UUIDs. Context disappears on restart and is not synchronized between workers or devices; persistence belongs to Phase 2. Run one worker for Phase 1 if conversation continuity matters.
+Phase 2 stores complete successful turns in SQLite and reloads the latest 20 messages for the provider, so conversation IDs survive a process restart. It keeps at most 100 active context locks in a process and evicts an idle lock when needed; evicting a lock does not delete the transcript. Requests in one process are serialized by conversation. Cross-worker ordering is not yet coordinated, so run one worker when conversation continuity matters.
+
+If SQLite becomes unavailable while serving chat, the regular endpoint returns HTTP 503 and the stream emits an `error` event. Failed storage writes do not enter prompt context. Runtime connections require an existing database, so a missing file is never recreated by a chat request.
 
 `POST /api/chat` accepts `{ "message": "...", "conversation_id": "optional UUID" }` and returns `conversation_id`, `reply`, `provider`, and `model`. `POST /api/chat/stream` accepts the same request and emits SSE `delta`, `done`, or `error` events. A successful `done` event contains the conversation ID and provider metadata. A missing or expired conversation ID returns HTTP 404 for the regular endpoint and an SSE `error` for streaming. Input is limited to 4,000 characters; blank messages are rejected.
 
