@@ -1,8 +1,8 @@
 # Phase 2 vector search decision
 
-Reviewed 2026-09-29 against the vendors' documentation. This is a design decision,
-not a completed vector deployment. No embedding model or vector engine is installed
-by this task.
+Reviewed 2026-09-29 against the vendors' documentation. The local Chroma adapter is
+implemented behind the vector contract. Embedding generation, canonical indexing,
+and live retrieval quality checks remain later work.
 
 ## Comparison
 
@@ -16,11 +16,11 @@ by this task.
 
 ## Decision and boundaries
 
-For the first single-device JARVIS vector implementation, **prefer Chroma's local
-persistent client**, after the SQLite memory model, retrieval policy, and embedding
-choice are ready. This minimizes operations while the corpus is small. Keep the
-engine behind `backend.memory.vector.VectorIndex`; this task implements the contract
-only. Reassess Qdrant server when multiple devices must query one index, filtered
+For the first single-device JARVIS vector implementation, **use Chroma's local
+persistent client** behind `backend.memory.vector.VectorIndex`. The adapter accepts
+caller-generated embeddings so the embedding model can be chosen separately. This
+minimizes operations while the corpus is small. Reassess Qdrant server when multiple
+devices must query one index, filtered
 retrieval or index size exceeds measured Chroma performance, or centralized operations
 become necessary. Qdrant Edge is another local option, but its beta status makes it
 less suitable as the initial dependency today. The choice is an inference from the
@@ -36,7 +36,7 @@ within one space; they are not confidence values or probabilities.
 ## Migration path
 
 1. Choose a versioned embedding space and dimension. Persist the model identity and
-   source-to-memory ID mapping in canonical metadata before building an adapter.
+   source-to-memory ID mapping in canonical metadata before indexing approved memories.
 2. Build the chosen index by replaying canonical memory records. Keep a rebuild
    command and verify count, IDs and representative search results against the source.
 3. For a new engine, create a parallel index from those records. If the embedding
@@ -46,5 +46,31 @@ within one space; they are not confidence values or probabilities.
    new one is accepted. Vendor snapshots can back up an index but are not the
    cross-vendor migration format.
 
-No OpenAI API key is required for this contract or its tests. Live embeddings,
-retrieval quality, latency and engine-specific persistence remain future validation.
+## Local adapter
+
+Install the optional dependency with `pip install -e '.[vector]'`. The adapter uses
+Chroma's [PersistentClient](https://docs.trychroma.com/reference/python/client) and
+passes precomputed vectors to the [collection upsert/query API](https://docs.trychroma.com/reference/python/collection).
+It does not call an embedding model or store note text. Each exact `space` gets a
+separate collection named from a hash, with its space and vector dimension in
+collection metadata. Dimension mismatches are rejected. `delete` removes a memory ID
+from every JARVIS space. The adapter creates the index root with private directory
+permissions and rejects a symlinked or publicly readable root on POSIX systems.
+
+```python
+from pathlib import Path
+from backend.memory.chroma import ChromaVectorIndex
+from backend.memory.vector import VectorQuery, VectorRecord
+
+index = ChromaVectorIndex(Path("data/vectors"))
+await index.upsert([VectorRecord("memory-uuid", "embedding-model-v1", (0.1, 0.2))])
+matches = await index.search(VectorQuery("embedding-model-v1", (0.1, 0.2)))
+```
+
+The returned score is the negative Chroma distance, so higher means nearer within
+one space. It is neither confidence nor a probability. The Chroma collection is a
+rebuildable cache; query results still need canonical SQLite/Obsidian resolution.
+Local persistence, space isolation, replacement, deletion, and dimension validation
+are covered by tests against Chroma itself. No OpenAI API key is required. Live
+embeddings, retrieval quality, latency, and a source-to-index rebuild command remain
+future validation.
