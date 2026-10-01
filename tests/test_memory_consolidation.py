@@ -31,9 +31,7 @@ def _system(tmp_path: Path, *, refresher: object = None):
     vault = ObsidianVault(tmp_path / "vault")
     writer = MemoryWriter(repository, vault)
     retriever = MemoryRetriever(repository, vault)
-    pipeline = MemoryConsolidator(
-        database, writer, retriever, index_refresher=refresher
-    )
+    pipeline = MemoryConsolidator(database, writer, retriever, index_refresher=refresher)
     return pipeline, database, repository, writer, vault, retriever
 
 
@@ -114,8 +112,11 @@ def test_same_topic_disagreement_is_conflict_and_never_replaces_approved_note(
 ) -> None:
     pipeline, _, repository, _, vault, retriever = _system(tmp_path)
     original = _stage(pipeline, _candidate("Prefer concise replies"))
-    approved = pipeline.publish_reviewed(original.pending[0].record.id)
+    approved = pipeline.publish_reviewed(original.pending[0].record.id, actor="reviewer:alice")
     assert approved.status is MemoryStatus.APPROVED
+    assert [
+        (event.action, event.actor) for event in repository.review_events(approved.record.id)
+    ] == [("approve", "reviewer:alice")]
     note = vault.read(approved.record.id)
     assert note is not None
     note.path.write_text(
@@ -126,6 +127,10 @@ def test_same_topic_disagreement_is_conflict_and_never_replaces_approved_note(
     assert result.pending == ()
     assert len(result.conflicts) == 1
     assert result.conflicts[0].status is MemoryStatus.CONFLICT
+    assert [
+        (event.action, event.actor)
+        for event in repository.review_events(result.conflicts[0].record.id)
+    ] == [("flag_conflict", "system:consolidator")]
     assert vault.read(approved.record.id).body == "Prefer brief replies"
     assert retriever.search_text("detailed").matches == ()
     assert [item.record.id for item in retriever.search_text("detailed").conflicts] == [
@@ -161,6 +166,10 @@ def test_two_new_disagreeing_candidates_are_both_flagged(tmp_path: Path) -> None
     assert result.pending == ()
     assert len(result.conflicts) == 2
     assert len(repository.list_by_status(MemoryStatus.CONFLICT)) == 2
+    for item in result.conflicts:
+        assert [
+            (event.action, event.actor) for event in repository.review_events(item.record.id)
+        ] == [("flag_conflict", "system:consolidator")]
 
 
 def test_rejected_candidate_remains_terminal_on_repeated_extraction(tmp_path: Path) -> None:
@@ -266,9 +275,12 @@ def test_pluggable_extractor_must_supply_valid_topic_and_record(tmp_path: Path) 
     with pytest.raises(ValueError, match="topic"):
         _stage(pipeline, bad)
     assert repository.list_by_status(MemoryStatus.PENDING) == []
-    assert ExplicitExtractor().extract(
-        ConversationEvidence(uuid4(), 1, "user", "ordinary chat")
-    ) == ()
-    assert ExplicitExtractor().extract(
-        ConversationEvidence(uuid4(), 1, "assistant", "Remember reply_style: terse")
-    ) == ()
+    assert (
+        ExplicitExtractor().extract(ConversationEvidence(uuid4(), 1, "user", "ordinary chat")) == ()
+    )
+    assert (
+        ExplicitExtractor().extract(
+            ConversationEvidence(uuid4(), 1, "assistant", "Remember reply_style: terse")
+        )
+        == ()
+    )

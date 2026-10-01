@@ -38,7 +38,7 @@ def test_candidate_is_not_a_fact_until_approved_and_note_survives_restart(tmp_pa
     assert submitted.status is MemoryStatus.PENDING
     assert not vault.root.exists()
 
-    approved = writer.approve(candidate.id)
+    approved = writer.approve(candidate.id, actor="reviewer:alice")
     note = vault.read(candidate.id)
     assert note is not None
     assert note.body == candidate.content
@@ -48,6 +48,13 @@ def test_candidate_is_not_a_fact_until_approved_and_note_survives_restart(tmp_pa
     assert approved.status is MemoryStatus.APPROVED
     assert approved.vault_revision == note.revision
     assert MemoryRepository(repository.database).get(candidate.id) == approved
+    events = repository.review_events(candidate.id)
+    assert len(events) == 1
+    assert (events[0].action, events[0].actor, events[0].vault_revision) == (
+        "approve",
+        "reviewer:alice",
+        note.revision,
+    )
 
     # The approved vault note is human editable; an idempotent retry must not erase it.
     note.path.write_text(
@@ -56,6 +63,7 @@ def test_candidate_is_not_a_fact_until_approved_and_note_survives_restart(tmp_pa
     )
     reopened_writer = MemoryWriter(MemoryRepository(repository.database), vault)
     assert reopened_writer.approve(candidate.id) == approved
+    assert repository.review_events(candidate.id) == events
     assert vault.read(candidate.id).body == "Human correction."
 
 
@@ -74,12 +82,16 @@ def test_database_failure_after_note_creation_can_be_retried(
     with pytest.raises(MemoryRepositoryError, match="outage"):
         writer.approve(candidate.id)
     assert repository.get(candidate.id).status is MemoryStatus.PENDING
+    assert repository.review_events(candidate.id) == []
     assert vault.read(candidate.id) is not None
 
     monkeypatch.setattr(repository, "transition", transition)
     approved = writer.approve(candidate.id)
     assert approved.status is MemoryStatus.APPROVED
     assert approved.vault_revision == vault.read(candidate.id).revision
+    assert [(event.action, event.actor) for event in repository.review_events(candidate.id)] == [
+        ("approve", "unknown")
+    ]
 
 
 def test_retry_refuses_note_edited_after_failed_database_update(
@@ -120,6 +132,17 @@ def test_existing_different_note_is_never_overwritten(tmp_path: Path) -> None:
     assert vault.read(candidate.id) == existing
 
 
+def test_invalid_actor_does_not_create_vault_note(tmp_path: Path) -> None:
+    writer, repository, vault = _writer(tmp_path)
+    candidate = _record()
+    writer.submit(candidate)
+    with pytest.raises(ValueError, match="actor"):
+        writer.approve(candidate.id, actor="reviewer\nadmin")
+    assert repository.get(candidate.id).status is MemoryStatus.PENDING
+    assert repository.review_events(candidate.id) == []
+    assert not vault.root.exists()
+
+
 def test_approved_missing_note_is_reported_without_recreation(tmp_path: Path) -> None:
     writer, repository, vault = _writer(tmp_path)
     candidate = _record()
@@ -139,9 +162,7 @@ def test_rejected_and_missing_candidates_cannot_be_published(tmp_path: Path) -> 
     with pytest.raises(MemoryWriteConflict, match="does not exist"):
         writer.approve(candidate.id)
     writer.submit(candidate)
-    repository.transition(
-        candidate.id, expected=MemoryStatus.PENDING, new=MemoryStatus.REJECTED
-    )
+    repository.transition(candidate.id, expected=MemoryStatus.PENDING, new=MemoryStatus.REJECTED)
     with pytest.raises(MemoryWriteConflict, match="Rejected"):
         writer.approve(candidate.id)
     assert not vault.root.exists()

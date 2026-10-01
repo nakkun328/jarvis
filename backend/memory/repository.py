@@ -41,6 +41,32 @@ class StoredMemory:
     vault_revision: str | None
 
 
+@dataclass(frozen=True)
+class MemoryReviewEvent:
+    id: int
+    memory_id: UUID
+    previous_status: MemoryStatus
+    new_status: MemoryStatus
+    action: str
+    actor: str
+    occurred_at: datetime
+    vault_revision: str | None
+
+
+def validate_review_actor(actor: str | None) -> str:
+    """Normalize caller attribution; missing identity remains explicitly unknown."""
+    if actor is None:
+        return "unknown"
+    if (
+        not isinstance(actor, str)
+        or not actor.strip()
+        or len(actor) > 256
+        or any(ord(character) < 32 or ord(character) == 127 for character in actor)
+    ):
+        raise ValueError("actor must be nonempty printable text of at most 256 characters")
+    return actor.strip()
+
+
 class MemoryRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -96,8 +122,7 @@ class MemoryRepository:
         try:
             with self.database.connect(read_only=True) as connection:
                 rows = connection.execute(
-                    "SELECT * FROM memory_records WHERE status = ? "
-                    "ORDER BY created_at, id LIMIT ?",
+                    "SELECT * FROM memory_records WHERE status = ? ORDER BY created_at, id LIMIT ?",
                     (status.value, limit),
                 ).fetchall()
         except (OSError, sqlite3.Error) as exc:
@@ -117,8 +142,7 @@ class MemoryRepository:
         try:
             with self.database.connect(read_only=True) as connection:
                 rows = connection.execute(
-                    "SELECT * FROM memory_records WHERE status = ? AND id > ? "
-                    "ORDER BY id LIMIT ?",
+                    "SELECT * FROM memory_records WHERE status = ? AND id > ? ORDER BY id LIMIT ?",
                     (status.value, str(after_id) if after_id else "", limit),
                 ).fetchall()
         except (OSError, sqlite3.Error) as exc:
@@ -132,8 +156,9 @@ class MemoryRepository:
         expected: MemoryStatus,
         new: MemoryStatus,
         vault_revision: str | None = None,
+        actor: str | None = None,
     ) -> StoredMemory:
-        """Compare and swap a review state; approval requires a persisted vault note."""
+        """Atomically record a compare-and-swap transition and its audit event."""
         if not isinstance(expected, MemoryStatus) or not isinstance(new, MemoryStatus):
             raise ValueError("expected and new must be MemoryStatus values")
         allowed = {
@@ -151,6 +176,13 @@ class MemoryRepository:
                 raise ValueError("Approval requires a vault revision")
         elif vault_revision is not None:
             raise ValueError("Only approval accepts a vault revision")
+        actor_name = validate_review_actor(actor)
+        occurred_at = datetime.now(UTC).isoformat()
+        action = {
+            MemoryStatus.CONFLICT: "flag_conflict",
+            MemoryStatus.APPROVED: "approve",
+            MemoryStatus.REJECTED: "reject",
+        }[new]
         try:
             with self.database.connect() as connection, connection:
                 updated = connection.execute(
@@ -160,19 +192,59 @@ class MemoryRepository:
                     (
                         new.value,
                         vault_revision,
-                        datetime.now(UTC).isoformat(),
+                        occurred_at,
                         str(memory_id),
                         expected.value,
                     ),
                 )
                 if updated.rowcount != 1:
                     raise MemoryStateChanged("Memory candidate missing or state changed")
+                connection.execute(
+                    "INSERT INTO memory_review_events ("
+                    "memory_id, previous_status, new_status, action, actor, "
+                    "occurred_at, vault_revision) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        str(memory_id),
+                        expected.value,
+                        new.value,
+                        action,
+                        actor_name,
+                        occurred_at,
+                        vault_revision,
+                    ),
+                )
                 row = connection.execute(
                     "SELECT * FROM memory_records WHERE id = ?", (str(memory_id),)
                 ).fetchone()
         except (OSError, sqlite3.Error) as exc:
             raise MemoryRepositoryError("Memory storage unavailable") from exc
         return _stored(row)
+
+    def review_events(self, memory_id: UUID) -> list[MemoryReviewEvent]:
+        """Return committed lifecycle transitions in insertion order."""
+        if not isinstance(memory_id, UUID):
+            raise ValueError("memory_id must be a UUID")
+        try:
+            with self.database.connect(read_only=True) as connection:
+                rows = connection.execute(
+                    "SELECT * FROM memory_review_events WHERE memory_id = ? ORDER BY id",
+                    (str(memory_id),),
+                ).fetchall()
+        except (OSError, sqlite3.Error) as exc:
+            raise MemoryRepositoryError("Memory storage unavailable") from exc
+        return [
+            MemoryReviewEvent(
+                id=row["id"],
+                memory_id=UUID(row["memory_id"]),
+                previous_status=MemoryStatus(row["previous_status"]),
+                new_status=MemoryStatus(row["new_status"]),
+                action=row["action"],
+                actor=row["actor"],
+                occurred_at=datetime.fromisoformat(row["occurred_at"]),
+                vault_revision=row["vault_revision"],
+            )
+            for row in rows
+        ]
 
 
 def _stored(row: sqlite3.Row) -> StoredMemory:

@@ -230,8 +230,7 @@ class MemoryConsolidator:
             peers = [
                 item
                 for item in known
-                if item.record.category is record.category
-                and item.record.project == record.project
+                if item.record.category is record.category and item.record.project == record.project
             ]
             if any(
                 _normalize(item.record.content) == _normalize(record.content)
@@ -258,6 +257,7 @@ class MemoryConsolidator:
                                 item.record.id,
                                 expected=MemoryStatus.PENDING,
                                 new=MemoryStatus.CONFLICT,
+                                actor="system:consolidator",
                             )
                         except MemoryStateChanged:
                             pass  # The next snapshot observes the concurrent review state.
@@ -274,7 +274,10 @@ class MemoryConsolidator:
             if conflicting and stored.status is MemoryStatus.PENDING:
                 try:
                     stored = self.writer.repository.transition(
-                        record.id, expected=MemoryStatus.PENDING, new=MemoryStatus.CONFLICT
+                        record.id,
+                        expected=MemoryStatus.PENDING,
+                        new=MemoryStatus.CONFLICT,
+                        actor="system:consolidator",
                     )
                 except MemoryStateChanged:
                     stored = self.writer.repository.get(record.id)
@@ -289,9 +292,9 @@ class MemoryConsolidator:
             tuple(duplicates),
         )
 
-    def publish_reviewed(self, memory_id: UUID) -> StoredMemory:
+    def publish_reviewed(self, memory_id: UUID, *, actor: str | None = None) -> StoredMemory:
         """Explicit reviewer action; retry also retries a failed index refresh."""
-        stored = self.writer.approve(memory_id)
+        stored = self.writer.approve(memory_id, actor=actor)
         canonical = self.retriever.get_approved(memory_id)
         if not isinstance(canonical, RetrievedMemory):
             raise ConsolidationError("Approved note cannot be resolved for index refresh")
@@ -367,5 +370,5 @@ def _normalize(value: str) -> str:
 
 
 def _topic_of(record: MemoryRecord) -> str | None:
-    topics = [tag[len(_TOPIC_PREFIX):] for tag in record.tags if tag.startswith(_TOPIC_PREFIX)]
+    topics = [tag[len(_TOPIC_PREFIX) :] for tag in record.tags if tag.startswith(_TOPIC_PREFIX)]
     return topics[0] if len(topics) == 1 else None
