@@ -45,14 +45,21 @@ class MemoryRecord:
         ):
             raise ValueError("Memory category and origin must use defined values")
         for name, value in (("importance", self.importance), ("confidence", self.confidence)):
-            if not math.isfinite(value) or not 0 <= value <= 1:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not 0 <= value <= 1
+                or not math.isfinite(value)
+            ):
                 raise ValueError(f"Memory {name} must be between 0 and 1")
         for name, value in (
             ("created_at", self.created_at),
             ("updated_at", self.updated_at),
             ("last_accessed", self.last_accessed),
         ):
-            if value is not None and value.utcoffset() is None:
+            if value is not None and (
+                not isinstance(value, datetime) or value.utcoffset() is None
+            ):
                 raise ValueError(f"Memory {name} must have a timezone")
         if self.updated_at < self.created_at:
             raise ValueError("Memory updated_at must not precede created_at")

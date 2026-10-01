@@ -23,8 +23,8 @@ def test_memory_record_distinguishes_explicit_fact_from_inference() -> None:
     assert explicit.id == inferred.id
 
 
-@pytest.mark.parametrize("score", [-0.1, 1.1, float("nan"), float("inf")])
-def test_rejects_invalid_confidence(score: float) -> None:
+@pytest.mark.parametrize("score", [-0.1, 1.1, float("nan"), float("inf"), True, "0.5"])
+def test_rejects_invalid_confidence(score: object) -> None:
     with pytest.raises(ValueError, match="confidence"):
         MemoryRecord(
             category=MemoryCategory.SELF,
