@@ -109,3 +109,38 @@ def test_invalid_vault_is_checked_before_allocating_provider(tmp_path, monkeypat
             db_path=tmp_path / "chat.sqlite3", memory_vault_path=tmp_path / "missing"
         ))
     assert created == []
+
+
+def test_provider_contract_accepts_async_iterator_without_close():
+    class PlainIterator:
+        def __init__(self):
+            self.sent = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self.sent:
+                raise StopAsyncIteration
+            self.sent = True
+            return "complete"
+
+    class Provider:
+        name = "custom"
+        model = "iterator"
+
+        def stream(self, request):
+            return PlainIterator()
+
+    async def run():
+        from backend.chat.service import ChatDelta, ChatDone
+
+        store = ConversationStore()
+        results = [item async for item in ChatService(Provider(), store).stream("hello")]
+        assert results[0] == ChatDelta("complete")
+        assert isinstance(results[1], ChatDone)
+        conversation = store._conversations[results[1].conversation_id]
+        assert [m.content for m in conversation.messages] == ["hello", "complete"]
+        assert conversation.active_requests == 0
+
+    asyncio.run(run())
