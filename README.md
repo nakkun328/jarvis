@@ -49,6 +49,7 @@ node --test frontend/test/chat-api.test.mjs
 - [Architecture](docs/architecture.md)
 - [Chat API and context](docs/chat.md)
 - [Memory](docs/memory.md)
+- [Local memory review](docs/memory-review.md)
 - [Research](docs/research.md)
 - [Tools](docs/tools.md)
 - [Security](docs/security.md)
