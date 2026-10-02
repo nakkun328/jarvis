@@ -25,8 +25,6 @@ from backend.providers.factory import create_provider
 def create_app(settings: Settings | None = None, provider: LLMProvider | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     database = Database(settings.db_path)
-    if provider is None:
-        provider = create_provider(settings)
     memory_context = None
     if settings.memory_vault_path is not None:
         vault_path = settings.memory_vault_path
@@ -35,6 +33,8 @@ def create_app(settings: Settings | None = None, provider: LLMProvider | None = 
         memory_context = MemoryContext(
             MemoryRetriever(MemoryRepository(database), ObsidianVault(vault_path))
         )
+    if provider is None:
+        provider = create_provider(settings)
     chat_service = (
         ChatService(provider, SQLiteConversationStore(database), memory_context=memory_context)
         if provider is not None
@@ -44,9 +44,9 @@ def create_app(settings: Settings | None = None, provider: LLMProvider | None = 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         configure_logging(settings.log_level)
-        database.initialize()
-        logging.getLogger(__name__).info("JARVIS backend started")
         try:
+            database.initialize()
+            logging.getLogger(__name__).info("JARVIS backend started")
             yield
         finally:
             close = getattr(provider, "aclose", None)

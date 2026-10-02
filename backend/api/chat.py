@@ -2,6 +2,7 @@
 
 import json
 import logging
+from contextlib import aclosing
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -78,18 +79,21 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
 
         async def events():
             try:
-                async for item in chat_service.stream(request.message, request.conversation_id):
-                    if isinstance(item, ChatDelta):
-                        yield _sse("delta", {"text": item.text})
-                    else:
-                        yield _sse(
-                            "done",
-                            {
-                                "conversation_id": str(item.conversation_id),
-                                "provider": item.provider,
-                                "model": item.model,
-                            },
-                        )
+                async with aclosing(
+                    chat_service.stream(request.message, request.conversation_id)
+                ) as items:
+                    async for item in items:
+                        if isinstance(item, ChatDelta):
+                            yield _sse("delta", {"text": item.text})
+                        else:
+                            yield _sse(
+                                "done",
+                                {
+                                    "conversation_id": str(item.conversation_id),
+                                    "provider": item.provider,
+                                    "model": item.model,
+                                },
+                            )
             except ConversationNotFound:
                 yield _sse("error", {"message": "conversation not found"})
             except ConversationCapacityError:

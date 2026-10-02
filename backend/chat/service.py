@@ -1,6 +1,7 @@
 """Vendor-neutral chat flow with context updates after verified responses."""
 
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -91,10 +92,11 @@ class ChatService:
         async with self.store.open(conversation_id) as (current_id, conversation):
             chunks: list[str] = []
             request = await self._request(conversation.messages, message)
-            async for delta in self.provider.stream(request):
-                if delta:
-                    chunks.append(delta)
-                    yield ChatDelta(delta)
+            async with aclosing(self.provider.stream(request)) as deltas:
+                async for delta in deltas:
+                    if delta:
+                        chunks.append(delta)
+                        yield ChatDelta(delta)
             reply = "".join(chunks)
             if not reply.strip():
                 raise ProviderError("Provider returned no text")
