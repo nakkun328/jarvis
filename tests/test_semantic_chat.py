@@ -148,9 +148,15 @@ def test_semantic_chat_filters_review_states_and_reads_current_note(system, endp
     assert turns(db) == ["orbit question", "Okay"]
 
 
-def test_semantic_context_shares_bounds_and_inference_freshness(system):
+def test_semantic_context_shares_bounds_and_inference_freshness(system, monkeypatch):
     _, _, _, writer, embeddings, index, _, builder, chat, settings = system
     old = datetime.now(UTC) - timedelta(days=200)
+
+    class Past(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return old
+
     for n in range(5):
         item = record(
             f"Lesson {n} " + "X" * 3000,
@@ -160,7 +166,11 @@ def test_semantic_context_shares_bounds_and_inference_freshness(system):
             updated_at=old,
         )
         writer.submit(item)
-        writer.approve(item.id)
+        # Approval timestamps are canonical freshness. Model an approval in
+        # the past rather than incorrectly treating a fresh review as stale.
+        with monkeypatch.context() as patch:
+            patch.setattr("backend.memory.repository.datetime", Past)
+            writer.approve(item.id)
     asyncio.run(builder.populate_empty())
     with TestClient(
         create_app(settings, chat, embedding_provider=embeddings, memory_index=index)
