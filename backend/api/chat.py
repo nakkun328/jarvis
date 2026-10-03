@@ -2,18 +2,32 @@
 
 import json
 import logging
+from contextlib import aclosing
 from uuid import UUID
 
+from anyio import CancelScope
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.types import Receive, Scope, Send
 
 from backend.chat.context import ConversationCapacityError, ConversationNotFound
+from backend.chat.memory_context import MemoryContextError
 from backend.chat.persistence import ConversationStorageError
 from backend.chat.service import ChatDelta, ChatService
 from backend.providers.base import ProviderError
 
 _LOG = logging.getLogger(__name__)
+
+
+class _ClosingStreamingResponse(StreamingResponse):
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            # A failed/cancelled send can leave the body suspended at yield.
+            with CancelScope(shield=True):
+                await self.body_iterator.aclose()
 
 
 class ChatRequest(BaseModel):
@@ -57,6 +71,9 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
         except ConversationStorageError as exc:
             _LOG.warning("Conversation storage failed: %s", type(exc).__name__)
             raise HTTPException(status_code=503, detail="conversation storage unavailable") from exc
+        except MemoryContextError as exc:
+            _LOG.warning("Memory context failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="memory context unavailable") from exc
         except ProviderError as exc:
             _LOG.warning("Chat provider failed: %s", type(exc).__name__)
             raise HTTPException(status_code=502, detail="chat provider failed") from exc
@@ -74,18 +91,21 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
 
         async def events():
             try:
-                async for item in chat_service.stream(request.message, request.conversation_id):
-                    if isinstance(item, ChatDelta):
-                        yield _sse("delta", {"text": item.text})
-                    else:
-                        yield _sse(
-                            "done",
-                            {
-                                "conversation_id": str(item.conversation_id),
-                                "provider": item.provider,
-                                "model": item.model,
-                            },
-                        )
+                async with aclosing(
+                    chat_service.stream(request.message, request.conversation_id)
+                ) as items:
+                    async for item in items:
+                        if isinstance(item, ChatDelta):
+                            yield _sse("delta", {"text": item.text})
+                        else:
+                            yield _sse(
+                                "done",
+                                {
+                                    "conversation_id": str(item.conversation_id),
+                                    "provider": item.provider,
+                                    "model": item.model,
+                                },
+                            )
             except ConversationNotFound:
                 yield _sse("error", {"message": "conversation not found"})
             except ConversationCapacityError:
@@ -93,11 +113,14 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
             except ConversationStorageError as exc:
                 _LOG.warning("Conversation storage stream failed: %s", type(exc).__name__)
                 yield _sse("error", {"message": "conversation storage unavailable"})
+            except MemoryContextError as exc:
+                _LOG.warning("Memory context stream failed: %s", type(exc).__name__)
+                yield _sse("error", {"message": "memory context unavailable"})
             except ProviderError as exc:
                 _LOG.warning("Chat provider stream failed: %s", type(exc).__name__)
                 yield _sse("error", {"message": "chat provider failed"})
 
-        return StreamingResponse(
+        return _ClosingStreamingResponse(
             events(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
