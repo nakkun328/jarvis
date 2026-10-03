@@ -1,6 +1,13 @@
 """Rebuild the derived Chroma cache from reviewed, current vault notes."""
 
 import asyncio
+import json
+import os
+import shutil
+import sqlite3
+import subprocess
+import sys
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -549,3 +556,51 @@ def test_failed_refresh_keeps_approval_and_can_retry(tmp_path: Path) -> None:
     pipeline.publish_reviewed(memory_id)
     assert vault.read(memory_id).revision == note.revision
     assert asyncio.run(index.list_ids(provider.space.identifier)) == (str(memory_id),)
+
+
+def test_restored_vault_rebuilds_fresh_index_and_reopens_in_another_process(tmp_path: Path) -> None:
+    repository, vault, writer, provider, index, builder = _setup(tmp_path)
+    original, current, retired, pending = [
+        _record(text) for text in ("Old observatory", "New observatory", "Retired", "Pending")
+    ]
+    for record in (original, retired, pending):
+        writer.submit(record)
+    writer.approve(original.id)
+    writer.approve(retired.id)
+    asyncio.run(builder.populate_empty())
+    writer.submit_correction(original.id, current)
+    writer.approve(current.id)
+    writer.retire(retired.id, actor="reviewer", reason="obsolete")
+    note = vault.read(current.id)
+    assert note is not None
+    note.path.write_text(note.path.read_text().replace("New observatory", "Edited observatory"))
+    revision = vault.read(current.id).revision
+    # The old cache is intentionally stale; recovery must not copy it.
+    assert asyncio.run(index.list_ids(provider.space.identifier)) == tuple(
+        sorted((str(original.id), str(retired.id)))
+    )
+    restored = tmp_path / "restored"
+    restored.mkdir(mode=0o700)
+    with repository.database.connect() as source:
+        assert source.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        with closing(sqlite3.connect(restored / "memory.sqlite3")) as destination:
+            source.backup(destination)
+    shutil.copytree(vault.root, restored / "vault")
+    repo_root = Path(__file__).resolve().parents[1]
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(repo_root) + os.pathsep + environment.get("PYTHONPATH", "")
+    expected = {
+        "ids": [str(current.id)],
+        "entries": [[str(current.id), revision]],
+        "content": ["Edited observatory"],
+    }
+    for mode in ("build", "reopen"):
+        result = subprocess.run(
+            [sys.executable, str(repo_root / "tests/fixtures/index_restore_probe.py"),
+             str(restored), mode],
+            env=environment, capture_output=True, text=True, check=True, timeout=60,
+        )
+        assert json.loads(result.stdout) == expected
+    assert len(repository.review_events(current.id)) == 1
+    assert len(repository.lifecycle_events(original.id)) == 1
+    assert len(repository.lifecycle_events(retired.id)) == 1
