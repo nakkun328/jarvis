@@ -6,6 +6,7 @@ from typing import Protocol
 from uuid import UUID
 
 from backend.memory.embedding import EmbeddingProvider, EmbeddingSpace, embed_texts
+from backend.memory.obsidian import VaultError
 from backend.memory.repository import MemoryRepository, MemoryStatus
 from backend.memory.retrieval import MemoryRetriever, RetrievedMemory
 from backend.memory.vector import VectorIndex
@@ -47,9 +48,7 @@ class IndexIdAudit:
 
     @property
     def healthy(self) -> bool:
-        return not (
-            self.missing_ids or self.extra_ids or self.stale_ids or self.untracked_ids
-        )
+        return not (self.missing_ids or self.extra_ids or self.stale_ids or self.untracked_ids)
 
 
 class MemoryIndexBuilder:
@@ -90,9 +89,7 @@ class MemoryIndexBuilder:
             batch = approved[start : start + batch_size]
             vectors = await embed_texts(self.provider, [item.record.content for item in batch])
             records.extend(
-                space.record(
-                    str(item.record.id), values, source_revision=item.note_revision
-                )
+                space.record(str(item.record.id), values, source_revision=item.note_revision)
                 for item, values in zip(batch, vectors, strict=True)
             )
 
@@ -118,11 +115,11 @@ class MemoryIndexBuilder:
         """Upsert one explicitly approved, current note after a reviewed change."""
         if not isinstance(memory_id, UUID):
             raise ValueError("memory_id must be a UUID")
-        current = self.retriever.get_approved(memory_id)
+        current = self._checked_approved(memory_id)
         if not isinstance(current, RetrievedMemory):
             raise IndexBuildError("Memory is not a valid approved note")
         values = (await embed_texts(self.provider, [current.record.content]))[0]
-        latest = self.retriever.get_approved(memory_id)
+        latest = self._checked_approved(memory_id)
         if not isinstance(latest, RetrievedMemory) or latest.note_revision != current.note_revision:
             raise IndexBuildError("Approved note changed during index refresh")
         await self.index.upsert(
@@ -137,7 +134,7 @@ class MemoryIndexBuilder:
         entries = dict(await self.index.list_entries(self.provider.space.identifier))
         if entries.get(str(memory_id)) != current.note_revision:
             raise IndexBuildError("Refreshed memory revision is missing from vector index")
-        final = self.retriever.get_approved(memory_id)
+        final = self._checked_approved(memory_id)
         if not isinstance(final, RetrievedMemory) or final.note_revision != current.note_revision:
             raise IndexBuildError("Approved note changed during index refresh")
 
@@ -179,14 +176,16 @@ class MemoryIndexBuilder:
             extra_ids=tuple(sorted(indexed_set - canonical_set)),
             stale_ids=tuple(
                 sorted(
-                    memory_id for memory_id in canonical_set & indexed_set
+                    memory_id
+                    for memory_id in canonical_set & indexed_set
                     if revisions[memory_id] is not None
                     and revisions[memory_id] != current[memory_id]
                 )
             ),
             untracked_ids=tuple(
                 sorted(
-                    memory_id for memory_id in canonical_set & indexed_set
+                    memory_id
+                    for memory_id in canonical_set & indexed_set
                     if revisions[memory_id] is None
                 )
             ),
@@ -216,7 +215,7 @@ class MemoryIndexBuilder:
             if not page:
                 break
             for stored in page:
-                current = self.retriever.get_approved(stored.record.id)
+                current = self._checked_approved(stored.record.id)
                 if not isinstance(current, RetrievedMemory):
                     raise IndexBuildError(
                         f"Approved note {stored.record.id} needs repair before indexing"
@@ -224,6 +223,26 @@ class MemoryIndexBuilder:
                 result.append(current)
             after_id = page[-1].record.id
         return tuple(result)
+
+    def _checked_approved(self, memory_id: UUID):
+        current = self.retriever.get_approved(memory_id)
+        if isinstance(current, RetrievedMemory):
+            # Resolution reads SQLite before the vault. A review/edit inside
+            # that read must not let the final refresh/audit certify an old
+            # snapshot. This is a final check, not a lock on external editors.
+            try:
+                note = self.retriever.vault.read(memory_id)
+                latest = self.repository.get(memory_id)
+            except (OSError, VaultError) as exc:
+                raise IndexBuildError("Approved note unavailable during resolution") from exc
+            if (
+                note is None
+                or note.revision != current.note_revision
+                or latest is None
+                or latest.status is not MemoryStatus.APPROVED
+            ):
+                raise IndexBuildError("Approved note changed during canonical resolution")
+        return current
 
 
 class SynchronousIndexRefresher:
