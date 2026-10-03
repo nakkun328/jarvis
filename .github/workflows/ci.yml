@@ -9,14 +9,41 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install -e '.[dev]'
-      - run: pytest
-      - run: ruff check .
-      - run: python -m compileall -q backend tests
-      - run: git diff --check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -e '.[dev,vector]'
+      - name: Verify actual checkout and record terminal receipt
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python --version
+          node --version
+          uname -s
+          comparison_base="${PR_BASE_SHA:-origin/main}"
+          pr_args=()
+          if [[ -n "$PR_HEAD_SHA" ]]; then
+            pr_args+=(--pr-head "$PR_HEAD_SHA")
+          fi
+          python scripts/verify.py \
+            --base "$comparison_base" --expected-head "$GITHUB_SHA" \
+            --output-dir "$RUNNER_TEMP/jarvis-checks" \
+            --run-id "gha-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_EVENT_NAME}" \
+            "${pr_args[@]}"
+      - name: Preserve gate receipt and separate logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/jarvis-checks/
+          if-no-files-found: error
 
   frontend:
     runs-on: ubuntu-latest
