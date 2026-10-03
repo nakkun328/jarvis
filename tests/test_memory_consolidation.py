@@ -60,6 +60,25 @@ def _stage(pipeline: MemoryConsolidator, *candidates: ExtractedCandidate):
     return pipeline.stage([ConversationEvidence(uuid4(), 1, "user", "unused")])
 
 
+def test_pre_lifecycle_candidate_identity_is_stable(tmp_path: Path) -> None:
+    pipeline, _, _, _, _, _ = _system(tmp_path)
+    staged = _stage(pipeline, _candidate("Prefer concise replies"))
+    assert staged.pending[0].record.id == UUID("e60af5e0-00fd-53d6-b89d-27cf93def26c")
+
+
+def test_retired_candidate_can_be_proposed_again_from_new_evidence(tmp_path: Path) -> None:
+    pipeline, _, repository, _, _, _ = _system(tmp_path)
+    first = _stage(pipeline, _candidate("Prefer concise replies", source="test:old"))
+    original_id = first.pending[0].record.id
+    pipeline.publish_reviewed(original_id)
+    pipeline.retire_reviewed(original_id, actor="reviewer:a", reason="No longer true")
+    current = _stage(pipeline, _candidate("Prefer concise replies", source="test:new"))
+    assert len(current.pending) == 1
+    assert current.pending[0].record.id != original_id
+    assert current.pending[0].record.source == "test:new"
+    assert repository.get(original_id).status is MemoryStatus.RETIRED
+
+
 def test_persisted_conversation_only_extracts_explicit_completed_user_turns(
     tmp_path: Path,
 ) -> None:

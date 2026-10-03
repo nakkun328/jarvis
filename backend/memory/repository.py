@@ -20,6 +20,8 @@ class MemoryStatus(StrEnum):
     CONFLICT = "conflict"
     APPROVED = "approved"
     REJECTED = "rejected"
+    SUPERSEDED = "superseded"
+    RETIRED = "retired"
 
 
 class MemoryRepositoryError(RuntimeError):
@@ -39,6 +41,21 @@ class StoredMemory:
     record: MemoryRecord
     status: MemoryStatus
     vault_revision: str | None
+    supersedes_id: UUID | None = None
+    supersedes_revision: str | None = None
+    replaced_by_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class MemoryLifecycleEvent:
+    id: int
+    memory_id: UUID
+    related_id: UUID | None
+    action: str
+    actor: str
+    reason: str
+    occurred_at: datetime
+    vault_revision: str
 
 
 @dataclass(frozen=True)
@@ -71,15 +88,41 @@ class MemoryRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
 
-    def add(self, record: MemoryRecord) -> StoredMemory:
+    def add(
+        self,
+        record: MemoryRecord,
+        *,
+        supersedes_id: UUID | None = None,
+        supersedes_revision: str | None = None,
+    ) -> StoredMemory:
         """Save an unreviewed candidate without replacing an existing memory."""
+        if (supersedes_id is None) != (supersedes_revision is None):
+            raise ValueError("Correction requires an old ID and observed note revision")
+        if supersedes_id is not None and not isinstance(supersedes_id, UUID):
+            raise ValueError("Original memory ID must be a UUID")
+        if supersedes_id == record.id:
+            raise ValueError("Memory cannot supersede itself")
+        if supersedes_revision is not None and (
+            not isinstance(supersedes_revision, str) or not supersedes_revision.strip()
+        ):
+            raise ValueError("Correction requires a nonblank note revision")
         try:
             with self.database.connect() as connection, connection:
+                if supersedes_id is not None:
+                    old = connection.execute(
+                        "SELECT status, category FROM memory_records WHERE id = ?",
+                        (str(supersedes_id),),
+                    ).fetchone()
+                    if old is None or old["status"] != MemoryStatus.APPROVED.value:
+                        raise MemoryStateChanged("Original memory is no longer approved")
+                    if old["category"] != record.category.value:
+                        raise ValueError("Correction must keep the original memory category")
                 connection.execute(
                     "INSERT INTO memory_records ("
                     "id, category, content, source, origin, importance, confidence, "
-                    "created_at, updated_at, last_accessed, tags, project, status) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "created_at, updated_at, last_accessed, tags, project, status, "
+                    "supersedes_id, supersedes_revision) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         str(record.id),
                         record.category.value,
@@ -96,13 +139,15 @@ class MemoryRepository:
                         json.dumps(record.tags, ensure_ascii=False),
                         record.project,
                         MemoryStatus.PENDING.value,
+                        str(supersedes_id) if supersedes_id else None,
+                        supersedes_revision,
                     ),
                 )
         except sqlite3.IntegrityError as exc:
             raise MemoryAlreadyExists("Memory candidate ID already exists") from exc
         except (OSError, sqlite3.Error) as exc:
             raise MemoryRepositoryError("Memory storage unavailable") from exc
-        return StoredMemory(record, MemoryStatus.PENDING, None)
+        return StoredMemory(record, MemoryStatus.PENDING, None, supersedes_id, supersedes_revision)
 
     def get(self, memory_id: UUID) -> StoredMemory | None:
         try:
@@ -185,6 +230,41 @@ class MemoryRepository:
         }[new]
         try:
             with self.database.connect() as connection, connection:
+                candidate = connection.execute(
+                    "SELECT supersedes_id, supersedes_revision FROM memory_records "
+                    "WHERE id = ? AND status = ?",
+                    (str(memory_id), expected.value),
+                ).fetchone()
+                if candidate is None:
+                    raise MemoryStateChanged("Memory candidate missing or state changed")
+                if new is MemoryStatus.APPROVED and candidate["supersedes_id"] is not None:
+                    old = connection.execute(
+                        "UPDATE memory_records SET status = ?, replaced_by_id = ?, "
+                        "updated_at = MAX(updated_at, ?) "
+                        "WHERE id = ? AND status = ?",
+                        (
+                            MemoryStatus.SUPERSEDED.value,
+                            str(memory_id),
+                            occurred_at,
+                            candidate["supersedes_id"],
+                            MemoryStatus.APPROVED.value,
+                        ),
+                    )
+                    if old.rowcount != 1:
+                        raise MemoryStateChanged("Original memory changed before approval")
+                    connection.execute(
+                        "INSERT INTO memory_lifecycle_events "
+                        "(memory_id, related_id, action, actor, reason, occurred_at, "
+                        "vault_revision) VALUES (?, ?, 'supersede', ?, ?, ?, ?)",
+                        (
+                            candidate["supersedes_id"],
+                            str(memory_id),
+                            actor_name,
+                            "reviewed correction",
+                            occurred_at,
+                            candidate["supersedes_revision"],
+                        ),
+                    )
                 updated = connection.execute(
                     "UPDATE memory_records SET status = ?, vault_revision = ?, "
                     "updated_at = MAX(updated_at, ?) "
@@ -220,8 +300,75 @@ class MemoryRepository:
             raise MemoryRepositoryError("Memory storage unavailable") from exc
         return _stored(row)
 
+    def retire(
+        self, memory_id: UUID, *, vault_revision: str, actor: str, reason: str
+    ) -> StoredMemory:
+        """Explicitly retire an approved memory while preserving its note and history."""
+        actor_name = validate_review_actor(actor)
+        if (
+            not isinstance(reason, str)
+            or not reason.strip()
+            or len(reason) > 1000
+            or any(ord(character) < 32 or ord(character) == 127 for character in reason)
+        ):
+            raise ValueError("Retirement reason must be printable text of 1 to 1000 characters")
+        if not isinstance(vault_revision, str) or not vault_revision.strip():
+            raise ValueError("Retirement requires observed note revision")
+        occurred_at = datetime.now(UTC).isoformat()
+        try:
+            with self.database.connect() as connection, connection:
+                updated = connection.execute(
+                    "UPDATE memory_records SET status = ?, updated_at = MAX(updated_at, ?) "
+                    "WHERE id = ? AND status = ?",
+                    (
+                        MemoryStatus.RETIRED.value,
+                        occurred_at,
+                        str(memory_id),
+                        MemoryStatus.APPROVED.value,
+                    ),
+                )
+                if updated.rowcount != 1:
+                    raise MemoryStateChanged("Memory is no longer approved")
+                connection.execute(
+                    "INSERT INTO memory_lifecycle_events "
+                    "(memory_id, related_id, action, actor, reason, occurred_at, "
+                    "vault_revision) VALUES (?, NULL, 'retire', ?, ?, ?, ?)",
+                    (str(memory_id), actor_name, reason.strip(), occurred_at, vault_revision),
+                )
+                row = connection.execute(
+                    "SELECT * FROM memory_records WHERE id = ?", (str(memory_id),)
+                ).fetchone()
+        except (OSError, sqlite3.Error) as exc:
+            raise MemoryRepositoryError("Memory storage unavailable") from exc
+        return _stored(row)
+
+    def lifecycle_events(self, memory_id: UUID) -> list[MemoryLifecycleEvent]:
+        if not isinstance(memory_id, UUID):
+            raise ValueError("memory_id must be a UUID")
+        try:
+            with self.database.connect(read_only=True) as connection:
+                rows = connection.execute(
+                    "SELECT * FROM memory_lifecycle_events WHERE memory_id = ? ORDER BY id",
+                    (str(memory_id),),
+                ).fetchall()
+        except (OSError, sqlite3.Error) as exc:
+            raise MemoryRepositoryError("Memory storage unavailable") from exc
+        return [
+            MemoryLifecycleEvent(
+                row["id"],
+                UUID(row["memory_id"]),
+                UUID(row["related_id"]) if row["related_id"] else None,
+                row["action"],
+                row["actor"],
+                row["reason"],
+                datetime.fromisoformat(row["occurred_at"]),
+                row["vault_revision"],
+            )
+            for row in rows
+        ]
+
     def review_events(self, memory_id: UUID) -> list[MemoryReviewEvent]:
-        """Return committed lifecycle transitions in insertion order."""
+        """Return committed candidate review transitions in insertion order."""
         if not isinstance(memory_id, UUID):
             raise ValueError("memory_id must be a UUID")
         try:
@@ -264,4 +411,11 @@ def _stored(row: sqlite3.Row) -> StoredMemory:
         tags=tuple(json.loads(row["tags"])),
         project=row["project"],
     )
-    return StoredMemory(record, MemoryStatus(row["status"]), row["vault_revision"])
+    return StoredMemory(
+        record,
+        MemoryStatus(row["status"]),
+        row["vault_revision"],
+        UUID(row["supersedes_id"]) if row["supersedes_id"] else None,
+        row["supersedes_revision"],
+        UUID(row["replaced_by_id"]) if row["replaced_by_id"] else None,
+    )
