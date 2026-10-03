@@ -43,6 +43,13 @@ def verify(args: argparse.Namespace) -> int:
     repo = args.repo.resolve()
     initial = state(repo)
     base = git(repo, "rev-parse", "--verify", f"{args.base}^{{commit}}")
+    pr_head = None
+    if args.pr_head:
+        pr_head = git(repo, "rev-parse", "--verify", f"{args.pr_head}^{{commit}}")
+        subprocess.run(
+            ["git", "-C", str(repo), "merge-base", "--is-ancestor", pr_head, initial["head"]],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
     run_id = args.run_id or uuid.uuid4().hex
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", run_id):
         raise ValueError("run ID must use letters, digits, underscores or hyphens")
@@ -62,6 +69,7 @@ def verify(args: argparse.Namespace) -> int:
         "started_at": datetime.now(UTC).isoformat(),
         "repo": str(repo),
         "expected_head": args.expected_head,
+        "pr_head": pr_head,
         "base": base,
         "initial": initial,
         "checks": [],
@@ -131,6 +139,9 @@ def main() -> int:
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--expected-head", required=True)
     parser.add_argument("--base", required=True)
+    parser.add_argument(
+        "--pr-head", help="PR source commit, distinct from the tested merge checkout"
+    )
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--node", default="node")
     parser.add_argument(

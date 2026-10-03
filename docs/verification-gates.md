@@ -23,3 +23,29 @@ The gate regression tests create tiny disposable Git repositories, run real pyte
 ```sh
 python -m pytest -q tests/test_verification_gates.py
 ```
+
+## GitHub Actions integration
+
+The existing `backend` check runs this gate once on Ubuntu with Python 3.11,
+Node 22 and the complete dev/vector dependencies, including real Chroma.
+Its former pytest/Ruff/compileall/diff steps are covered by the gate rather than
+running a second full pytest suite. The existing `frontend` and focused `vector`
+checks remain separate, with their names and triggers unchanged. No push/merge
+logic or broader workflow permissions are introduced.
+
+Checkout fetches full history so the comparison base and every branch snapshot
+are available to Secret scan. For PR events the base is the event's base SHA;
+for pushes it is the fetched `origin/main`. The normal PR checkout is GitHub's
+merge commit: `--expected-head` is `GITHUB_SHA`, and `--pr-head` separately records
+the event's source head after requiring it to be an ancestor of the checkout.
+Thus `initial.head`, `final.head` and `expected_head` identify the tested merge
+tree, while `pr_head` identifies the feature commit. Push receipts have no PR head.
+
+Each workflow attempt writes outside the repository under
+`RUNNER_TEMP/jarvis-checks/<checkout-SHA>-gha-<run-ID>-<attempt>-<event>`.
+An always-run artifact step retains the terminal receipt and separate logs;
+artifact upload cannot turn a failed gate into success. A failed or cancelled
+job may have only partial logs, which are not passing evidence. Read the backend
+step's actual outcome and its completed receipt together, and match checkout,
+base, PR head and workflow attempt before reusing the result. No real credentials
+or user data are needed. Other checks being green does not replace this gate.

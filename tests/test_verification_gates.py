@@ -328,3 +328,42 @@ def test_unreadable_scan_base_is_failure(repo: tuple[Path, str]) -> None:
     )
     assert result.returncode == 2
     assert "could not read" in result.stdout
+
+
+def test_pr_head_is_distinct_from_verified_merge_checkout(
+    repo: tuple[Path, str], tmp_path: Path
+) -> None:
+    root, base = repo
+    git(root, "checkout", "-qb", "feature")
+    (root / "README.md").write_text("Feature content.\n")
+    pr_head = commit(root, "PR source")
+    git(root, "checkout", "-qb", "integration", base)
+    git(root, "merge", "--no-ff", "-qm", "CI merge tree", "feature")
+    checkout = git(root, "rev-parse", "HEAD")
+    assert checkout != pr_head
+    output = tmp_path / "logs"
+    process = subprocess.run(
+        [*command(root, base, output), "--pr-head", pr_head],
+        capture_output=True, check=False,
+    )
+    assert process.returncode == 0
+    receipt = json.loads((output / f"{checkout}-test/result.json").read_text())
+    assert receipt["pr_head"] == pr_head
+    assert receipt["expected_head"] == checkout
+    assert receipt["initial"] == receipt["final"] == {"head": checkout, "dirty": False}
+    assert receipt["base"] == base
+
+
+def test_pr_head_outside_checkout_is_rejected(repo: tuple[Path, str], tmp_path: Path) -> None:
+    root, base = repo
+    git(root, "checkout", "-qb", "unrelated")
+    git(root, "commit", "--allow-empty", "-qm", "not in tested checkout")
+    unrelated = git(root, "rev-parse", "HEAD")
+    git(root, "checkout", "-q", base)
+    output = tmp_path / "logs"
+    process = subprocess.run(
+        [*command(root, base, output), "--pr-head", unrelated],
+        capture_output=True, check=False,
+    )
+    assert process.returncode == 1
+    assert not output.exists()
