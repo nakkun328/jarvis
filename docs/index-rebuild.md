@@ -84,3 +84,11 @@ derived vector space and verifies absence from each stored space. The synchronou
 adapter exposes the same operation for
 offline publication. It refuses a still-approved ID. If cleanup fails, the
 canonical review state remains durable; retry cleanup and run `audit_ids`.
+
+
+The builder rechecks the canonical note revision and current SQLite review state
+after resolving each approved snapshot. A review retirement or vault edit inside
+the final refresh/audit resolution fails the operation instead of certifying an
+earlier snapshot. The canonical edit/review is preserved; stale derived entries
+can be refreshed or explicitly removed and retried. This does not make external
+edits after the final check atomic; retain the single-worker editing boundary.
