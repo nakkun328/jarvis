@@ -144,3 +144,115 @@ def test_provider_contract_accepts_async_iterator_without_close():
         assert conversation.active_requests == 0
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("through_api", [False, True])
+def test_cancel_during_provider_wait_releases_stream_and_does_not_save(tmp_path, through_api):
+    from backend.chat.persistence import SQLiteConversationStore
+
+    async def run():
+        database = Database(tmp_path / "cancel.sqlite3")
+        database.initialize()
+        entered = asyncio.Event()
+        blocked = asyncio.Event()
+
+        class BlockingProvider(ClosingProvider):
+            def stream(self, request):
+                async def generate():
+                    try:
+                        yield "partial"
+                        entered.set()
+                        await blocked.wait()
+                    finally:
+                        self.stream_closed = True
+                self.iterator = generate()
+                return self.iterator
+
+        provider = BlockingProvider()
+        store = SQLiteConversationStore(database, max_conversations=1)
+        service = ChatService(provider, store)
+        if through_api:
+            endpoint = next(route.endpoint for route in build_chat_router(service).routes
+                            if route.path == "/api/chat/stream")
+            response = await endpoint(ChatRequest(message="cancelled"))
+            stream = response.body_iterator
+        else:
+            stream = service.stream("cancelled")
+        await anext(stream)
+        conversation = next(iter(store._conversations.values()))
+        task = asyncio.create_task(anext(stream))
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert provider.stream_closed
+        assert conversation.active_requests == 0
+        assert not conversation.lock.locked()
+        assert not store._conversations
+        with database.connect(read_only=True) as connection:
+            count = connection.execute("SELECT COUNT(*) FROM conversation_messages").fetchone()[0]
+        assert count == 0
+        async with store.open(None):
+            pass  # Capacity is immediately available without GC or a delay.
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("interruption", ["send-failure", "disconnect", "cancel-send"])
+def test_asgi_interruption_during_send_closes_held_body_and_sqlite_session(tmp_path, interruption):
+    from starlette.requests import ClientDisconnect
+
+    from backend.chat.persistence import SQLiteConversationStore
+
+    async def run():
+        database = Database(tmp_path / "send.sqlite3")
+        database.initialize()
+        provider = ClosingProvider()
+        store = SQLiteConversationStore(database, max_conversations=1)
+        service = ChatService(provider, store)
+        endpoint = next(route.endpoint for route in build_chat_router(service).routes
+                        if route.path == "/api/chat/stream")
+        response = await endpoint(ChatRequest(message="interrupted"))
+        sending = asyncio.Event()
+        blocked = asyncio.Event()
+        conversations = []
+
+        async def send(message):
+            if message["type"] == "http.response.body" and message.get("body"):
+                conversations.append(next(iter(store._conversations.values())))
+                sending.set()
+                if interruption == "send-failure":
+                    raise OSError("disconnected transport")
+                await blocked.wait()
+
+        async def receive():
+            await sending.wait()
+            return {"type": "http.disconnect"}
+
+        scope = {"type": "http", "asgi": {"spec_version": (
+            "2.0" if interruption == "disconnect" else "2.4"
+        )}}
+        if interruption == "send-failure":
+            with pytest.raises(ClientDisconnect):
+                await response(scope, receive, send)
+        elif interruption == "disconnect":
+            await asyncio.wait_for(response(scope, receive, send), timeout=5)
+        else:
+            task = asyncio.create_task(response(scope, receive, send))
+            await asyncio.wait_for(sending.wait(), timeout=5)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        # Hold response/provider iterator references so GC cannot conceal a leak.
+        assert provider.iterator is not None and response.body_iterator is not None
+        assert provider.stream_closed
+        assert conversations[0].active_requests == 0
+        assert not conversations[0].lock.locked()
+        assert not store._conversations
+        with database.connect(read_only=True) as connection:
+            count = connection.execute("SELECT COUNT(*) FROM conversation_messages").fetchone()[0]
+        assert count == 0
+        async with store.open(None):
+            pass
+
+    asyncio.run(run())

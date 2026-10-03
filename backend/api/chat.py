@@ -5,9 +5,11 @@ import logging
 from contextlib import aclosing
 from uuid import UUID
 
+from anyio import CancelScope
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.types import Receive, Scope, Send
 
 from backend.chat.context import ConversationCapacityError, ConversationNotFound
 from backend.chat.memory_context import MemoryContextError
@@ -16,6 +18,16 @@ from backend.chat.service import ChatDelta, ChatService
 from backend.providers.base import ProviderError
 
 _LOG = logging.getLogger(__name__)
+
+
+class _ClosingStreamingResponse(StreamingResponse):
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            # A failed/cancelled send can leave the body suspended at yield.
+            with CancelScope(shield=True):
+                await self.body_iterator.aclose()
 
 
 class ChatRequest(BaseModel):
@@ -108,7 +120,7 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
                 _LOG.warning("Chat provider stream failed: %s", type(exc).__name__)
                 yield _sse("error", {"message": "chat provider failed"})
 
-        return StreamingResponse(
+        return _ClosingStreamingResponse(
             events(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
