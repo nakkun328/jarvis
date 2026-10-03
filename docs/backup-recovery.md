@@ -10,7 +10,7 @@ and pending publication recovery material.
 ## Availability and prerequisites
 
 Current state checked on 2026-10-03: main
-`ecebe8d353baa89bf9cbf0fe6e7f4715b82ac744` includes landed PR #30.
+`e5e0314365667e578109cadc45e79b6c1c6a241c` includes landed PRs #30 and #23.
 SQLite schema v5 preserves conversations, candidates, approvals, review and
 lifecycle history, and replacement/revision links. Initialization migrates
 supported older schemas; the local review CLI requires an existing ready DB.
@@ -23,10 +23,12 @@ Derived rebuild/refresh/audit APIs require
 [PR #24](https://github.com/nakkun328/jarvis/pull/24),
 [PR #26](https://github.com/nakkun328/jarvis/pull/26) and
 [PR #29](https://github.com/nakkun328/jarvis/pull/29).
-Opt-in chat memory and Gemini remain separate pending changes (#23/#31).
-Use a matching reviewed code version; this runbook does not make pending index
-or chat changes available on main or authorize a merge. No live API is needed for the disposable
-validation. OpenAI live validation remains pending.
+Opt-in chat memory is now on main: `JARVIS_MEMORY_VAULT_PATH` defaults to unset,
+and an existing vault explicitly enables bounded approved lexical references.
+References are rechecked before the provider call and are not transcript turns.
+Gemini remains pending #31. Use a matching reviewed code version; this runbook
+does not make pending index or Gemini changes available or authorize a merge.
+No live API is needed for disposable validation. OpenAI live validation remains pending.
 
 ## Back up a consistent snapshot
 
@@ -164,12 +166,12 @@ not appear as approved retrieval matches.
 The application has no automatic active-index switch or built-in production
 embedding provider selection. Keep that configured caller pointed at the old
 index until the new one verifies, then select the restored paths/new index and
-restart one local worker. `JARVIS_DB_PATH` configures the app DB. After #23
-lands, `JARVIS_MEMORY_VAULT_PATH` can opt chat into an existing vault. On current
-main, reviewed memory retrieval is caller-wired and is not connected to chat.
-Index selection belongs to the caller's explicit memory wiring. Verify readiness
-and conversation continuity before resuming writers; verify opt-in behavior
-only on code that includes #23.
+restart one local worker. `JARVIS_DB_PATH` configures the app DB. On current main,
+`JARVIS_MEMORY_VAULT_PATH` opts chat into an existing restored vault; unset it
+to leave memory references disabled. Verify approved/corrected/retired reference
+behavior and conversation continuity before resuming writers. Chat uses lexical
+matching; semantic query embeddings and index selection remain caller-wired
+pending APIs, not an automatic chat search or active-index switch.
 
 For a failed reviewed publication, repair the cause and retry
 `publish_reviewed(id, actor=...)`: a matching previously created note and one
@@ -219,3 +221,9 @@ retrieval, not transcript deletion.
   still pending in the index stack, notably #29. Do not infer physical vector
   removal from a successful retirement on main. The main and integration
   checks remain separate evidence.
+
+- 2026-10-03, after #23 merge: main `e5e0314` adds opt-in bounded lexical chat
+  references. Correction approval changes the current reference and retirement
+  excludes it; neither operation deletes successful historical conversation turns.
+  Gemini and derived-index physical cleanup remain pending. Shared provider/SSE
+  cleanup is being reviewed separately and must not be assumed landed.

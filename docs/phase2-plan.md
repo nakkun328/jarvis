@@ -1,6 +1,6 @@
 # Phase 2 — Memory implementation plan
 
-Baseline: `main` at `769d3c7`, with Phase 1 implementation complete and live OpenAI/browser checks [pending](phase1-verification.md). Phase 2 work uses separate feature branches and PRs. No Phase 2 branch is merged to `main` without user approval.
+Initial planning baseline (historical): `main` at `769d3c7`, with Phase 1 implementation complete and live OpenAI/browser checks [pending](phase1-verification.md). Phase 2 work uses separate feature branches and PRs. No Phase 2 branch is merged to `main` without user approval.
 
 Conversation history and long-term memory are separate. SQLite keeps full successful conversation turns and memory metadata; an editable Obsidian vault holds selected long-term memory; a vector index is only a search acceleration layer. Every candidate must retain provenance, importance, confidence, timestamps, and an explicit inference marker. A new candidate that conflicts with an explicit user statement waits for review instead of replacing it.
 
@@ -26,3 +26,35 @@ The first implementation slice was P2-01 through P2-04. P2-08 adds a recording A
 Self Memory describes observed assistant behavior, not a fact about the user. Each event has one of three kinds: `success` (what worked and what to repeat), `failure` (what failed and what to change next time), or `correction` (what was wrong and what to use instead). The observation and guidance are both required. Callers supply a traceable `source`, `origin`, importance and confidence; the `self-kind:*` tag preserves the kind within the existing memory record and vault format. The category is always `self`.
 
 `SelfMemoryRecorder.record` submits a new candidate through `MemoryWriter.submit`. It does not approve, edit, or delete an earlier memory, including one contradicted by a correction. A reviewer may inspect the candidate and call `MemoryWriter.approve` to publish it to Obsidian. Candidate extraction from conversations, conflict resolution and retirement of outdated approved lessons belong to P2-09; a correction must not silently override a previous approved note.
+
+
+## Current requirement mapping — 2026-10-03 after #23
+
+Checked main: `e5e0314365667e578109cadc45e79b6c1c6a241c`. Earlier baseline
+and scheduling paragraphs are original planning history. Current status follows
+Git/GitHub, and this table is not permission to merge any pending PR.
+
+| Initial task | Available on main | Pending scope / limits |
+| --- | --- | --- |
+| P2-01 | Six memory categories, provenance, scores and origin validation | No model-quality claim |
+| P2-02 | Full successful transcripts, bounded prompts, SQLite migrations | Process-local locks; one worker |
+| P2-03 | Safe editable Obsidian notes and revision checks | Writers/editors must quiesce for snapshot |
+| P2-04 | Chroma/vector contract and canonical resolution of vector IDs | Versioned embeddings #18; semantic-query API #26; not wired to chat |
+| P2-05 | Candidates, explicit review, correction/supersession/retirement audit | Physical derived cache removal #29 |
+| P2-06 | Reviewed publication, rollback and matching-note retry | Derived refresh/rebuild #21/#24; no automatic index switch |
+| P2-07 | Current approved lexical/vector retrieval and bounded opt-in lexical chat | Semantic retrieval #26 remains separately called; no semantic chat |
+| P2-08 | Typed successes/failures/corrections with provenance and explicit approval | No generic automated reflection/extraction |
+| P2-09 | Labelled Remember/Self-event candidates, dedup/conflict/review/lifecycle | General extraction excluded; concrete derived refresh/cleanup #24/#29 |
+| P2-10 | Migration, vault, canonical lifecycle and chat tests | Gate #33, recovery #34, shared-resource cleanup and this runbook remain Draft |
+
+Next review order: shared-resource cleanup before Gemini #31; keep its overlap
+in #31 until the shared fix lands, then remove duplicate scope by comparing the
+new main. Gate #33 and recovery #34 are independent main-based test/tool reviews.
+The independent embedding track starts #18, then #21→#24→#26→#29; optional
+OpenAI embedding #25 follows #18. No pending Draft is authorized for landing.
+
+OpenAI live validation remains pending. No live API was used in this cycle;
+future necessary live checks use Gemini/gemini-2.5-flash. Browser UI remains
+unverified while permissions are unavailable. Fake providers/embeddings prove
+routing, integrity and cleanup rather than model semantic quality. Authentication,
+multiworker, scheduler and Phase3 remain outside the current scope.
