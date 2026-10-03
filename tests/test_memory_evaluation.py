@@ -16,6 +16,7 @@ from backend.memory.evaluation import (
     EvaluationDataError,
     _metrics,
     evaluate,
+    evaluate_trials,
     parse_dataset,
 )
 from scripts.evaluate_memory import run, write_report
@@ -70,10 +71,25 @@ def test_rank_metrics_and_evidence_gap_have_separate_denominators():
     assert negative["negative_query_nonempty"] is True
 
 
-def test_real_index_excludes_poisoned_ids_and_resolves_current_canonical_notes():
+def test_real_index_excludes_poisoned_ids_and_resolves_current_canonical_notes(monkeypatch):
     dataset = parse_dataset(raw_dataset())
-    first = asyncio.run(evaluate(ContractOnlyEmbeddings(), dataset, evidence_kind="fake", limit=6))
-    second = asyncio.run(evaluate(ContractOnlyEmbeddings(), dataset, evidence_kind="fake", limit=6))
+    from backend.memory.chroma import ChromaVectorIndex
+
+    paths = []
+
+    def isolated_index(path):
+        paths.append(path)
+        return ChromaVectorIndex(path)
+
+    monkeypatch.setattr("backend.memory.evaluation.ChromaVectorIndex", isolated_index)
+    repeated = asyncio.run(
+        evaluate_trials(ContractOnlyEmbeddings(), dataset, trials=2, evidence_kind="fake", limit=6)
+    )
+    first, second = repeated["trials"]
+    assert len(paths) == len(set(paths)) == 2
+    assert all(not p.exists() for p in paths)
+    assert repeated["summary"]["completed_trials"] == 2
+    assert repeated["quality_assessment"] == "not_established"
     assert first["status"] == second["status"] == "completed"
     assert first["quality_assessment"] == "not_established"
     assert first["quality_thresholds"] is None
@@ -132,16 +148,19 @@ def test_invalid_embedding_output_fails_without_quality_claim_or_raw_error(outpu
     assert report["quality_assessment"] == "not_established"
 
 
-def test_external_factory_provider_is_closed_after_private_failure(monkeypatch):
+@pytest.mark.parametrize("trials", [1, 2])
+def test_external_factory_provider_is_closed_after_private_failure(monkeypatch, trials):
     class Provider:
         space = EmbeddingSpace("fixture/private-error", "v2", 2)
         closed = False
+        close_count = 0
 
         async def embed(self, texts):
             raise RuntimeError("private sentinel: body, credential and path")
 
         async def aclose(self):
             self.closed = True
+            self.close_count += 1
 
     provider = Provider()
     monkeypatch.setitem(
@@ -152,17 +171,22 @@ def test_external_factory_provider_is_closed_after_private_failure(monkeypatch):
         provider_factory="evaluation_test_adapter:factory",
         evidence_kind="fake",
         limit=3,
+        trials=trials,
     )
     report = asyncio.run(run(args))
     assert provider.closed
+    assert provider.close_count == 1
     assert report["status"] == "failed"
-    assert report["error"]["stage"] == "index_build"
+    assert (report if trials == 1 else report["trials"][0])["error"]["stage"] == "index_build"
+    if trials > 1:
+        assert report["summary"]["failed_trials"] == trials
     assert "private sentinel" not in json.dumps(report)
     assert report["contract"]["identifier"] == "fixture/private-error@v2:d2"
     assert report["runner"]["implementation_sha256"]
 
 
-def test_cancel_propagates_and_owned_provider_closes(monkeypatch):
+@pytest.mark.parametrize("trials", [1, 3])
+def test_cancel_propagates_and_owned_provider_closes(monkeypatch, trials):
     class Provider:
         space = EmbeddingSpace("fixture/cancel", "v1", 2)
         closed = False
@@ -182,6 +206,7 @@ def test_cancel_propagates_and_owned_provider_closes(monkeypatch):
         provider_factory="evaluation_test_adapter:factory",
         evidence_kind="fake",
         limit=3,
+        trials=trials,
     )
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(run(args))
@@ -205,13 +230,21 @@ def test_report_is_atomic_new_file_and_rejects_symlink(tmp_path):
 
 def test_cli_records_execution_evidence_without_quality_pass_and_refuses_overwrite(tmp_path):
     report = tmp_path / "report.json"
-    command = [sys.executable, str(ROOT / "scripts/evaluate_memory.py"), "--output", str(report)]
+    command = [
+        sys.executable,
+        str(ROOT / "scripts/evaluate_memory.py"),
+        "--trials",
+        "2",
+        "--output",
+        str(report),
+    ]
     completed = subprocess.run(command, capture_output=True, text=True)
     assert completed.returncode == 0, completed.stderr
     result = json.loads(report.read_text())
     assert result["status"] == "completed"
     assert result["quality_assessment"] == "not_established"
     assert result["dataset"]["queries"] == 12
+    assert result["summary"]["requested_trials"] == result["summary"]["completed_trials"] == 2
     assert result["fixture_file_sha256"]
     assert "quality not established" in completed.stdout
     before = report.read_bytes()
@@ -265,3 +298,109 @@ def test_invalid_fixture_does_not_construct_provider(tmp_path, monkeypatch):
     assert not calls
     assert report["status"] == "failed"
     assert report["error"]["stage"] == "dataset_validation"
+
+
+@pytest.mark.parametrize("trials", [0, 21, True, 1.5])
+def test_trial_count_is_finite_and_rejected_before_any_provider_call(trials):
+    class Provider(ContractOnlyEmbeddings):
+        async def embed(self, texts):
+            pytest.fail("Invalid trial count must not execute")
+
+    with pytest.raises(EvaluationDataError):
+        asyncio.run(
+            evaluate_trials(
+                Provider(), parse_dataset(raw_dataset()), trials=trials, evidence_kind="fake"
+            )
+        )
+
+
+def test_trial_reports_membership_rank_distributions_and_partial_failures(monkeypatch):
+    from backend.memory.evaluation import _metrics
+
+    raw = raw_dataset()
+    raw["queries"] = [raw["queries"][0]]
+    dataset = parse_dataset(raw)
+    gold = copy.deepcopy(dataset.queries[0])
+    good, noise, other = "robot-current", "lens-storage", "data-format"
+    rankings = [[good, noise], [noise, good], [good, other]]
+    calls = []
+
+    async def controlled(provider, given, **kwargs):
+        # A provider's caller mutating the original cannot change the frozen
+        # dataset/gold for the remaining trials.
+        assert given.queries[0]["text"] == gold["text"]
+        calls.append(given)
+        if len(calls) == 1:
+            dataset.queries[0]["text"] = "Caller mutation between trials"
+        row = {
+            **dict(gold),
+            "retrieved_ids": rankings[len(calls) - 1] if len(calls) <= 3 else [],
+            "forbidden_ids_returned": [],
+        }
+        row["metrics"] = _metrics(
+            row["retrieved_ids"], gold["relevant_ids"], gold["supporting_ids"], 2
+        )
+        if len(calls) == 4:
+            row["forbidden_ids_returned"] = ["robot-old"]
+            return {
+                "status": "failed",
+                "queries": [row],
+                "error": {"stage": "query", "message": "Sanitized failure"},
+            }
+        return {
+            "status": "completed",
+            "queries": [row],
+            "summary": {
+                "mean_precision_at_k": row["metrics"]["precision_at_k"],
+                "mean_reciprocal_rank": row["metrics"]["reciprocal_rank"],
+            },
+        }
+
+    monkeypatch.setattr("backend.memory.evaluation.evaluate", controlled)
+    report = asyncio.run(
+        evaluate_trials(ContractOnlyEmbeddings(), dataset, trials=4, evidence_kind="fake", limit=2)
+    )
+    assert report["status"] == "failed"
+    assert report["safety_status"] == "violated"
+    summary = report["summary"]
+    assert summary["completed_trials"] == 3 and summary["failed_trials"] == 1
+    assert summary["excluded_trial_numbers"] == [4]
+    assert summary["exclusion_violations"] == 1
+    assert summary["metric_distributions"]["mean_reciprocal_rank"]["values"] == [1, 0.5, 1]
+    assert summary["metric_distributions"]["mean_reciprocal_rank"]["mean"] == pytest.approx(5 / 6)
+    assert summary["metric_distributions"]["mean_reciprocal_rank"]["population_stdev"] > 0
+    variation = report["queries"][0]
+    assert variation["candidate_set_variants"] == 2
+    assert variation["ranking_variants"] == 3
+    assert variation["ranks_by_candidate"][good] == [1, 2, 1]
+    assert variation["ranks_by_candidate"][noise] == [2, 1, None]
+    assert variation["observed_trial_numbers"] == [1, 2, 3]
+    assert variation["text"] == gold["text"]
+    assert report["trials"][3]["queries"][0]["forbidden_ids_returned"] == ["robot-old"]
+    assert report["quality_thresholds"] is None
+
+
+def test_changed_provider_contract_is_not_averaged_or_called_again(monkeypatch):
+    class Provider(ContractOnlyEmbeddings):
+        pass
+
+    provider = Provider()
+    calls = []
+
+    async def changed(provider, dataset, **kwargs):
+        calls.append(1)
+        provider.space = EmbeddingSpace("fixture/changed", "v2", 8)
+        return {"status": "completed", "queries": [], "summary": {}}
+
+    monkeypatch.setattr("backend.memory.evaluation.evaluate", changed)
+    report = asyncio.run(
+        evaluate_trials(provider, parse_dataset(raw_dataset()), trials=3, evidence_kind="fake")
+    )
+    assert calls == [1]
+    assert report["status"] == "failed"
+    assert report["summary"]["completed_trials"] == 0
+    assert report["summary"]["executed_trials"] == 1
+    assert report["summary"]["failed_trials"] == 3
+    assert report["summary"]["metric_distributions"] == {}
+    assert report["queries"][0]["ranking_changed"] is None
+    assert report["safety_status"] == "incomplete"

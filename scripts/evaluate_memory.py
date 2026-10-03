@@ -17,6 +17,7 @@ sys.path.insert(0, str(REPO))
 from backend.memory.evaluation import (  # noqa: E402
     ContractOnlyEmbeddings,
     evaluate,
+    evaluate_trials,
     parse_dataset,
 )
 
@@ -53,9 +54,15 @@ async def run(args):
             provider = getattr(importlib.import_module(module), attribute)()
         else:
             provider = ContractOnlyEmbeddings()
-        report = await evaluate(
-            provider, dataset, evidence_kind=args.evidence_kind, limit=args.limit
-        )
+        trials = getattr(args, "trials", 1)
+        if trials == 1:
+            report = await evaluate(
+                provider, dataset, evidence_kind=args.evidence_kind, limit=args.limit
+            )
+        else:
+            report = await evaluate_trials(
+                provider, dataset, trials=trials, evidence_kind=args.evidence_kind, limit=args.limit
+            )
         report["fixture_file_sha256"] = hashlib.sha256(data).hexdigest()
         head = subprocess.run(
             ["git", "-C", str(REPO), "rev-parse", "HEAD"], capture_output=True, text=True
@@ -101,10 +108,18 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--limit", type=int, default=3)
     parser.add_argument(
+        "--trials",
+        type=int,
+        default=1,
+        help="1 to 20 fresh-index trials; default preserves a single report",
+    )
+    parser.add_argument(
         "--provider-factory", help="Explicit module:factory returning EmbeddingProvider"
     )
     parser.add_argument("--evidence-kind", choices=("fake", "model"))
     args = parser.parse_args()
+    if not 1 <= args.trials <= 20:
+        parser.error("trials must be between 1 and 20")
     if args.output.exists() or args.output.is_symlink():
         parser.error("Output already exists; choose a new report path")
     if args.provider_factory and (":" not in args.provider_factory or args.evidence_kind is None):

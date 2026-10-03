@@ -1,5 +1,19 @@
 # 日本語の意味検索評価
 
+## 有限回の試行と集計
+
+`--trials 3` を指定すると、同じ人工 dataset/gold と provider 契約を固定し、毎回新しい temporary index で逐次実行する。既定は 1 回で既存 single-report 形式を保つ。回数は 1〜20 に制限し、通常 CI に大規模反復を追加しない。
+
+```sh
+python scripts/evaluate_memory.py --trials 3 --output /tmp/jarvis-ja-trials-new.json
+```
+
+multi-report は各試行の条件・番号・結果・部分失敗を保持し、完了した比較可能な試行だけの指標分布（全値・観測数・min/max/mean/population stdev）、query ごとの候補集合と順位の variant・所属試行・候補別 rank（欠落は null）を記録する。失敗試行の番号・実行数・件数は別に明記し、失敗を平均の 0 点にも成功にも置き換えない。完了した試行が二つ未満なら変動の有無は未観測の null とする。途中失敗で見えた除外違反も合計から隠さない。
+
+provider は同じ instance を使い、途中で宣言契約が変わると比較不能として failed にする。core の注入 provider は呼び出し側所有、CLI は全試行を終えた後や取消時に optional async close を一度呼ぶ。gold は deep copy で固定し、元ラベルを変えて結果を良く見せない。試行数上限/入力エラーは実行前に拒否する。
+
+新しい index ごとの変動は診断であり、provider 自体の出力変動を分離した証明ではない。全試行の順位一致を成功条件にせず、fake 成功は runner・契約・安全性だけの検証に限定する。品質しきい値は未設定、意味検索品質は未確立。実モデル・APIを自動選択せず、全試行が実行完了し除外違反がないときだけ exit0 とする。どれか failed なら部分 report を保存して exit1。
+
 この runner は人工データで検索結果と gold を比較する。実ユーザーの DB/vault は受け取らず、毎回一時 SQLite/vault/Chroma を作成する。承認・訂正・退役は fixture に対する明示的な操作で、アプリの自動承認機能を追加しない。
 
 ```sh

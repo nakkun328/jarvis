@@ -5,10 +5,13 @@ import json
 import platform
 import re
 import tempfile
+from collections import defaultdict
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
+from statistics import fmean, pstdev
 from uuid import NAMESPACE_URL, uuid5
 
 from backend.core.database import Database
@@ -366,3 +369,184 @@ async def evaluate(
         }
     report["finished_at"] = datetime.now(UTC).isoformat()
     return report
+
+
+def _distribution(values):
+    values = list(values)
+    observed = [x for x in values if x is not None]
+    return {
+        "count": len(observed),
+        "values": list(values),
+        "min": min(observed) if observed else None,
+        "max": max(observed) if observed else None,
+        "mean": fmean(observed) if observed else None,
+        "population_stdev": pstdev(observed) if observed else None,
+    }
+
+
+def _trial_aggregate(dataset, reports):
+    # Conditional distributions never turn a failed trial into zero or silently
+    # count it as successful. Partial rows remain in the individual reports.
+    completed = [r for r in reports if r["status"] == "completed"]
+    numbers = [r["trial_number"] for r in completed]
+    fields = sorted(
+        {
+            k
+            for r in completed
+            for k, v in r["summary"].items()
+            if v is None or (isinstance(v, (int, float)) and not isinstance(v, bool))
+        }
+    )
+    summary = {
+        "requested_trials": len(reports),
+        "completed_trials": len(completed),
+        "failed_trials": len(reports) - len(completed),
+        "completed_trial_numbers": numbers,
+        "excluded_trial_numbers": [
+            r["trial_number"] for r in reports if r["status"] != "completed"
+        ],
+        "distribution_scope": "completed comparable trials only; failures retained separately",
+        "metric_distributions": {
+            k: _distribution([r["summary"].get(k) for r in completed]) for k in fields
+        },
+        "exclusion_violations": sum(
+            len(q["forbidden_ids_returned"]) for r in reports for q in r.get("queries", [])
+        ),
+    }
+    queries = []
+    for gold in dataset.queries:
+        rows = [
+            (r["trial_number"], next(q for q in r["queries"] if q["id"] == gold["id"]))
+            for r in completed
+        ]
+        rankings, memberships = defaultdict(list), defaultdict(list)
+        for number, row in rows:
+            rankings[tuple(row["retrieved_ids"])].append(number)
+            memberships[tuple(sorted(row["retrieved_ids"]))].append(number)
+        candidates = sorted({x for _, q in rows for x in q["retrieved_ids"]})
+        metrics = ("precision_at_k", "recall_at_k", "reciprocal_rank", "support_recall_at_k")
+        queries.append(
+            {
+                **deepcopy(gold),
+                "observed_trial_numbers": [n for n, _ in rows],
+                "candidate_sets": [
+                    {"ids": list(ids), "trial_numbers": ns} for ids, ns in memberships.items()
+                ],
+                "rankings": [
+                    {"ids": list(ids), "trial_numbers": ns} for ids, ns in rankings.items()
+                ],
+                "candidate_set_variants": len(memberships),
+                "ranking_variants": len(rankings),
+                "candidate_set_changed": len(memberships) > 1 if len(rows) > 1 else None,
+                "ranking_changed": len(rankings) > 1 if len(rows) > 1 else None,
+                "ranks_by_candidate": {
+                    key: [
+                        q["retrieved_ids"].index(key) + 1 if key in q["retrieved_ids"] else None
+                        for _, q in rows
+                    ]
+                    for key in candidates
+                },
+                "context_count_distribution": _distribution(
+                    [len(q["retrieved_ids"]) for _, q in rows]
+                ),
+                "metric_distributions": {
+                    k: _distribution([q["metrics"][k] for _, q in rows]) for k in metrics
+                },
+            }
+        )
+    return summary, queries
+
+
+async def evaluate_trials(
+    provider: EmbeddingProvider,
+    dataset: EvaluationDataset,
+    *,
+    trials: int,
+    evidence_kind: str,
+    limit: int = 3,
+) -> dict:
+    """Finite sequential trials, each using evaluate's new disposable index.
+
+    Reuse the caller-owned provider, freeze inputs and check its declared space.
+    Observed variability can include provider output as well as ANN behavior;
+    neither stable nor changing ranks establish semantic model quality.
+    """
+    if isinstance(trials, bool) or not isinstance(trials, int) or not 1 <= trials <= 20:
+        raise EvaluationDataError("trials must be between 1 and 20")
+    space = provider.space
+    if not isinstance(space, EmbeddingSpace):
+        raise EvaluationDataError("Provider must declare an embedding space")
+    frozen = deepcopy(dataset)
+    reports = []
+    started = datetime.now(UTC).isoformat()
+    for number in range(1, trials + 1):
+        if provider.space != space:
+            # Do not call a changed contract or combine incomparable scores.
+            report = {
+                "status": "failed",
+                "executed": False,
+                "queries": [],
+                "error": {
+                    "stage": "contract",
+                    "type": "EvaluationDataError",
+                    "message": "Embedding contract changed between trials",
+                },
+            }
+        else:
+            report = await evaluate(
+                provider, deepcopy(frozen), evidence_kind=evidence_kind, limit=limit
+            )
+            report["executed"] = True
+            if provider.space != space:
+                report["status"] = "failed"
+                report["error"] = {
+                    "stage": "contract",
+                    "type": "EvaluationDataError",
+                    "message": "Embedding contract changed during a trial",
+                }
+        report["trial_number"] = number
+        reports.append(report)
+    summary, queries = _trial_aggregate(frozen, reports)
+    summary["executed_trials"] = sum(r["executed"] for r in reports)
+    failures = summary["failed_trials"]
+    violations = summary["exclusion_violations"]
+    return {
+        "schema_version": 1,
+        "report_kind": "repeated_evaluation",
+        "status": "failed" if failures else "completed",
+        "evidence_kind": evidence_kind,
+        "quality_assessment": "not_established",
+        "quality_thresholds": None,
+        "started_at": started,
+        "finished_at": datetime.now(UTC).isoformat(),
+        "limit": limit,
+        "dataset": {
+            "id": frozen.identifier,
+            "sha256": frozen.digest,
+            "synthetic": True,
+            "notes": len(frozen.notes),
+            "queries": len(frozen.queries),
+        },
+        "contract": {
+            **asdict(space),
+            "identifier": space.identifier,
+            "provider_class": type(provider).__module__ + "." + type(provider).__qualname__,
+        },
+        "conditions": {
+            "requested_trials": trials,
+            "fresh_temporary_index_per_trial": True,
+            "execution": "sequential",
+            "input": "fixed deep-copied dataset and gold",
+            "provider": "same caller-owned instance and declared contract",
+            "variability": "observed retrieval; provider outputs and ANN are not isolated",
+            "rank_identity_required": False,
+        },
+        "trials": reports,
+        "queries": queries,
+        "summary": summary,
+        "safety_status": "violated"
+        if violations
+        else "incomplete"
+        if failures
+        else "no_exclusion_violation_observed",
+    }
