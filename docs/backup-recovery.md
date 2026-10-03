@@ -10,7 +10,7 @@ and pending publication recovery material.
 ## Availability and prerequisites
 
 Current state checked on 2026-10-03: main
-`d408e4982669b2c6f1c81a70d90302bd5a910ee0` includes landed PRs #30, #23 and #35.
+`ce0118c9bb8958e055ecae46823f82a4fda2cb61` includes landed PRs #30, #23, #35 and #33.
 SQLite schema v5 preserves conversations, candidates, approvals, review and
 lifecycle history, and replacement/revision links. Initialization migrates
 supported older schemas; the local review CLI requires an existing ready DB.
@@ -33,6 +33,11 @@ partial streams do not save conversation turns; successful responses do.
 Gemini remains pending #31. Use a matching reviewed code version; this runbook
 does not make pending index or Gemini changes available or authorize a merge.
 No live API is needed for disposable validation. OpenAI live validation remains pending.
+The verification gate is now on main: install the dev/vector dependencies and
+use [the gate procedure](verification-gates.md) from a clean checkout. GitHub CI
+records the actual checkout SHA separately from a PR source head and retains
+the terminal receipt and logs. Gate success does not replace inspection of a
+restored snapshot or establish live API/model quality.
 
 ## Back up a consistent snapshot
 
@@ -236,3 +241,8 @@ retrieval, not transcript deletion.
   cleanup described above. The preceding #23 entry records the earlier state.
   Gemini #31 and derived-index features remain pending; backup/restore code
   snippets are unchanged.
+
+- 2026-10-03, after #33 merge: main `ce0118c` includes the verification runner,
+  redacted Secret scan and Linux CI receipts. SQLite/vault recovery code and
+  the backup/restore snippets are unchanged. Recovery tests #34, this runbook
+  #32, Gemini #31 and the derived-index stack remain pending.
