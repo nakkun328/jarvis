@@ -9,7 +9,7 @@ import re
 import sqlite3
 import unicodedata
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 from uuid import UUID, uuid5
 
@@ -79,6 +79,7 @@ class SelfEvent:
     importance: float
     confidence: float
     project: str | None = None
+    supersedes_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,7 @@ class ExtractedCandidate:
     confidence: float
     tags: tuple[str, ...] = ()
     project: str | None = None
+    supersedes_id: UUID | None = None
 
 
 Evidence = ConversationEvidence | SelfEvent
@@ -110,6 +112,8 @@ class IndexRefresher(Protocol):
     """
 
     def refresh(self, memory: RetrievedMemory) -> None: ...
+
+    def remove_inactive(self, memory_id: UUID) -> None: ...
 
 
 class ExplicitExtractor:
@@ -140,6 +144,11 @@ class ExplicitExtractor:
                 raise ValueError("Self event ID and source must contain text")
             if not evidence.observation.strip() or not evidence.guidance.strip():
                 raise ValueError("Self event observation and guidance must contain text")
+            if (
+                evidence.supersedes_id is not None
+                and evidence.kind is not SelfMemoryKind.CORRECTION
+            ):
+                raise ValueError("Only correction events may supersede an earlier memory")
             labels = {
                 SelfMemoryKind.SUCCESS: ("Succeeded", "Repeat"),
                 SelfMemoryKind.FAILURE: ("Failed", "Next time"),
@@ -160,6 +169,7 @@ class ExplicitExtractor:
                     confidence=evidence.confidence,
                     tags=(f"self-kind:{evidence.kind.value}",),
                     project=evidence.project,
+                    supersedes_id=evidence.supersedes_id,
                 ),
             )
         raise TypeError("Unsupported consolidation evidence")
@@ -227,12 +237,44 @@ class MemoryConsolidator:
         staged_ids: list[UUID] = []
         duplicates: list[ExtractedCandidate] = []
         for candidate, topic, record in prepared:
+            if candidate.supersedes_id is not None:
+                previous = self.writer.repository.get(record.id)
+                original = self.writer.repository.get(candidate.supersedes_id)
+                if (
+                    previous is not None
+                    and previous.status is MemoryStatus.APPROVED
+                    and previous.supersedes_id == candidate.supersedes_id
+                    and original is not None
+                    and original.replaced_by_id == record.id
+                ):
+                    duplicates.append(candidate)
+                    continue
+            else:
+                historical = self.writer.repository.get(record.id)
+                if historical is not None and historical.status in (
+                    MemoryStatus.SUPERSEDED,
+                    MemoryStatus.RETIRED,
+                ):
+                    # A retired/superseded identity may be proposed again from
+                    # new evidence, but must receive a fresh reviewable ID.
+                    record = replace(
+                        record,
+                        id=uuid5(_NAMESPACE, f"revival\x1f{record.id}\x1f{candidate.source}"),
+                    )
             peers = [
                 item
                 for item in known
-                if item.record.category is record.category and item.record.project == record.project
+                if item.record.category is record.category
+                and item.record.project == record.project
+                and item.status
+                in (
+                    MemoryStatus.PENDING,
+                    MemoryStatus.CONFLICT,
+                    MemoryStatus.APPROVED,
+                    MemoryStatus.REJECTED,
+                )
             ]
-            if any(
+            if candidate.supersedes_id is None and any(
                 _normalize(item.record.content) == _normalize(record.content)
                 and item.record.origin is record.origin
                 for item in peers
@@ -243,7 +285,8 @@ class MemoryConsolidator:
                 _topic_of(item.record) in (None, topic)
                 and _normalize(item.record.content) != _normalize(record.content)
                 for item in peers
-                if item.status is not MemoryStatus.REJECTED
+                if item.status
+                in (MemoryStatus.PENDING, MemoryStatus.CONFLICT, MemoryStatus.APPROVED)
             )
             if conflicting:
                 for item in peers:
@@ -262,7 +305,10 @@ class MemoryConsolidator:
                         except MemoryStateChanged:
                             pass  # The next snapshot observes the concurrent review state.
             try:
-                stored = self.writer.submit(record)
+                if candidate.supersedes_id is not None:
+                    stored = self.writer.submit_correction(candidate.supersedes_id, record)
+                else:
+                    stored = self.writer.submit(record)
             except MemoryAlreadyExists:
                 stored = self.writer.repository.get(record.id)
                 if (
@@ -301,9 +347,29 @@ class MemoryConsolidator:
         if self.index_refresher is not None:
             try:
                 self.index_refresher.refresh(canonical)
+                if stored.supersedes_id is not None:
+                    self.index_refresher.remove_inactive(stored.supersedes_id)
             except Exception as exc:
                 raise IndexRefreshError(
                     "Memory was approved but index refresh failed; retry publish_reviewed"
+                ) from exc
+        return stored
+
+    def retire_reviewed(self, memory_id: UUID, *, actor: str, reason: str) -> StoredMemory:
+        """Retire once, then retry derived-index cleanup until it succeeds."""
+        stored = self.writer.repository.get(memory_id)
+        if stored is None:
+            raise ConsolidationError("Memory does not exist")
+        if stored.status is MemoryStatus.APPROVED:
+            stored = self.writer.retire(memory_id, actor=actor, reason=reason)
+        elif stored.status is not MemoryStatus.RETIRED:
+            raise ConsolidationError("Only approved memory can be retired")
+        if self.index_refresher is not None:
+            try:
+                self.index_refresher.remove_inactive(memory_id)
+            except Exception as exc:
+                raise IndexRefreshError(
+                    "Memory was retired but index cleanup failed; retry retire_reviewed"
                 ) from exc
         return stored
 
@@ -342,15 +408,17 @@ def _prepare(candidate: ExtractedCandidate) -> tuple[ExtractedCandidate, str, Me
     if any(tag.startswith(_TOPIC_PREFIX) for tag in candidate.tags):
         raise ValueError("Consolidation topic tags are reserved")
     normalized = _normalize(candidate.content)
-    identity = "\x1f".join(
-        (
-            candidate.category.value,
-            candidate.project or "",
-            topic,
-            normalized,
-            candidate.origin.value,
-        )
+    identity_parts = (
+        candidate.category.value,
+        candidate.project or "",
+        topic,
+        normalized,
+        candidate.origin.value,
     )
+    # Keep pre-v5 identities stable for ordinary candidates across upgrades.
+    if candidate.supersedes_id is not None:
+        identity_parts += (str(candidate.supersedes_id),)
+    identity = "\x1f".join(identity_parts)
     record = MemoryRecord(
         id=uuid5(_NAMESPACE, identity),
         category=candidate.category,

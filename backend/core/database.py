@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 _HISTORY_MISMATCH = "SQLite schema version and migration history disagree"
 
 
@@ -40,6 +40,9 @@ class Database:
             else:
                 os.close(descriptor)
             with self.connect() as connection:
+                # v5 rebuilds a CHECK-constrained parent table. Validate all
+                # references before commit, then close this migration connection.
+                connection.execute("PRAGMA foreign_keys = OFF")
                 with connection:
                     connection.execute("BEGIN IMMEDIATE")
                     version = connection.execute("PRAGMA user_version").fetchone()[0]
@@ -135,6 +138,58 @@ class Database:
                         )
                         self._record_migration(connection, 4)
                         connection.execute("PRAGMA user_version = 4")
+                    if version < 5:
+                        connection.execute(
+                            "CREATE TABLE memory_records_v5 ("
+                            "id TEXT PRIMARY KEY, category TEXT NOT NULL, "
+                            "content TEXT NOT NULL, source TEXT NOT NULL, origin TEXT NOT NULL, "
+                            "importance REAL NOT NULL, confidence REAL NOT NULL, "
+                            "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, "
+                            "last_accessed TEXT, tags TEXT NOT NULL, project TEXT, "
+                            "status TEXT NOT NULL CHECK(status IN "
+                            "('pending', 'conflict', 'approved', 'rejected', "
+                            "'superseded', 'retired')), vault_revision TEXT, "
+                            "supersedes_id TEXT REFERENCES memory_records(id), "
+                            "supersedes_revision TEXT, "
+                            "replaced_by_id TEXT REFERENCES memory_records(id), "
+                            "CHECK ((supersedes_id IS NULL) = (supersedes_revision IS NULL)), "
+                            "CHECK (status != 'superseded' OR replaced_by_id IS NOT NULL))"
+                        )
+                        connection.execute(
+                            "INSERT INTO memory_records_v5 ("
+                            "id, category, content, source, origin, importance, confidence, "
+                            "created_at, updated_at, last_accessed, tags, project, status, "
+                            "vault_revision) SELECT id, category, content, source, origin, "
+                            "importance, confidence, created_at, updated_at, last_accessed, "
+                            "tags, project, status, vault_revision FROM memory_records"
+                        )
+                        connection.execute("DROP TABLE memory_records")
+                        connection.execute("ALTER TABLE memory_records_v5 RENAME TO memory_records")
+                        connection.execute(
+                            "CREATE INDEX memory_records_by_status "
+                            "ON memory_records(status, created_at)"
+                        )
+                        connection.execute(
+                            "CREATE INDEX memory_records_by_supersedes "
+                            "ON memory_records(supersedes_id)"
+                        )
+                        connection.execute(
+                            "CREATE TABLE memory_lifecycle_events ("
+                            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                            "memory_id TEXT NOT NULL REFERENCES memory_records(id), "
+                            "related_id TEXT REFERENCES memory_records(id), "
+                            "action TEXT NOT NULL CHECK(action IN ('supersede', 'retire')), "
+                            "actor TEXT NOT NULL, reason TEXT NOT NULL, "
+                            "occurred_at TEXT NOT NULL, vault_revision TEXT NOT NULL)"
+                        )
+                        connection.execute(
+                            "CREATE INDEX memory_lifecycle_events_by_memory "
+                            "ON memory_lifecycle_events(memory_id, id)"
+                        )
+                        self._record_migration(connection, 5)
+                        connection.execute("PRAGMA user_version = 5")
+                    if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                        raise DatabaseError("SQLite foreign key check failed during migration")
         except (OSError, sqlite3.Error) as exc:
             raise DatabaseError(f"Could not initialize SQLite database at {self.path}") from exc
 
