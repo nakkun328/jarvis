@@ -22,6 +22,15 @@ class FakeResponses:
         return SimpleNamespace(status="completed", output_text="Again")
 
 
+class FakeClient:
+    def __init__(self, responses):
+        self.responses = responses
+        self.closed = False
+
+    async def close(self):
+        self.closed = True
+
+
 class FakeStream:
     async def __aenter__(self) -> "FakeStream":
         return self
@@ -36,9 +45,8 @@ class FakeStream:
 
 def test_static_ui_stream_and_followup_share_one_conversation(tmp_path: Path) -> None:
     responses = FakeResponses()
-    provider = OpenAIResponsesProvider(
-        model="test-model", client=SimpleNamespace(responses=responses)
-    )
+    fake_client = FakeClient(responses)
+    provider = OpenAIResponsesProvider(model="test-model", client=fake_client)
     with TestClient(create_app(Settings(db_path=tmp_path / "jarvis.sqlite3"), provider)) as client:
         page = client.get("/")
         assert page.status_code == 200
@@ -59,6 +67,7 @@ def test_static_ui_stream_and_followup_share_one_conversation(tmp_path: Path) ->
         assert followup.json()["reply"] == "Again"
         assert followup.json()["conversation_id"] == done["conversation_id"]
 
+    assert fake_client.closed
     assert responses.calls[0]["store"] is False
     assert responses.calls[1]["store"] is False
     assert responses.calls[1]["input"][-3:] == [
