@@ -16,6 +16,7 @@ from backend.memory.obsidian import ObsidianVault
 from backend.memory.repository import MemoryRepository, MemoryStatus
 from backend.memory.retrieval import MemoryRetriever
 from backend.memory.semantic import SemanticMemorySearcher
+from backend.memory.vector import VectorMatch
 from backend.memory.writer import MemoryWriter
 
 
@@ -62,7 +63,10 @@ def _system(tmp_path: Path):
     return repository, vault, writer, provider, index, searcher, builder
 
 
-def test_semantic_query_filters_unreviewed_ids_and_reads_current_note(tmp_path: Path) -> None:
+@pytest.mark.parametrize("candidate_order", ["controlled", "chroma"])
+def test_semantic_query_filters_unreviewed_ids_and_reads_current_note(
+    tmp_path: Path, candidate_order
+) -> None:
     repository, vault, writer, provider, index, searcher, builder = _system(tmp_path)
     approved = _record("observatory opens Friday")
     unrelated = _record("coffee beans are stored in the kitchen")
@@ -72,9 +76,7 @@ def test_semantic_query_filters_unreviewed_ids_and_reads_current_note(tmp_path: 
         writer.submit(record)
     writer.approve(approved.id)
     writer.approve(unrelated.id)
-    repository.transition(
-        conflicted.id, expected=MemoryStatus.PENDING, new=MemoryStatus.CONFLICT
-    )
+    repository.transition(conflicted.id, expected=MemoryStatus.PENDING, new=MemoryStatus.CONFLICT)
 
     async def run() -> None:
         await builder.populate_empty()
@@ -92,11 +94,47 @@ def test_semantic_query_filters_unreviewed_ids_and_reads_current_note(tmp_path: 
             note.metadata,
             expected_revision=note.revision,
         )
+        # Exact expansion/conflict expectations belong to controlled ordering;
+        # Chroma ANN can omit or reorder a candidate. Keep real persistence in
+        # both cases and separately check actual Chroma canonical safety.
+        limits = []
+        if candidate_order == "controlled":
+
+            class OrderedCandidates:
+                async def search(self, query):
+                    assert query.space == provider.space.identifier
+                    assert query.values == (1.0, 0.0)
+                    limits.append(query.limit)
+                    rows = (
+                        VectorMatch(str(pending.id), 0.0),
+                        VectorMatch(str(conflicted.id), -0.02),
+                        VectorMatch(str(approved.id), -0.08),
+                        VectorMatch(str(unrelated.id), -2.0),
+                    )
+                    return rows[: query.limit]
+
+            searcher.retriever.vector_index = OrderedCandidates()
+        assert set(await index.list_ids(provider.space.identifier)) == {
+            str(r.id) for r in (approved, unrelated, pending, conflicted)
+        }
         result = await searcher.search("orbit question", limit=1)
-        assert [item.record.id for item in result.matches] == [approved.id]
-        assert result.matches[0].record.content == "observatory opens Sunday"
-        assert result.matches[0].edited_since_approval
-        assert [item.record.id for item in result.conflicts] == [conflicted.id]
+        if candidate_order == "controlled":
+            assert limits == [1, 2, 4]
+            assert [item.record.id for item in result.matches] == [approved.id]
+            assert result.matches[0].record.content == "observatory opens Sunday"
+            assert result.matches[0].edited_since_approval
+            assert [item.record.id for item in result.conflicts] == [conflicted.id]
+        # Real ANN results are not an exhaustive conflict inventory or a
+        # quality gold pass. Every returned fact must still be current/approved.
+        assert len(result.matches) <= 1
+        for match in result.matches:
+            assert match.record.id in {approved.id, unrelated.id}
+            assert repository.get(match.record.id).status is MemoryStatus.APPROVED
+            assert match.record.content == vault.read(match.record.id).body
+            assert match.record.source == "conversation:example"
+            assert match.record.origin is MemoryOrigin.USER_EXPLICIT
+            assert match.record.confidence == 0.9
+        assert {c.record.id for c in result.conflicts} <= {conflicted.id}
         assert result.issues == ()
         assert provider.calls[-1] == ("orbit question",)
 
