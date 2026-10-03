@@ -431,6 +431,70 @@ def test_reviewed_correction_and_retirement_clean_real_index(tmp_path: Path) -> 
     assert vault.read(correction.id).body == correction.content
 
 
+def test_real_multispace_cleanup_failure_preserves_retirement_and_can_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, vault, writer, provider, index, builder = _setup(tmp_path)
+    record = _record("Reviewed memory to retire")
+    writer.submit(record)
+    writer.approve(record.id, actor="reviewer")
+    revision = vault.read(record.id).revision
+    spaces = (provider.space, EmbeddingSpace("fake/local", "cleanup-v2", 2))
+    asyncio.run(
+        index.upsert(
+            [space.record(str(record.id), (1.0, 0.0), source_revision=revision) for space in spaces]
+        )
+    )
+    retriever = MemoryRetriever(repository, vault, vector_index=index)
+    pipeline = MemoryConsolidator(
+        repository.database,
+        writer,
+        retriever,
+        index_refresher=SynchronousIndexRefresher(builder),
+    )
+    deleted = 0
+    get_collection = index.client.get_collection
+
+    class FlakyCollection:
+        def __init__(self, collection):
+            self.collection = collection
+
+        def __getattr__(self, name):
+            return getattr(self.collection, name)
+
+        def delete(self, **kwargs):
+            nonlocal deleted
+            deleted += 1
+            if deleted == 2:
+                raise OSError("simulated cache failure")
+            return self.collection.delete(**kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            index.client,
+            "get_collection",
+            lambda **kwargs: FlakyCollection(get_collection(**kwargs)),
+        )
+        with pytest.raises(IndexRefreshError, match="retry retire_reviewed") as failure:
+            pipeline.retire_reviewed(record.id, actor="reviewer", reason="obsolete")
+    assert "simulated cache failure" not in str(failure.value)
+    assert deleted == 2
+    assert sorted([len(asyncio.run(index.list_ids(space.identifier))) for space in spaces]) == [
+        0,
+        1,
+    ]
+    assert repository.get(record.id).status is MemoryStatus.RETIRED
+    assert vault.read(record.id).revision == revision
+    for space in spaces:
+        assert asyncio.run(retriever.search_vector(space.query((1.0, 0.0)))).matches == ()
+    pipeline.retire_reviewed(record.id, actor="reviewer", reason="obsolete")
+    for space in spaces:
+        assert asyncio.run(index.list_ids(space.identifier)) == ()
+    assert asyncio.run(builder.audit_ids()).healthy
+    assert len(repository.lifecycle_events(record.id)) == 1
+    assert len(repository.review_events(record.id)) == 1
+
+
 def test_reviewed_publication_refreshes_real_chroma_index(tmp_path: Path) -> None:
     repository, vault, writer, provider, index, builder = _setup(tmp_path)
     retriever = MemoryRetriever(repository, vault)
