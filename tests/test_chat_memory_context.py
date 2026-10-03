@@ -3,6 +3,7 @@
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
@@ -257,3 +258,75 @@ def test_opt_in_requires_existing_non_symlink_vault(tmp_path: Path) -> None:
             Settings(db_path=tmp_path / "memory.sqlite3", memory_vault_path=link),
             FakeProvider(),
         )
+
+
+def test_cli_reviewed_correction_and_retirement_change_chat_references(
+    tmp_path: Path, capsys
+) -> None:
+    from backend.memory.consolidation import MemoryConsolidator
+    from backend.memory.review_cli import main as review_cli
+
+    database, repository, vault, writer = _setup(tmp_path)
+    vault.root.mkdir()
+    provider = FakeProvider()
+    pipeline = MemoryConsolidator(database, writer, MemoryRetriever(repository, vault))
+    settings = Settings(db_path=database.path, memory_vault_path=vault.root)
+    common = ["--db", str(database.path)]
+    review = ["--actor", "fixture-reviewer", "--vault", str(vault.root)]
+    with TestClient(create_app(settings, provider)) as client:
+        first = client.post(
+            "/api/chat", json={"message": "Remember observatory: 架空天文台は土曜日に開館"}
+        )
+        assert first.status_code == 200
+        cid = first.json()["conversation_id"]
+        staged = pipeline.stage_conversation(UUID(cid))
+        assert len(staged.pending) == 1
+        original = staged.pending[0].record
+        assert original.source == f"conversation:{cid}:message:1"
+        assert review_cli([*common, "approve", str(original.id), *review]) == 0
+        capsys.readouterr()
+        assert client.post("/api/chat", json={"message": "架空天文台"}).status_code == 200
+        assert [item["id"] for item in _reference(provider.requests[-1])] == [str(original.id)]
+
+        correction = client.post(
+            "/api/chat",
+            json={"message": "訂正: 架空天文台は日曜日に開館", "conversation_id": cid},
+        )
+        assert correction.status_code == 200
+        with database.connect(read_only=True) as connection:
+            message_id = connection.execute(
+                "SELECT MAX(id) FROM conversation_messages WHERE conversation_id=? AND role='user'",
+                (cid,),
+            ).fetchone()[0]
+        content = tmp_path / "correction.txt"
+        content.write_text("架空天文台は日曜日に開館", encoding="utf-8")
+        assert review_cli([
+            *common, "correct", str(original.id), "--vault", str(vault.root),
+            "--content-file", str(content), "--source", f"conversation:{cid}:message:{message_id}",
+            "--origin", "user_explicit",
+        ]) == 0
+        replacement = UUID(json.loads(capsys.readouterr().out)["id"])
+        assert client.post("/api/chat", json={"message": "架空天文台"}).status_code == 200
+        assert [item["id"] for item in _reference(provider.requests[-1])] == [str(original.id)]
+        assert review_cli([*common, "approve", str(replacement), *review]) == 0
+        capsys.readouterr()
+        streamed = client.post("/api/chat/stream", json={"message": "架空天文台"})
+        assert "event: done" in streamed.text
+        references = _reference(provider.requests[-1])
+        assert [item["id"] for item in references] == [str(replacement)]
+        assert references[0]["content"] == "架空天文台は日曜日に開館"
+        assert repository.get(original.id).status is MemoryStatus.SUPERSEDED
+        assert review_cli([
+            *common, "retire", str(replacement), *review, "--reason", "架空の確認終了",
+        ]) == 0
+        capsys.readouterr()
+        assert client.post("/api/chat", json={"message": "架空天文台"}).status_code == 200
+        assert all(
+            "Reviewed memory reference" not in m.content for m in provider.requests[-1].messages
+        )
+    with database.connect(read_only=True) as connection:
+        rows = connection.execute("SELECT content FROM conversation_messages").fetchall()
+    assert all("Reviewed memory reference" not in row["content"] for row in rows)
+    assert len(repository.review_events(replacement)) == 1
+    assert len(repository.lifecycle_events(original.id)) == 1
+    assert len(repository.lifecycle_events(replacement)) == 1
