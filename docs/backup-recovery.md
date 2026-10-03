@@ -9,18 +9,23 @@ and pending publication recovery material.
 
 ## Availability and prerequisites
 
-On current main, SQLite schema v4 preserves conversations, candidates, approvals
-and review history. The local review CLI requires an existing ready database.
-The reviewed correction/retirement APIs below require pending [PR #30](https://github.com/nakkun328/jarvis/pull/30),
-which upgrades supported schemas to v5. Derived rebuild/refresh/audit APIs require
+Current state checked on 2026-10-03: main
+`ecebe8d353baa89bf9cbf0fe6e7f4715b82ac744` includes landed PR #30.
+SQLite schema v5 preserves conversations, candidates, approvals, review and
+lifecycle history, and replacement/revision links. Initialization migrates
+supported older schemas; the local review CLI requires an existing ready DB.
+Explicit corrections, supersession and retirement are now available on main.
+Canonical retrieval excludes inactive memories immediately; it does not
+physically delete their cached vectors.
+Derived rebuild/refresh/audit APIs require
 [PR #18](https://github.com/nakkun328/jarvis/pull/18),
 [PR #21](https://github.com/nakkun328/jarvis/pull/21),
 [PR #24](https://github.com/nakkun328/jarvis/pull/24),
 [PR #26](https://github.com/nakkun328/jarvis/pull/26) and
 [PR #29](https://github.com/nakkun328/jarvis/pull/29).
 Opt-in chat memory and Gemini remain separate pending changes (#23/#31).
-Use a matching reviewed code version; this runbook does not make those changes
-available on main or authorize a merge. No live API is needed for the disposable
+Use a matching reviewed code version; this runbook does not make pending index
+or chat changes available on main or authorize a merge. No live API is needed for the disposable
 validation. OpenAI live validation remains pending.
 
 ## Back up a consistent snapshot
@@ -145,6 +150,10 @@ human edits remain canonical when their provenance is valid.
 
 ## Rebuild derived Chroma and restart
 
+This section requires the pending embedding/index PRs listed above; its
+physical cleanup APIs are not on current main. SQLite/vault backup and restore
+from the preceding sections are available with main schema v5.
+
 Follow the [index rebuild procedures in PR #21](https://github.com/nakkun328/jarvis/pull/21) with the restored SQLite repository,
 restored vault, the caller's explicitly configured embedding provider/space, and
 a **new private Chroma directory**. Run `populate_empty`, then `audit_ids` and
@@ -155,9 +164,12 @@ not appear as approved retrieval matches.
 The application has no automatic active-index switch or built-in production
 embedding provider selection. Keep that configured caller pointed at the old
 index until the new one verifies, then select the restored paths/new index and
-restart one local worker. `JARVIS_DB_PATH` configures the app DB; `JARVIS_MEMORY_VAULT_PATH` opts the app into an existing vault; index
-selection belongs to the caller's explicit memory wiring. Verify readiness,
-conversation continuity and opt-in memory behavior before resuming writers.
+restart one local worker. `JARVIS_DB_PATH` configures the app DB. After #23
+lands, `JARVIS_MEMORY_VAULT_PATH` can opt chat into an existing vault. On current
+main, reviewed memory retrieval is caller-wired and is not connected to chat.
+Index selection belongs to the caller's explicit memory wiring. Verify readiness
+and conversation continuity before resuming writers; verify opt-in behavior
+only on code that includes #23.
 
 For a failed reviewed publication, repair the cause and retry
 `publish_reviewed(id, actor=...)`: a matching previously created note and one
@@ -196,3 +208,14 @@ Memory references are request context and are not stored as conversation turns.
 Old facts explicitly supplied in successful user turns remain in conversation
 history after long-term memory retirement; retirement governs reviewed memory
 retrieval, not transcript deletion.
+
+## Dated verification history
+
+- 2026-10-03, initial Draft #32 at `3e97c3d`: backed-up code was main schema v4;
+  lifecycle/index/chat methods required pending PRs. The disposable full
+  integration verified SQLite backup, vault restoration and new Chroma rebuild.
+- 2026-10-03, after #30 merge: main is schema v5 with reviewed lifecycle and
+  canonical inactive exclusion. Concrete all-space cache cleanup/rebuild is
+  still pending in the index stack, notably #29. Do not infer physical vector
+  removal from a successful retirement on main. The main and integration
+  checks remain separate evidence.
