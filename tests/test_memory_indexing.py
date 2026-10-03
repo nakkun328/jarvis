@@ -140,9 +140,7 @@ def test_id_audit_reports_missing_and_extra_without_changing_index(tmp_path: Pat
         assert initial.memory_ids == (str(first.id),)
         assert (await builder.audit_ids()).healthy
         writer.approve(second.id)
-        await index.upsert(
-            (VectorRecord(str(stray.id), provider.space.identifier, (1.0, 0.0)),)
-        )
+        await index.upsert((VectorRecord(str(stray.id), provider.space.identifier, (1.0, 0.0)),))
         calls_before = list(provider.calls)
         ids_before = await index.list_ids(provider.space.identifier)
         report = await builder.audit_ids()
@@ -265,9 +263,7 @@ def test_audit_marks_legacy_vector_without_revision_untracked(tmp_path: Path) ->
     writer.approve(approved.id)
 
     async def run() -> None:
-        await index.upsert(
-            (VectorRecord(str(approved.id), provider.space.identifier, (0.0, 1.0)),)
-        )
+        await index.upsert((VectorRecord(str(approved.id), provider.space.identifier, (0.0, 1.0)),))
         report = await builder.audit_ids()
         assert report.missing_ids == report.extra_ids == report.stale_ids == ()
         assert report.untracked_ids == (str(approved.id),)
@@ -327,6 +323,61 @@ def test_note_edit_during_audit_cannot_report_healthy(tmp_path: Path) -> None:
     async def run() -> None:
         with pytest.raises(IndexBuildError, match="changed during index audit"):
             await builder.audit_ids()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("operation", ["refresh", "audit"])
+@pytest.mark.parametrize("change", ["retirement", "revision"])
+def test_change_inside_final_index_resolution_fails_and_can_retry(tmp_path, operation, change):
+    repository, vault, writer, provider, index, builder = _setup(tmp_path)
+    approved = _record("Approved content")
+    writer.submit(approved)
+    writer.approve(approved.id)
+    asyncio.run(builder.populate_empty())
+    original_resolve = builder.retriever._resolve
+    calls = 0
+    changed = False
+
+    def interleave(stored, now):
+        nonlocal calls, changed
+        resolved = original_resolve(stored, now)
+        calls += 1
+        # The final refresh/audit resolve has read SQLite and the old note,
+        # but has not returned that earlier snapshot to the builder yet.
+        if calls == (3 if operation == "refresh" else 2):
+            note = vault.read(approved.id)
+            if change == "retirement":
+                writer.retire(approved.id, actor="synthetic-test", reason="Fixture review")
+            else:
+                vault.update(
+                    approved.id, "Edited content", note.metadata, expected_revision=note.revision
+                )
+            changed = True
+        return resolved
+
+    builder.retriever._resolve = interleave
+
+    async def run():
+        with pytest.raises(IndexBuildError, match="changed|repair"):
+            if operation == "refresh":
+                await builder.refresh_approved(approved.id)
+            else:
+                await builder.audit_ids()
+        assert changed
+        # Never undo the canonical review/edit just to keep a derived cache valid.
+        note = vault.read(approved.id)
+        assert note is not None
+        if change == "retirement":
+            assert repository.get(approved.id).status is MemoryStatus.RETIRED
+            assert (await builder.audit_ids()).extra_ids == (str(approved.id),)
+            await builder.remove_inactive(approved.id)
+        else:
+            assert note.body == "Edited content"
+            assert (await builder.audit_ids()).stale_ids == (str(approved.id),)
+            await builder.refresh_approved(approved.id)
+        assert (await builder.audit_ids()).healthy
+        assert vault.read(approved.id) is not None
 
     asyncio.run(run())
 
@@ -596,9 +647,17 @@ def test_restored_vault_rebuilds_fresh_index_and_reopens_in_another_process(tmp_
     }
     for mode in ("build", "reopen"):
         result = subprocess.run(
-            [sys.executable, str(repo_root / "tests/fixtures/index_restore_probe.py"),
-             str(restored), mode],
-            env=environment, capture_output=True, text=True, check=True, timeout=60,
+            [
+                sys.executable,
+                str(repo_root / "tests/fixtures/index_restore_probe.py"),
+                str(restored),
+                mode,
+            ],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
         )
         assert json.loads(result.stdout) == expected
     assert len(repository.review_events(current.id)) == 1
