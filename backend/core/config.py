@@ -18,6 +18,7 @@ class Settings:
     db_path: Path
     log_level: str = "INFO"
     llm_provider: str = "none"
+    memory_vault_path: Path | None = None
 
     def __post_init__(self) -> None:
         if not str(self.db_path).strip():
@@ -28,14 +29,20 @@ class Settings:
             raise ConfigError(
                 f"JARVIS_LLM_PROVIDER must be one of: {', '.join(sorted(_LLM_PROVIDERS))}"
             )
+        if self.memory_vault_path is not None and not str(self.memory_vault_path).strip():
+            raise ConfigError("JARVIS_MEMORY_VAULT_PATH must not be empty")
 
     @classmethod
     def from_env(cls) -> "Settings":
         raw_path = os.environ.get("JARVIS_DB_PATH", "data/jarvis.sqlite3")
         if not raw_path.strip():
             raise ConfigError("JARVIS_DB_PATH must not be empty")
+        vault_path = os.environ.get("JARVIS_MEMORY_VAULT_PATH")
+        if vault_path is not None and not vault_path.strip():
+            raise ConfigError("JARVIS_MEMORY_VAULT_PATH must not be empty")
         return cls(
             db_path=Path(raw_path).expanduser(),
             log_level=os.environ.get("JARVIS_LOG_LEVEL", "INFO").upper(),
             llm_provider=os.environ.get("JARVIS_LLM_PROVIDER", "none").lower(),
+            memory_vault_path=Path(vault_path).expanduser() if vault_path is not None else None,
         )
