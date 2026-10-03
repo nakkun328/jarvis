@@ -33,6 +33,38 @@ def _candidate() -> MemoryRecord:
     )
 
 
+def _restore_v4_layout(database: Database) -> None:
+    """Build a real v4 parent table for upgrade tests from a fresh fixture."""
+    with database.connect() as connection:
+        connection.execute("PRAGMA foreign_keys = OFF")
+        with connection:
+            connection.execute("DROP TABLE memory_lifecycle_events")
+            connection.execute("DROP INDEX memory_records_by_status")
+            connection.execute("DROP INDEX memory_records_by_supersedes")
+            connection.execute(
+                "CREATE TABLE memory_records_v4 ("
+                "id TEXT PRIMARY KEY, category TEXT NOT NULL, content TEXT NOT NULL, "
+                "source TEXT NOT NULL, origin TEXT NOT NULL, importance REAL NOT NULL, "
+                "confidence REAL NOT NULL, created_at TEXT NOT NULL, "
+                "updated_at TEXT NOT NULL, last_accessed TEXT, tags TEXT NOT NULL, "
+                "project TEXT, status TEXT NOT NULL CHECK(status IN "
+                "('pending', 'conflict', 'approved', 'rejected')), vault_revision TEXT)"
+            )
+            connection.execute(
+                "INSERT INTO memory_records_v4 SELECT id, category, content, source, "
+                "origin, importance, confidence, created_at, updated_at, "
+                "last_accessed, tags, project, status, vault_revision FROM memory_records"
+            )
+            connection.execute("DROP TABLE memory_records")
+            connection.execute("ALTER TABLE memory_records_v4 RENAME TO memory_records")
+            connection.execute(
+                "CREATE INDEX memory_records_by_status ON memory_records(status, created_at)"
+            )
+            connection.execute("DELETE FROM schema_migrations WHERE version = 5")
+            connection.execute("PRAGMA user_version = 4")
+            assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
 def test_candidate_persists_across_repository_instances_and_requires_review(tmp_path: Path) -> None:
     database = Database(tmp_path / "memory.sqlite3")
     database.initialize()
@@ -93,6 +125,7 @@ def test_candidate_persists_across_repository_instances_and_requires_review(tmp_
 def test_v2_migration_preserves_conversation_and_records_v3(tmp_path: Path) -> None:
     database = Database(tmp_path / "upgrade.sqlite3")
     database.initialize()
+    _restore_v4_layout(database)
     conversation_id = str(uuid4())
     with database.connect() as connection, connection:
         connection.execute(
@@ -115,6 +148,7 @@ def test_v2_migration_preserves_conversation_and_records_v3(tmp_path: Path) -> N
             2,
             3,
             4,
+            5,
         ]
     assert MemoryRepository(database).add(_candidate()).status is MemoryStatus.PENDING
 
@@ -131,6 +165,7 @@ def test_v3_migration_preserves_approved_memory_and_does_not_invent_history(tmp_
         new=MemoryStatus.APPROVED,
         vault_revision="existing-revision",
     )
+    _restore_v4_layout(database)
     with database.connect() as connection, connection:
         connection.execute("DROP INDEX memory_review_events_by_memory")
         connection.execute("DROP TABLE memory_review_events")
@@ -143,9 +178,65 @@ def test_v3_migration_preserves_approved_memory_and_does_not_invent_history(tmp_
     assert repository.review_events(candidate.id) == []
 
 
+def test_v4_to_v5_migration_preserves_review_audit_and_foreign_keys(tmp_path: Path) -> None:
+    database = Database(tmp_path / "upgrade-v4.sqlite3")
+    database.initialize()
+    repository = MemoryRepository(database)
+    candidate = _candidate()
+    repository.add(candidate)
+    repository.transition(
+        candidate.id,
+        expected=MemoryStatus.PENDING,
+        new=MemoryStatus.APPROVED,
+        vault_revision="existing-revision",
+        actor="reviewer:migration",
+    )
+    _restore_v4_layout(database)
+    database.initialize()
+    assert repository.get(candidate.id).status is MemoryStatus.APPROVED
+    assert repository.get(candidate.id).vault_revision == "existing-revision"
+    assert [(event.action, event.actor) for event in repository.review_events(candidate.id)] == [
+        ("approve", "reviewer:migration")
+    ]
+    with database.connect(read_only=True) as connection:
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_v5_migration_failure_rolls_back_parent_table_and_history(tmp_path: Path) -> None:
+    database = Database(tmp_path / "failed-v5.sqlite3")
+    database.initialize()
+    repository = MemoryRepository(database)
+    candidate = _candidate()
+    repository.add(candidate)
+    _restore_v4_layout(database)
+    with database.connect() as connection, connection:
+        connection.execute(
+            "CREATE TRIGGER fail_v5 BEFORE INSERT ON schema_migrations "
+            "WHEN NEW.version = 5 BEGIN SELECT RAISE(ABORT, 'simulated failure'); END"
+        )
+    with pytest.raises(DatabaseError, match="Could not initialize"):
+        database.initialize()
+    with database.connect(read_only=True) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert [row[0] for row in connection.execute("SELECT version FROM schema_migrations")] == [
+            1, 2, 3, 4
+        ]
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert connection.execute("SELECT id FROM memory_records").fetchone()[0] == str(
+            candidate.id
+        )
+        assert (
+            connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'memory_lifecycle_events'"
+            ).fetchone()
+            is None
+        )
+
+
 def test_v4_migration_failure_rolls_back_schema_and_version(tmp_path: Path) -> None:
     database = Database(tmp_path / "failed-v4.sqlite3")
     database.initialize()
+    _restore_v4_layout(database)
     with database.connect() as connection, connection:
         connection.execute("DROP INDEX memory_review_events_by_memory")
         connection.execute("DROP TABLE memory_review_events")
