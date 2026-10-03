@@ -2,10 +2,12 @@
 
 import hashlib
 import json
+import platform
 import re
 import tempfile
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from importlib.metadata import version
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
@@ -191,6 +193,13 @@ async def evaluate(
         "started_at": datetime.now(UTC).isoformat(),
         "limit": limit,
         "contract": None,
+        "retrieval_environment": {
+            "index": "ChromaVectorIndex",
+            "search": "approximate nearest neighbor; identical ranks are not guaranteed",
+            "python": platform.python_version(),
+            "platform": platform.system(),
+            "chromadb": None,
+        },
         "queries": [],
         "metric_definitions": {
             "precision_at_k": "relevant retrieved / configured k; positive gold only",
@@ -202,6 +211,7 @@ async def evaluate(
     }
     stage = "contract"
     try:
+        report["retrieval_environment"]["chromadb"] = version("chromadb")
         space = provider.space
         if not isinstance(space, EmbeddingSpace):
             raise EvaluationDataError("Provider must declare an embedding space")

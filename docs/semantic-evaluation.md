@@ -14,6 +14,8 @@ python scripts/evaluate_memory.py --output /tmp/jarvis-ja-report-new.json
 
 report は dataset の canonical hash とファイル hash、runner commit/dirty/hash、EmbeddingSpace の name/version/dimension、query/gold/現在本文/source/origin/confidence/revision/score、指標と除外違反を記録する。score は既存 index の値で、provider をまたぐ比較値や確率として扱わない。P@k は configured k、Recall@k は関連 gold 数、MRR は最初の関連 rank、support recall は supporting gold 数を分母とする。関連 gold がない query は順位平均から除き、nonempty context を別診断にする。根拠不足は関連性と分けて数える。回答生成・正しさ・abstention の評価は含まない。
 
+入力・gold・契約と実行環境を再現できるよう Python/platform/Chroma 版も記録する。Chroma の近似検索は同じ入力でも fresh index 間で候補・rank が完全一致するとは限らない。実 Linux CI でも候補一部の欠落が観測されたため、実際の rank/指標をそのまま残し、report の一致や recall=1 を実行成功条件にしない。品質を比較する際は複数試行と index 側の recall の切り分けが別途必要で、今回その評価方針を確定しない。
+
 既存 `EmbeddingProvider` を返す同期 factory を明示的に差し替えられる。
 
 ```sh

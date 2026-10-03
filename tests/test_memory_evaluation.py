@@ -89,18 +89,29 @@ def test_real_index_excludes_poisoned_ids_and_resolves_current_canonical_notes()
     }
     assert challenge["stale_ids"] == ["observing-time"]
     assert challenge["original_notes_preserved"]
-    # k=6 deliberately retrieves every approved fixture, independent of fake ranks.
-    for row in first["queries"]:
-        assert len(row["retrieved_ids"]) == 6
-        assert not row["forbidden_ids_returned"]
-        results = {value["id"]: value for value in row["results"]}
-        assert "水曜日" in results["observing-time"]["content"]
-        assert results["observing-time"]["edited_since_approval"]
-        assert "ESP32" in results["robot-current"]["content"]
-        assert results["robot-current"]["origin"] == "user_explicit"
-        assert results["robot-current"]["confidence"] == 0.8
-        assert results["robot-current"]["source"].startswith("synthetic-evaluation:")
-    assert first["queries"] == second["queries"]
+    # ANN can omit a candidate between fresh indexes: that is measured recall,
+    # not permission to accept inactive notes or claim a model quality pass.
+    approved = {n["id"]: n for n in dataset.notes if n["status"] == "approved"}
+    for report in (first, second):
+        assert report["summary"]["exclusion_violations"] == 0
+        for row in report["queries"]:
+            assert 0 < len(row["retrieved_ids"]) <= 6
+            assert not row["forbidden_ids_returned"]
+            assert set(row["retrieved_ids"]) <= set(approved)
+            for value in row["results"]:
+                note = approved[value["id"]]
+                assert value["content"] == note.get("edit_to", note["content"])
+                assert value["edited_since_approval"] == ("edit_to" in note)
+                assert value["origin"] == "user_explicit"
+                assert value["confidence"] == 0.8
+                assert value["source"].startswith("synthetic-evaluation:")
+    assert first["dataset"] == second["dataset"]
+    assert first["contract"] == second["contract"]
+    assert first["retrieval_environment"] == second["retrieval_environment"]
+    assert [
+        {k: row[k] for k in ("id", "kind", "text", "rationale", "relevant_ids", "supporting_ids")}
+        for row in first["queries"]
+    ] == list(dataset.queries)
     assert first["summary"]["negative_nonempty"] == 3
     assert first["summary"]["insufficient_evidence_queries"] == 2
     assert first["summary"]["insufficient_evidence_returning_context"] == 2
