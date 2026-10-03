@@ -26,7 +26,7 @@ def state(repo: Path) -> dict[str, str | bool]:
     }
 
 
-def pytest_counts(path: Path) -> dict[str, int]:
+def test_counts(path: Path) -> dict[str, int]:
     cases = ET.parse(path).getroot().findall(".//testcase")
     return {
         "passed": sum(not any(case.find(tag) is not None for tag in (
@@ -77,7 +77,8 @@ def verify(args: argparse.Namespace) -> int:
             ("pytest", [args.python, "-m", "pytest", "-q", f"--junitxml={output / 'pytest.xml'}"]),
             ("ruff", [args.python, "-m", "ruff", "check", "."]),
             ("compileall", [args.python, "-m", "compileall", "-q", "backend", "tests", "scripts"]),
-            ("frontend", [args.node, "--test", "frontend/test/chat-api.test.mjs"]),
+            ("frontend", [args.node, "--test", "--test-reporter=junit",
+                          "frontend/test/chat-api.test.mjs"]),
             *[(f"syntax-{path.name}", [args.node, "--check", str(path)])
               for path in sorted((repo / "frontend").glob("*.js"))],
             ("diff-worktree", ["git", "diff", "--check"]),
@@ -100,11 +101,12 @@ def verify(args: argparse.Namespace) -> int:
                 exit_code = return_code if return_code > 0 else 128 - return_code
                 result["reason"] = f"{name} failed"
                 break
-            if name == "pytest":
-                counts = pytest_counts(output / "pytest.xml")
+            if name in {"pytest", "frontend"}:
+                report = output / ("pytest.xml" if name == "pytest" else "frontend.log")
+                counts = test_counts(report)
                 check["tests"] = counts
                 if counts["skipped"] or not counts["passed"] or counts["failed"]:
-                    result["reason"] = "pytest skipped tests or did not record passing tests"
+                    result["reason"] = f"{name} skipped tests or did not record passing tests"
                     break
         else:
             exit_code = 0

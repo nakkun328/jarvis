@@ -120,6 +120,8 @@ def test_success_requires_final_same_clean_head_and_distinct_logs(
     assert followup.exists()
     assert receipt["initial"] == receipt["final"] == {"head": base, "dirty": False}
     assert receipt["checks"][1]["tests"] == {"passed": 1, "skipped": 0, "failed": 0}
+    frontend = next(check for check in receipt["checks"] if check["name"] == "frontend")
+    assert frontend["tests"] == {"passed": 1, "skipped": 0, "failed": 0}
     assert receipt["status"] == "passed"
     old_receipt = (folder / "result.json").read_bytes()
     process = subprocess.run(command(root, base, output, "one"), capture_output=True, check=False)
@@ -163,6 +165,53 @@ def test_skipped_pytest_is_not_a_success(repo: tuple[Path, str], tmp_path: Path)
     assert receipt["checks"][1]["returncode"] == 0
     assert receipt["checks"][1]["tests"] == {"passed": 0, "skipped": 1, "failed": 0}
     assert not (folder / "ruff.log").exists()
+    assert not followup.exists()
+
+
+@pytest.mark.parametrize("pending", ["skip", "todo"])
+def test_pending_frontend_is_not_a_success(
+    repo: tuple[Path, str], tmp_path: Path, pending: str
+) -> None:
+    root, base = repo
+    (root / "frontend/test/chat-api.test.mjs").write_text(
+        "import test from 'node:test';\n"
+        f"test.{pending}('missing prerequisite', () => {{}});\n"
+    )
+    head = commit(root, f"frontend {pending} prerequisite")
+    process, receipt, folder, followup = run_gate(root, base, tmp_path / "logs", pending)
+    assert process.returncode == receipt["exitcode"] == 1
+    assert receipt["status"] == "failed"
+    assert receipt["initial"] == receipt["final"] == {"head": head, "dirty": False}
+    assert receipt["run_id"] == pending
+    assert folder.name == f"{head}-{pending}"
+    assert receipt["checks"][-1] == {
+        "name": "frontend", "returncode": 0,
+        "tests": {"passed": 0, "skipped": 1, "failed": 0},
+    }
+    assert len(list(folder.glob("*.log"))) == len(receipt["checks"])
+    assert not (folder / "syntax-app.js.log").exists()
+    assert not followup.exists()
+
+
+def test_frontend_success_marker_does_not_hide_failure(
+    repo: tuple[Path, str], tmp_path: Path
+) -> None:
+    root, base = repo
+    (root / "frontend/test/chat-api.test.mjs").write_text(
+        "import test from 'node:test';\n"
+        "import assert from 'node:assert/strict';\n"
+        "test('SUCCESS MARKER', () => assert.ok(true));\n"
+        "test('failure after marker', () => {\n"
+        "  assert.fail('intentional frontend failure');\n"
+        "});\n"
+    )
+    commit(root, "frontend marker precedes real failure")
+    process, receipt, folder, followup = run_gate(root, base, tmp_path / "logs")
+    assert process.returncode == receipt["exitcode"] == 1
+    assert receipt["status"] == "failed"
+    assert receipt["checks"][-1] == {"name": "frontend", "returncode": 1}
+    assert "SUCCESS MARKER" in (folder / "frontend.log").read_text()
+    assert not (folder / "diff-worktree.log").exists()
     assert not followup.exists()
 
 
