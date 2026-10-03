@@ -28,6 +28,9 @@ class OpenAIResponsesProvider:
             raise ConfigError("JARVIS_OPENAI_MODEL is required for the OpenAI provider")
         return cls(model=model, client=AsyncOpenAI(api_key=api_key.strip()))
 
+    async def aclose(self) -> None:
+        await self._client.close()
+
     @staticmethod
     def _input(request: CompletionRequest) -> list[dict[str, str]]:
         if not request.messages:
