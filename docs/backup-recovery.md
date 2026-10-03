@@ -10,7 +10,7 @@ and pending publication recovery material.
 ## Availability and prerequisites
 
 Current state checked on 2026-10-03: main
-`ce0118c9bb8958e055ecae46823f82a4fda2cb61` includes landed PRs #30, #23, #35 and #33.
+`5181cc4e4ae4ca3d2679c076c1da8ce3d226411c` includes landed PRs #30, #23, #35, #33 and #34.
 SQLite schema v5 preserves conversations, candidates, approvals, review and
 lifecycle history, and replacement/revision links. Initialization migrates
 supported older schemas; the local review CLI requires an existing ready DB.
@@ -246,3 +246,10 @@ retrieval, not transcript deletion.
   redacted Secret scan and Linux CI receipts. SQLite/vault recovery code and
   the backup/restore snippets are unchanged. Recovery tests #34, this runbook
   #32, Gemini #31 and the derived-index stack remain pending.
+- 2026-10-03, after #34 merge: main `5181cc4` includes late-audit rollback,
+  concurrent correction/retirement CAS tests and WAL-inclusive backup restored
+  in separate interpreters. Main CI run 37131110686 passed (157 tests, zero
+  skips, all ten gate checks). The operational shell/Python snippets above are
+  unchanged from the previously validated disposable snapshot run. This proves
+  transaction/process recovery with disposable data, not power-loss safety.
+  Runbook #32, Gemini #31 and the derived-index stack remain pending.
