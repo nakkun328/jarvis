@@ -293,3 +293,52 @@ def test_partial_semantic_configuration_is_rejected(system, option):
         settings = Settings(db_path=db.path)
     with pytest.raises(ConfigError, match="Semantic chat requires"):
         create_app(settings, chat, **kwargs)
+
+
+@pytest.mark.parametrize("endpoint", ["/api/chat", "/api/chat/stream"])
+@pytest.mark.parametrize("change", ["retirement", "revision"])
+def test_change_inside_final_canonical_resolution_stops_http_chat(
+    system, monkeypatch, endpoint, change
+):
+    db, _, vault, writer, embeddings, index, _, builder, chat, settings = system
+    item = record("Approved lesson before final verification")
+    writer.submit(item)
+    writer.approve(item.id)
+    asyncio.run(builder.populate_empty())
+    original = MemoryRetriever._resolve
+    resolutions = 0
+    changed = False
+
+    def change_during_resolution(self, stored, now):
+        nonlocal resolutions, changed
+        resolved = original(self, stored, now)
+        if stored.record.id == item.id:
+            resolutions += 1
+        # The first resolution is search; the second is the final canonical
+        # verification. Interleave a real reviewed change after its old note
+        # was read, while that verification still holds the old SQLite state.
+        if resolutions == 2 and not changed:
+            changed = True
+            if change == "retirement":
+                writer.retire(item.id, actor="reviewer:test", reason="Outdated")
+            else:
+                note = vault.read(item.id)
+                vault.update(
+                    item.id,
+                    "Edited during final verification",
+                    note.metadata,
+                    expected_revision=note.revision,
+                )
+        return resolved
+
+    monkeypatch.setattr(MemoryRetriever, "_resolve", change_during_resolution)
+    with TestClient(
+        create_app(settings, chat, embedding_provider=embeddings, memory_index=index)
+    ) as client:
+        response = client.post(endpoint, json={"message": "orbit question"})
+    assert changed
+    if endpoint.endswith("stream"):
+        assert "event: error" in response.text and "event: done" not in response.text
+    else:
+        assert response.status_code == 503
+    assert chat.requests == [] and turns(db) == []

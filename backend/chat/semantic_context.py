@@ -3,6 +3,7 @@
 import asyncio
 
 from backend.chat.memory_context import _MAX_MATCHES, MemoryContext, MemoryContextError
+from backend.memory.repository import MemoryStatus
 from backend.memory.retrieval import RetrievalResult, RetrievedMemory
 from backend.memory.semantic import SemanticMemorySearcher
 
@@ -31,9 +32,18 @@ class SemanticMemoryContext(MemoryContext):
     def _verify_result(self, result: RetrievalResult) -> None:
         for match in result.matches:
             current = self.retriever.get_approved(match.record.id)
+            # get_approved reads SQLite before resolving the vault. A review
+            # or edit can interleave with that resolution, so do not accept
+            # its earlier status/revision as the final check.
+            note = self.retriever.vault.read(match.record.id)
+            latest = self.retriever.repository.get(match.record.id)
             if (
                 not isinstance(current, RetrievedMemory)
                 or current.note_revision != match.note_revision
                 or current.record != match.record
+                or note is None
+                or note.revision != match.note_revision
+                or latest is None
+                or latest.status is not MemoryStatus.APPROVED
             ):
                 raise MemoryContextError("Memory changed during semantic retrieval")
