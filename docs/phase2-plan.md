@@ -28,9 +28,9 @@ Self Memory describes observed assistant behavior, not a fact about the user. Ea
 `SelfMemoryRecorder.record` submits a new candidate through `MemoryWriter.submit`. It does not approve, edit, or delete an earlier memory, including one contradicted by a correction. A reviewer may inspect the candidate and call `MemoryWriter.approve` to publish it to Obsidian. Candidate extraction from conversations, conflict resolution and retirement of outdated approved lessons belong to P2-09; a correction must not silently override a previous approved note.
 
 
-## Current requirement mapping — 2026-10-03 after #23
+## Current requirement mapping — 2026-10-03 after #35
 
-Checked main: `e5e0314365667e578109cadc45e79b6c1c6a241c`. Earlier baseline
+Checked main: `d408e4982669b2c6f1c81a70d90302bd5a910ee0`. Earlier baseline
 and scheduling paragraphs are original planning history. Current status follows
 Git/GitHub, and this table is not permission to merge any pending PR.
 
@@ -45,11 +45,13 @@ Git/GitHub, and this table is not permission to merge any pending PR.
 | P2-07 | Current approved lexical/vector retrieval and bounded opt-in lexical chat | Semantic retrieval #26 remains separately called; no semantic chat |
 | P2-08 | Typed successes/failures/corrections with provenance and explicit approval | No generic automated reflection/extraction |
 | P2-09 | Labelled Remember/Self-event candidates, dedup/conflict/review/lifecycle | General extraction excluded; concrete derived refresh/cleanup #24/#29 |
-| P2-10 | Migration, vault, canonical lifecycle and chat tests | Gate #33, recovery #34, shared-resource cleanup and this runbook remain Draft |
+| P2-10 | Migration, vault, canonical lifecycle, chat and shared-resource cleanup tests | CI gate #33, recovery #34 and this runbook remain Draft |
 
-Next review order: shared-resource cleanup before Gemini #31; keep its overlap
-in #31 until the shared fix lands, then remove duplicate scope by comparing the
-new main. Gate #33 and recovery #34 are independent main-based test/tool reviews.
+Shared-resource cleanup #35 has landed. Gemini #31 now needs only its own
+provider/configuration/tests/docs scope against the updated main. Gate #33 adds
+actual Linux/Python 3.11/Node 22 execution receipts, and recovery #34 is checked
+with current main. These are independent next landing candidates; no pending
+Draft is authorized for merge. Recovery runbook #32 follows the available code.
 The independent embedding track starts #18, then #21→#24→#26→#29; optional
 OpenAI embedding #25 follows #18. No pending Draft is authorized for landing.
 

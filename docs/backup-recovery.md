@@ -10,7 +10,7 @@ and pending publication recovery material.
 ## Availability and prerequisites
 
 Current state checked on 2026-10-03: main
-`e5e0314365667e578109cadc45e79b6c1c6a241c` includes landed PRs #30 and #23.
+`d408e4982669b2c6f1c81a70d90302bd5a910ee0` includes landed PRs #30, #23 and #35.
 SQLite schema v5 preserves conversations, candidates, approvals, review and
 lifecycle history, and replacement/revision links. Initialization migrates
 supported older schemas; the local review CLI requires an existing ready DB.
@@ -26,6 +26,10 @@ Derived rebuild/refresh/audit APIs require
 Opt-in chat memory is now on main: `JARVIS_MEMORY_VAULT_PATH` defaults to unset,
 and an existing vault explicitly enables bounded approved lexical references.
 References are rechecked before the provider call and are not transcript turns.
+Shared provider cleanup is also on main: explicit stream close, SSE transport
+failure/disconnect/cancellation, startup failure and shutdown release owned
+resources. Iterators without `aclose` remain supported. Failed or interrupted
+partial streams do not save conversation turns; successful responses do.
 Gemini remains pending #31. Use a matching reviewed code version; this runbook
 does not make pending index or Gemini changes available or authorize a merge.
 No live API is needed for disposable validation. OpenAI live validation remains pending.
@@ -227,3 +231,8 @@ retrieval, not transcript deletion.
   excludes it; neither operation deletes successful historical conversation turns.
   Gemini and derived-index physical cleanup remain pending. Shared provider/SSE
   cleanup is being reviewed separately and must not be assumed landed.
+
+- 2026-10-03, after #35 merge: main `d408e49` includes the shared resource
+  cleanup described above. The preceding #23 entry records the earlier state.
+  Gemini #31 and derived-index features remain pending; backup/restore code
+  snippets are unchanged.
