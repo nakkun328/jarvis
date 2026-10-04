@@ -122,3 +122,11 @@ certify vector freshness, and human changes after the final pre-write snapshot
 can make a candidate stale. Readers must continue resolving IDs against the
 current approved SQLite/vault state; deployment and reader switching require
 separate review.
+
+## Landing status (2026-10-04)
+
+The versioned semantic query path (PR #26) is available on main. This
+revision-aware audit and inactive-index cleanup remain in Draft PR #29, now
+based on main after #26. PR #29 is the next landing candidate; its own merge
+permission and review are still required. Dependent chat (#36), evaluation
+(#37), and local encoder/search trials (#38) retain their feature-branch bases.
