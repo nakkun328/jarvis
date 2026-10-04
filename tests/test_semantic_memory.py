@@ -214,3 +214,52 @@ def test_query_contract_drift_fails_without_returning_context_and_can_retry(
         assert result.issues == ()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("change", ["retirement", "revision"])
+def test_change_inside_query_resolution_fails_closed_and_can_retry(tmp_path: Path, change: str):
+    repository, vault, writer, provider, index, searcher, builder = _system(tmp_path)
+    approved = _record("observatory opens Friday")
+    writer.submit(approved)
+    writer.approve(approved.id)
+    asyncio.run(builder.populate_empty())
+    original_resolve = searcher.retriever._resolve
+    changed = False
+
+    def interleave(stored, now):
+        nonlocal changed
+        resolved = original_resolve(stored, now)
+        if not changed:
+            changed = True
+            if change == "retirement":
+                writer.retire(approved.id, actor="synthetic-reviewer", reason="Fixture retirement")
+            else:
+                note = vault.read(approved.id)
+                vault.update(
+                    approved.id,
+                    "observatory opens Sunday",
+                    note.metadata,
+                    expected_revision=note.revision,
+                )
+        return resolved
+
+    searcher.retriever._resolve = interleave
+
+    async def run():
+        with pytest.raises(ValueError, match="changed"):
+            await searcher.search("orbit question", limit=1)
+        assert changed
+        assert await index.list_ids(provider.space.identifier) == (str(approved.id),)
+        result = await searcher.search("orbit question", limit=1)
+        if change == "retirement":
+            assert repository.get(approved.id).status is MemoryStatus.RETIRED
+            assert result.matches == ()
+            assert vault.read(approved.id) is not None
+        else:
+            assert [m.record.id for m in result.matches] == [approved.id]
+            assert result.matches[0].record.content == "observatory opens Sunday"
+            assert result.matches[0].edited_since_approval
+            assert result.matches[0].record.confidence == 0.9
+        assert result.issues == ()
+
+    asyncio.run(run())
