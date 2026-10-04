@@ -111,6 +111,31 @@ class MemoryRetriever:
             return None
         return self._resolve(stored, _as_of(as_of))
 
+    def verify_current_matches(self, result: RetrievalResult) -> None:
+        """Recheck resolved facts before a semantic consumer uses them.
+
+        Resolution reads SQLite before the vault. Keep the final status and
+        revision checks used by chat available to direct semantic queries too.
+        This does not lock external editors after the final check.
+        """
+        for match in result.matches:
+            current = self.get_approved(match.record.id)
+            try:
+                note = self.vault.read(match.record.id)
+                latest = self.repository.get(match.record.id)
+            except (OSError, VaultError) as exc:
+                raise ValueError("Memory unavailable during retrieval") from exc
+            if (
+                not isinstance(current, RetrievedMemory)
+                or current.note_revision != match.note_revision
+                or current.record != match.record
+                or note is None
+                or note.revision != match.note_revision
+                or latest is None
+                or latest.status is not MemoryStatus.APPROVED
+            ):
+                raise ValueError("Memory changed during retrieval")
+
     async def search_vector(
         self, query: VectorQuery, *, as_of: datetime | None = None
     ) -> RetrievalResult:
