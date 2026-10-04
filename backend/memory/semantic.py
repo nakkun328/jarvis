@@ -31,4 +31,5 @@ class SemanticMemorySearcher:
         result = await self.retriever.search_vector(space.query(vector, limit=limit))
         if self.provider.space != space:
             raise ValueError("Embedding contract changed during semantic search")
+        self.retriever.verify_current_matches(result)
         return result

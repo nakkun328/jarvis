@@ -120,3 +120,12 @@ model/version with the same dimension, the query fails instead of querying a
 new namespace or returning context under a different contract. Restore the
 intended contract before retrying. This contract check does not certify semantic
 quality or replace current approved-note resolution.
+
+Before returning semantic facts, the searcher reuses the final canonical checks
+from the chat consumer: resolve the approved record again, then compare the
+current vault revision/content/provenance and latest SQLite review state. A
+retirement or edit inside the earlier resolution fails the query instead of
+returning that old fact; retry resolves the current note or excludes the retired
+ID. Chat repeats this shared check after its async context boundary. These checks
+do not make external edits after the final check atomic, and do not change the
+default lexical path or delete canonical or derived records.
