@@ -75,6 +75,17 @@ class ChromaVectorIndex:
         except Exception as exc:
             raise ChromaIndexError("Could not search vector index") from exc
 
+    async def list_ids(self, space: str) -> tuple[str, ...]:
+        """Inspect IDs in one derived space for rebuild verification."""
+        if not isinstance(space, str) or not space.strip():
+            raise ValueError("space must be a nonempty string")
+        try:
+            return await asyncio.to_thread(self._list_ids, space)
+        except ChromaIndexError:
+            raise
+        except Exception as exc:
+            raise ChromaIndexError("Could not inspect vector index") from exc
+
     def _upsert(self, records: Sequence[VectorRecord]) -> None:
         groups: dict[str, dict[str, VectorRecord]] = {}
         for record in records:
@@ -136,6 +147,25 @@ class ChromaVectorIndex:
                 VectorMatch(memory_id=memory_id, score=-float(distance))
                 for memory_id, distance in zip(ids, distances, strict=True)
             )
+
+    def _list_ids(self, space: str) -> tuple[str, ...]:
+        with self._lock:
+            try:
+                collection = self.client.get_collection(
+                    name=_name(space), embedding_function=None
+                )
+            except self._not_found:
+                return ()
+            if (collection.metadata or {}).get("space") != space:
+                raise ChromaIndexError("Vector collection space does not match")
+            total = collection.count()
+            ids: list[str] = []
+            for offset in range(0, total, 1000):
+                batch = collection.get(limit=min(1000, total - offset), offset=offset, include=[])
+                ids.extend(batch["ids"])
+            if len(ids) != total or len(set(ids)) != total:
+                raise ChromaIndexError("Vector collection IDs could not be verified")
+            return tuple(sorted(ids))
 
 
 def _name(space: str) -> str:
