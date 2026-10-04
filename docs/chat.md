@@ -13,3 +13,49 @@ If SQLite becomes unavailable while serving chat, the regular endpoint returns H
 `POST /api/chat` accepts `{ "message": "...", "conversation_id": "optional UUID" }` and returns `conversation_id`, `reply`, `provider`, and `model`. `POST /api/chat/stream` accepts the same request and emits SSE `delta`, `done`, or `error` events. A successful `done` event contains the conversation ID and provider metadata. A missing or expired conversation ID returns HTTP 404 for the regular endpoint and an SSE `error` for streaming. Input is limited to 4,000 characters; blank messages are rejected.
 
 Set `JARVIS_LLM_PROVIDER=openai` plus the adapter's server-side key and model variables to enable live chat. With the default `none`, chat returns 503 while health checks and the web client remain available. The UI is served from `/` when `frontend/index.html` is present. This release has no login or remote access control; bind the server to `127.0.0.1`.
+# Explicit semantic memory opt-in (Draft)
+
+The default application still uses lexical memory when
+`JARVIS_MEMORY_VAULT_PATH` is configured, and no memory when it is unset.
+The semantic path depends on the unmerged versioned index stack through #29.
+An application factory caller can opt in by supplying both dependencies:
+
+```python
+app = create_app(
+    settings,
+    chat_provider,
+    embedding_provider=reviewed_embedding_provider,
+    memory_index=verified_index,
+)
+```
+
+`settings.memory_vault_path` must identify the canonical vault corresponding to
+`settings.db_path`. Build/audit the supplied index from those approved notes
+with `MemoryIndexBuilder` before selecting it. Query and document embeddings
+must use the same exact model/version/dimension space. The caller owns the
+embedding/index resources and their provisioning; this patch chooses no model,
+does not rebuild or switch an index automatically, and does not require #25.
+The ordinary environment-only entry point continues to use lexical retrieval.
+
+Both completion and SSE chat encode only the current query, search for candidate
+IDs, and resolve those IDs through current SQLite/vault review and provenance.
+Semantic selection uses the existing three-match limit and shared bounded JSON
+serializer (content 500, source 200, total 2400 characters). Confidence, origin,
+importance, edited-note and freshness markers remain lower-trust reference data.
+Stale vector rankings may select a current edited note; the cached vector never
+supplies its old facts. Use the separate index revision audit/explicit refresh
+to repair stale rankings. Pending, conflicting, superseded and retired memories
+stay excluded even when their IDs remain in the index.
+
+After asynchronous retrieval, canonical review/revision is checked again.
+Detected changes or embedding/index/vault failures return the existing safe
+HTTP 503 or SSE error before an LLM request or successful transcript write.
+There is no silent lexical fallback; an empty valid result simply adds no memory.
+Cancellation propagates. This remains one local worker, not an atomic snapshot
+across concurrent external vault edits or multiple workers.
+
+Fake embeddings/chat plus real Chroma test routing and integrity, not semantic
+quality. Production embedding provider/model selection and quality evaluation,
+browser UI and live API checks remain separate. OpenAI live validation is pending;
+future necessary live checks use Gemini/gemini-2.5-flash. This Draft is not merge
+permission for itself or the dependent index stack.
