@@ -433,3 +433,50 @@ def test_failed_private_rebuild_preserves_active_index_and_retries_fresh(
             assert vault.read(record.id) == before_notes[record.id]
 
     asyncio.run(run())
+
+
+def test_partial_refresh_write_keeps_approval_existing_index_and_allows_retry(tmp_path: Path):
+    repository, vault, writer, provider, index, builder = _setup(tmp_path)
+    existing = _record("Existing approved content")
+    newly_reviewed = _record("Edited newly reviewed content")
+    writer.submit(existing)
+    writer.approve(existing.id)
+    writer.submit(newly_reviewed)
+    asyncio.run(builder.populate_empty())
+    original_note = vault.read(existing.id)
+    before_matches = {
+        m.memory_id: m for m in asyncio.run(index.search(provider.space.query((0.0, 1.0))))
+    }
+    pipeline = MemoryConsolidator(
+        repository.database,
+        writer,
+        MemoryRetriever(repository, vault),
+        index_refresher=SynchronousIndexRefresher(builder),
+    )
+    original_upsert = index.upsert
+
+    async def write_then_fail(records):
+        await original_upsert(records)
+        raise RuntimeError("synthetic partial cache failure")
+
+    index.upsert = write_then_fail
+    with pytest.raises(IndexRefreshError, match="was approved") as error:
+        pipeline.publish_reviewed(newly_reviewed.id)
+    assert "synthetic partial cache failure" not in str(error.value)
+    assert repository.get(newly_reviewed.id).status is MemoryStatus.APPROVED
+    published_note = vault.read(newly_reviewed.id)
+    assert published_note is not None
+    assert vault.read(existing.id) == original_note
+    after_matches = {
+        m.memory_id: m for m in asyncio.run(index.search(provider.space.query((0.0, 1.0))))
+    }
+    assert after_matches[str(existing.id)] == before_matches[str(existing.id)]
+    assert asyncio.run(index.list_ids(provider.space.identifier)) == tuple(
+        sorted((str(existing.id), str(newly_reviewed.id)))
+    )
+    index.upsert = original_upsert
+    pipeline.publish_reviewed(newly_reviewed.id)
+    assert vault.read(newly_reviewed.id) == published_note
+    assert vault.read(existing.id) == original_note
+    assert len(repository.review_events(newly_reviewed.id)) == 1
+    assert asyncio.run(builder.audit_ids()).healthy
