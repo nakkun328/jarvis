@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "fixture": "tests/fixtures/semantic-evaluation-ja-extra-v1.json",
+  "fixture_sha256": "5ee1f477bd9ce2b22f488eabfe5293a86e2a1f0cb18ad9ed29778693e08fb06a",
+  "provider": "gemini",
+  "model": "gemini-2.5-flash",
+  "max_requests": 4,
+  "max_output_tokens": 1024,
+  "questions": [
+    {
+      "id": "mizuki-old-fact-correction",
+      "kind": "correction",
+      "text": "観測試作機ミズキは今もRP2040という理解で合っている？",
+      "relevant_ids": [
+        "mizuki-current"
+      ],
+      "supporting_ids": [
+        "mizuki-current"
+      ],
+      "rationale": "現在の承認本文がRP2040ではなくESP32へ変更済みと明記しており、旧理解の否定を支持する。supersededのmizuki-oldをfactとして戻さない。"
+    },
+    {
+      "id": "mitsuki-controller-disambiguation",
+      "kind": "paraphrase",
+      "text": "ミズキではなくミツキの方は、どの制御基板を使っている？",
+      "relevant_ids": [
+        "mitsuki-controller"
+      ],
+      "supporting_ids": [
+        "mitsuki-controller"
+      ],
+      "rationale": "対象はミツキ。承認本文のSTM32が直接の根拠であり、ミズキのESP32や旧RP2040は回答対象が異なる。"
+    },
+    {
+      "id": "unsupported-mizuki-runtime",
+      "kind": "insufficient_evidence",
+      "text": "ミズキの電池を満充電にしたら何時間観測できる？",
+      "relevant_ids": [
+        "mizuki-current"
+      ],
+      "supporting_ids": [],
+      "rationale": "ミズキの承認本文は機体に関連するが電池持続時間未記録と明記。2時間というpending-runtimeは未承認であり数値の支持根拠にはできない。別機体のミツキも含めない。"
+    },
+    {
+      "id": "unrelated-train",
+      "kind": "unrelated",
+      "text": "架空王国の東西鉄道の最終列車は何時に出る？",
+      "relevant_ids": [],
+      "supporting_ids": [],
+      "rationale": "人工corpusに鉄道や最終列車の情報はない。集まりや給水の時刻は話題が違い、単に時刻を持つという理由ではrelevantにしない。"
+    }
+  ],
+  "policy": "Exercise existing SYSTEM_PROMPT; no threshold or abstention policy added."
+}
