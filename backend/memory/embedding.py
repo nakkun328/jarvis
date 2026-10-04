@@ -51,10 +51,12 @@ class EmbeddingSpace:
             raise ValueError("embedding dimension does not match this space")
         return vector
 
-    def record(self, memory_id: str, values: Sequence[float]) -> VectorRecord:
+    def record(
+        self, memory_id: str, values: Sequence[float], *, source_revision: str | None = None
+    ) -> VectorRecord:
         """Build an index record only after checking the configured dimension."""
 
-        return VectorRecord(memory_id, self.identifier, self.validate(values))
+        return VectorRecord(memory_id, self.identifier, self.validate(values), source_revision)
 
     def query(self, values: Sequence[float], *, limit: int = 10) -> VectorQuery:
         """Build a query in the same versioned space as its record vectors."""
