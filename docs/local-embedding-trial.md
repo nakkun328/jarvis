@@ -69,5 +69,6 @@ OpenAI実APIpending、#31 Draft。localhost:8765の既存Gemini環境を操作�
 
 ## 実測記録
 
-実測のquery別結果・指標・時間・限界は、この試験のreportとJAR-25/JAR-88へ記録する。
+[実測結果](evidence/e5-ja-v1-results.md)に全queryの代表top3・根拠・指標・時間・限界、
+機械可読の全2試行reportに人工本文とprovenance/revisionを保存した。JAR-25/JAR-88にも反映する。
 fakeとmodelはevidence_kindで区別し、配備encoderと品質基準は引き続き判断待ち。

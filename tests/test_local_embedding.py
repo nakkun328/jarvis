@@ -1,10 +1,13 @@
 """Lightweight CPU encoder contracts; CI never downloads weights or imports torch."""
 
 import asyncio
+import sys
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
+from backend.memory import local_embedding
 from backend.memory.embedding import EmbeddingSpace, embed_texts
 from backend.memory.local_embedding import (
     LocalE5Embeddings,
@@ -153,3 +156,49 @@ def test_query_role_cannot_bypass_vector_validation(output):
 
     with pytest.raises(ValueError):
         asyncio.run(embed_texts(Provider(), ["synthetic query"], query=True))
+
+
+def test_loader_is_pinned_offline_cpu_and_safetensors(monkeypatch, tmp_path):
+    calls = []
+
+    class Model:
+        config = SimpleNamespace(hidden_size=384)
+
+        def to(self, device):
+            assert device == "cpu"
+            return self
+
+        def eval(self):
+            return self
+
+    class Loader:
+        @staticmethod
+        def from_pretrained(name, **kwargs):
+            calls.append((name, kwargs))
+            return Model()
+
+    monkeypatch.setattr(
+        local_embedding, "version", lambda name: {"torch": "2.9.1", "transformers": "4.57.6"}[name]
+    )
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(float32="float32"))
+    monkeypatch.setitem(
+        sys.modules, "transformers", SimpleNamespace(AutoModel=Loader, AutoTokenizer=Loader)
+    )
+    provider = LocalE5Embeddings(tmp_path)
+    assert callable(provider._load_encoder())
+    assert len(calls) == 2
+    for name, kwargs in calls:
+        assert name == provider.contract.model
+        assert kwargs["revision"] == provider.contract.revision
+        assert kwargs["local_files_only"] is True
+        assert kwargs["trust_remote_code"] is False
+        assert kwargs["token"] is False
+    assert calls[1][1]["use_safetensors"] is True
+    assert calls[1][1]["dtype"] == "float32"
+
+
+def test_runtime_version_cannot_mislabel_another_implementation(monkeypatch, tmp_path):
+    monkeypatch.setattr(local_embedding, "version", lambda name: "other")
+    provider = LocalE5Embeddings(tmp_path)
+    with pytest.raises(LocalEmbeddingError, match="pinned"):
+        provider._load_encoder()
