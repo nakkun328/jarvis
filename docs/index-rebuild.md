@@ -73,3 +73,24 @@ durable; `publish_reviewed` reports `IndexRefreshError`. After repairing the
 cause, call `publish_reviewed` again to retry without creating another note.
 Run this synchronous path from a CLI or worker thread, not inside an active
 event loop. It does not watch Obsidian edits or select an embedding provider.
+## Operation contract and scope
+
+Each build, refresh, or ID audit pins the provider's declared model, version,
+and dimension for that operation. A declaration change across an async boundary,
+including a different model/version with the same dimension, fails with
+`IndexBuildError`; outputs are never relabelled into another space. Restore the
+intended provider contract before retrying. A rebuild still uses a private new
+index, and never switches or overwrites a caller's active index. An embedding
+failure before upsert leaves an existing refresh target intact. A storage error
+after a write may leave a partial derived candidate; inspect it or rebuild in a
+new directory rather than treating the failed operation as a successful switch.
+
+This PR supplies fresh builds, explicit single-note refresh, and ID-membership
+checks. It does not automatically attach semantic retrieval to chat, choose a
+deployment encoder, or establish semantic quality. Stored source-revision audits,
+post-write canonical race checks, and inactive cleanup are the follow-up
+consistency scope in PR #29. Until that scope lands, an ID audit alone cannot
+certify vector freshness, and human changes after the final pre-write snapshot
+can make a candidate stale. Readers must continue resolving IDs against the
+current approved SQLite/vault state; deployment and reader switching require
+separate review.
