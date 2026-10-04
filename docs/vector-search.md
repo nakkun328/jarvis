@@ -113,3 +113,10 @@ even if its cached vector is stale. Queries may be sent to a remote embedding
 provider when one is explicitly configured; this class does not choose one or
 connect itself to chat. Search quality still needs evaluation with real queries
 and a deliberately selected embedding model.
+
+A semantic query pins the embedding model/version/dimension across encoding
+and canonical retrieval. If the provider declaration changes, even to another
+model/version with the same dimension, the query fails instead of querying a
+new namespace or returning context under a different contract. Restore the
+intended contract before retrying. This contract check does not certify semantic
+quality or replace current approved-note resolution.
