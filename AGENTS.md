@@ -1,0 +1,8 @@
+# Agent handoff
+
+- Start with `README.md`, `docs/development.md`, `docs/memory.md`, and `docs/security.md`. For Phase 2, also read `docs/phase2-landing-status-20260929.md` and related memory, vector, index, review, and consolidation docs where they exist. The dated landing record may be on an open PR rather than `main`.
+- Restore current state from `git status`, recent commits, worktrees, `main`/`origin/main`, open and merged GitHub PRs, each PR's base/head and CI, tests, and workflows. Git and GitHub are authoritative; dated docs and prior conversations are context, not current status.
+- Do not merge any PR into `main` without the user's explicit permission naming that PR. A general request to continue is not merge permission. Do not merge synthetic integration or verification branches into `main`.
+- Use a separate branch and worktree for each parallel task. Check dependencies, shared files and interfaces, migrations, and merge order before parallel edits. Keep stacked PRs limited to their unique changes, and retest children after a parent changes.
+- Never commit `.env`, API keys, or other secrets. Keep credentials server-side and out of frontend responses and logs. Review changed files for secrets before pushing.
+- Add focused tests for behavior changes and run relevant local checks. Before claiming a Phase 2 stack is ready to land, replay its intended order from current `origin/main` in a temporary worktree and run the full Python, frontend, vector/Chroma, migration, lint, compile, JavaScript syntax, diff, and secret checks. Verify each PR's current GitHub CI; a passing earlier run does not cover a changed head.
