@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -9,8 +10,17 @@ pytest.importorskip("chromadb")
 
 from backend.core.database import Database
 from backend.memory.chroma import ChromaVectorIndex
+from backend.memory.consolidation import (
+    ConversationEvidence,
+    IndexRefreshError,
+    MemoryConsolidator,
+)
 from backend.memory.embedding import EmbeddingSpace
-from backend.memory.indexing import IndexBuildError, MemoryIndexBuilder
+from backend.memory.indexing import (
+    IndexBuildError,
+    MemoryIndexBuilder,
+    SynchronousIndexRefresher,
+)
 from backend.memory.model import MemoryCategory, MemoryOrigin, MemoryRecord
 from backend.memory.obsidian import ObsidianVault
 from backend.memory.repository import MemoryRepository, MemoryStatus
@@ -231,6 +241,61 @@ def test_manual_refresh_replaces_vector_from_current_approved_note(tmp_path: Pat
     asyncio.run(run())
 
 
+def test_reviewed_publication_refreshes_real_chroma_index(tmp_path: Path) -> None:
+    repository, vault, writer, provider, index, builder = _setup(tmp_path)
+    retriever = MemoryRetriever(repository, vault)
+    pipeline = MemoryConsolidator(
+        repository.database,
+        writer,
+        retriever,
+        index_refresher=SynchronousIndexRefresher(builder),
+    )
+    staged = pipeline.stage(
+        [ConversationEvidence(uuid4(), 1, "user", "Remember reply_style: concise replies")]
+    )
+    assert len(staged.pending) == 1
+    memory_id = staged.pending[0].record.id
+    assert asyncio.run(index.list_ids(provider.space.identifier)) == ()
+
+    approved = pipeline.publish_reviewed(memory_id)
+    assert approved.status is MemoryStatus.APPROVED
+    assert provider.calls == [("concise replies",)]
+    assert asyncio.run(index.list_ids(provider.space.identifier)) == (str(memory_id),)
+    matches = asyncio.run(index.search(provider.space.query((0.0, 1.0))))
+    assert [match.memory_id for match in matches] == [str(memory_id)]
+    assert retriever.get_approved(memory_id).record.content == "concise replies"
+
+
+def test_failed_refresh_keeps_approval_and_can_retry(tmp_path: Path) -> None:
+    repository, vault, writer, provider, index, builder = _setup(tmp_path)
+    pipeline = MemoryConsolidator(
+        repository.database,
+        writer,
+        MemoryRetriever(repository, vault),
+        index_refresher=SynchronousIndexRefresher(builder),
+    )
+    staged = pipeline.stage(
+        [ConversationEvidence(uuid4(), 1, "user", "Remember reply_style: concise replies")]
+    )
+    memory_id = staged.pending[0].record.id
+    original_embed = provider.embed
+
+    async def wrong_dimension(_texts):
+        return [(1.0,)]
+
+    provider.embed = wrong_dimension
+    with pytest.raises(IndexRefreshError, match="was approved"):
+        pipeline.publish_reviewed(memory_id)
+    assert repository.get(memory_id).status is MemoryStatus.APPROVED
+    note = vault.read(memory_id)
+    assert note is not None
+    assert asyncio.run(index.list_ids(provider.space.identifier)) == ()
+
+    provider.embed = original_embed
+    pipeline.publish_reviewed(memory_id)
+    assert vault.read(memory_id).revision == note.revision
+    assert asyncio.run(index.list_ids(provider.space.identifier)) == (str(memory_id),)
+
 @pytest.mark.parametrize("operation", ["populate", "refresh", "audit"])
 @pytest.mark.parametrize("change", ["name", "version"])
 def test_contract_change_during_operation_preserves_active_index_and_allows_retry(
@@ -368,3 +433,50 @@ def test_failed_private_rebuild_preserves_active_index_and_retries_fresh(
             assert vault.read(record.id) == before_notes[record.id]
 
     asyncio.run(run())
+
+
+def test_partial_refresh_write_keeps_approval_existing_index_and_allows_retry(tmp_path: Path):
+    repository, vault, writer, provider, index, builder = _setup(tmp_path)
+    existing = _record("Existing approved content")
+    newly_reviewed = _record("Edited newly reviewed content")
+    writer.submit(existing)
+    writer.approve(existing.id)
+    writer.submit(newly_reviewed)
+    asyncio.run(builder.populate_empty())
+    original_note = vault.read(existing.id)
+    before_matches = {
+        m.memory_id: m for m in asyncio.run(index.search(provider.space.query((0.0, 1.0))))
+    }
+    pipeline = MemoryConsolidator(
+        repository.database,
+        writer,
+        MemoryRetriever(repository, vault),
+        index_refresher=SynchronousIndexRefresher(builder),
+    )
+    original_upsert = index.upsert
+
+    async def write_then_fail(records):
+        await original_upsert(records)
+        raise RuntimeError("synthetic partial cache failure")
+
+    index.upsert = write_then_fail
+    with pytest.raises(IndexRefreshError, match="was approved") as error:
+        pipeline.publish_reviewed(newly_reviewed.id)
+    assert "synthetic partial cache failure" not in str(error.value)
+    assert repository.get(newly_reviewed.id).status is MemoryStatus.APPROVED
+    published_note = vault.read(newly_reviewed.id)
+    assert published_note is not None
+    assert vault.read(existing.id) == original_note
+    after_matches = {
+        m.memory_id: m for m in asyncio.run(index.search(provider.space.query((0.0, 1.0))))
+    }
+    assert after_matches[str(existing.id)] == before_matches[str(existing.id)]
+    assert asyncio.run(index.list_ids(provider.space.identifier)) == tuple(
+        sorted((str(existing.id), str(newly_reviewed.id)))
+    )
+    index.upsert = original_upsert
+    pipeline.publish_reviewed(newly_reviewed.id)
+    assert vault.read(newly_reviewed.id) == published_note
+    assert vault.read(existing.id) == original_note
+    assert len(repository.review_events(newly_reviewed.id)) == 1
+    assert asyncio.run(builder.audit_ids()).healthy

@@ -1,5 +1,6 @@
-"""Build a fresh derived vector space from current approved memory notes."""
+"""Build and refresh a derived vector space from approved memory notes."""
 
+import asyncio
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
@@ -172,3 +173,31 @@ class MemoryIndexBuilder:
                 result.append(current)
             after_id = page[-1].record.id
         return tuple(result)
+
+
+class SynchronousIndexRefresher:
+    """Bridge offline, explicit publication to the async index builder.
+
+    Run this from a synchronous worker or CLI. An async caller should move the
+    publication operation to a worker thread rather than nest an event loop.
+    """
+
+    def __init__(self, builder: MemoryIndexBuilder) -> None:
+        self.builder = builder
+
+    def refresh(self, memory: RetrievedMemory) -> None:
+        if not isinstance(memory, RetrievedMemory):
+            raise ValueError("refresh requires a resolved approved memory")
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("Run synchronous index refresh outside an event loop")
+        current = self.builder.retriever.get_approved(memory.record.id)
+        if (
+            not isinstance(current, RetrievedMemory)
+            or current.note_revision != memory.note_revision
+        ):
+            raise IndexBuildError("Approved note changed before index refresh")
+        asyncio.run(self.builder.refresh_approved(memory.record.id))
