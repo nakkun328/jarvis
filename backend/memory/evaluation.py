@@ -162,6 +162,100 @@ def _metrics(found, relevant, supporting, limit):
     }
 
 
+async def prepare_synthetic_corpus(
+    root: Path, provider: EmbeddingProvider, dataset: EvaluationDataset,
+    *, index_factory=ChromaVectorIndex, on_stage=lambda stage: None,
+):
+    """Reuse evaluation's artificial review challenges in a caller-owned temp dir.
+
+    Caller owns provider and temporary directory lifecycle. Never pass real
+    database or vault directories here; command-line entrypoints create fresh
+    TemporaryDirectory instances and only accept validated synthetic datasets.
+    """
+    space = provider.space
+    db = Database(root / "memory.sqlite3")
+    db.initialize()
+    repository = MemoryRepository(db)
+    vault = ObsidianVault(root / "vault")
+    writer = MemoryWriter(repository, vault)
+    index = index_factory(root / "index")
+    retriever = MemoryRetriever(repository, vault, vector_index=index)
+    builder = MemoryIndexBuilder(repository, retriever, provider, index)
+    records = {
+        n["id"]: MemoryRecord(
+            id=uuid5(NAMESPACE_URL, f"jarvis-evaluation:{dataset.identifier}:{n['id']}"),
+            category=MemoryCategory.PROJECT,
+            content=n["content"],
+            source=f"synthetic-evaluation:{dataset.identifier}/{n['id']}",
+            origin=MemoryOrigin.USER_EXPLICIT,
+            importance=0.7,
+            confidence=0.8,
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        for n in dataset.notes
+    }
+    replacement_ids = {
+        n["replacement_id"] for n in dataset.notes if n["status"] == "superseded"
+    }
+    for note in dataset.notes:
+        if note["id"] in replacement_ids:
+            continue
+        memory_id = records[note["id"]].id
+        writer.submit(records[note["id"]])
+        if note["status"] in {"approved", "superseded", "retired"}:
+            writer.approve(memory_id, actor="evaluation:synthetic")
+        elif note["status"] == "conflict":
+            repository.transition(
+                memory_id, expected=MemoryStatus.PENDING, new=MemoryStatus.CONFLICT
+            )
+    on_stage("index_build")
+    await builder.populate_empty()
+    on_stage("review_challenges")
+    for note in dataset.notes:
+        memory_id = records[note["id"]].id
+        if note["status"] == "superseded":
+            replacement = records[note["replacement_id"]]
+            writer.submit_correction(memory_id, replacement)
+            writer.approve(replacement.id, actor="evaluation:synthetic")
+            await builder.refresh_approved(replacement.id)
+        elif note["status"] == "retired":
+            writer.retire(memory_id, actor="evaluation:synthetic", reason="Fixture review")
+    # Deliberately retain inactive IDs and inject artificial unreviewed
+    # IDs. This tests canonical filtering, not a healthy-cache claim.
+    unreviewed = [n for n in dataset.notes if n["status"] in {"pending", "conflict"}]
+    vectors = await embed_texts(provider, [n["content"] for n in unreviewed])
+    await index.upsert(
+        tuple(
+            space.record(str(records[n["id"]].id), vector)
+            for n, vector in zip(unreviewed, vectors, strict=True)
+        )
+    )
+    for note in dataset.notes:
+        if "edit_to" in note:
+            memory_id = records[note["id"]].id
+            current = vault.read(memory_id)
+            vault.update(
+                memory_id,
+                note["edit_to"],
+                current.metadata,
+                expected_revision=current.revision,
+            )
+    audit = await builder.audit_ids()
+    ids = {str(value.id): key for key, value in records.items()}
+    challenge = {
+        "intentionally_stale_or_unreviewed": True,
+        "extra_ids": [ids[x] for x in audit.extra_ids],
+        "stale_ids": [ids[x] for x in audit.stale_ids],
+        "original_notes_preserved": all(
+            vault.read(records[n["id"]].id) is not None
+            for n in dataset.notes
+            if n["status"] in {"superseded", "retired"}
+        ),
+    }
+    return retriever, ids, challenge
+
+
 async def evaluate(
     provider: EmbeddingProvider,
     dataset: EvaluationDataset,
@@ -225,87 +319,15 @@ async def evaluate(
         }
         with tempfile.TemporaryDirectory(prefix="jarvis-synthetic-evaluation-") as directory:
             stage = "fixture_setup"
-            root = Path(directory)
-            db = Database(root / "memory.sqlite3")
-            db.initialize()
-            repository = MemoryRepository(db)
-            vault = ObsidianVault(root / "vault")
-            writer = MemoryWriter(repository, vault)
-            index = ChromaVectorIndex(root / "index")
-            retriever = MemoryRetriever(repository, vault, vector_index=index)
-            builder = MemoryIndexBuilder(repository, retriever, provider, index)
-            records = {
-                n["id"]: MemoryRecord(
-                    id=uuid5(NAMESPACE_URL, f"jarvis-evaluation:{dataset.identifier}:{n['id']}"),
-                    category=MemoryCategory.PROJECT,
-                    content=n["content"],
-                    source=f"synthetic-evaluation:{dataset.identifier}/{n['id']}",
-                    origin=MemoryOrigin.USER_EXPLICIT,
-                    importance=0.7,
-                    confidence=0.8,
-                    created_at=datetime(2026, 1, 1, tzinfo=UTC),
-                    updated_at=datetime(2026, 1, 1, tzinfo=UTC),
-                )
-                for n in dataset.notes
-            }
-            replacement_ids = {
-                n["replacement_id"] for n in dataset.notes if n["status"] == "superseded"
-            }
-            for note in dataset.notes:
-                if note["id"] in replacement_ids:
-                    continue
-                memory_id = records[note["id"]].id
-                writer.submit(records[note["id"]])
-                if note["status"] in {"approved", "superseded", "retired"}:
-                    writer.approve(memory_id, actor="evaluation:synthetic")
-                elif note["status"] == "conflict":
-                    repository.transition(
-                        memory_id, expected=MemoryStatus.PENDING, new=MemoryStatus.CONFLICT
-                    )
-            stage = "index_build"
-            await builder.populate_empty()
-            stage = "review_challenges"
-            for note in dataset.notes:
-                memory_id = records[note["id"]].id
-                if note["status"] == "superseded":
-                    replacement = records[note["replacement_id"]]
-                    writer.submit_correction(memory_id, replacement)
-                    writer.approve(replacement.id, actor="evaluation:synthetic")
-                    await builder.refresh_approved(replacement.id)
-                elif note["status"] == "retired":
-                    writer.retire(memory_id, actor="evaluation:synthetic", reason="Fixture review")
-            # Deliberately retain inactive IDs and inject artificial unreviewed
-            # IDs. This tests canonical filtering, not a healthy-cache claim.
-            unreviewed = [n for n in dataset.notes if n["status"] in {"pending", "conflict"}]
-            vectors = await embed_texts(provider, [n["content"] for n in unreviewed])
-            await index.upsert(
-                tuple(
-                    space.record(str(records[n["id"]].id), vector)
-                    for n, vector in zip(unreviewed, vectors, strict=True)
-                )
+            def set_stage(value):
+                nonlocal stage
+                stage = value
+
+            retriever, ids, challenge = await prepare_synthetic_corpus(
+                Path(directory), provider, dataset,
+                index_factory=ChromaVectorIndex, on_stage=set_stage,
             )
-            for note in dataset.notes:
-                if "edit_to" in note:
-                    memory_id = records[note["id"]].id
-                    current = vault.read(memory_id)
-                    vault.update(
-                        memory_id,
-                        note["edit_to"],
-                        current.metadata,
-                        expected_revision=current.revision,
-                    )
-            audit = await builder.audit_ids()
-            ids = {str(value.id): key for key, value in records.items()}
-            report["index_challenge"] = {
-                "intentionally_stale_or_unreviewed": True,
-                "extra_ids": [ids[x] for x in audit.extra_ids],
-                "stale_ids": [ids[x] for x in audit.stale_ids],
-                "original_notes_preserved": all(
-                    vault.read(records[n["id"]].id) is not None
-                    for n in dataset.notes
-                    if n["status"] in {"superseded", "retired"}
-                ),
-            }
+            report["index_challenge"] = challenge
             forbidden = {n["id"] for n in dataset.notes if n["status"] != "approved"}
             searcher = SemanticMemorySearcher(retriever, provider)
             for query in dataset.queries:
