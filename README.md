@@ -20,13 +20,17 @@ See [.env.example](.env.example). Copy it to `.env` if useful, but export the va
 | `JARVIS_DB_PATH` | `data/jarvis.sqlite3` | SQLite file path; parent directories are created at startup. |
 | `JARVIS_MEMORY_VAULT_PATH` | unset | Opt in to including matching approved vault notes in chat requests. The configured provider receives those excerpts. |
 | `JARVIS_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
-| `JARVIS_LLM_PROVIDER` | `none` | Set to `openai` to enable the OpenAI adapter. |
+| `JARVIS_LLM_PROVIDER` | `none` | Select `none`, `openai`, or `gemini`. |
 | `OPENAI_API_KEY` | unset | Server-side key for the optional OpenAI provider. |
 | `JARVIS_OPENAI_MODEL` | unset | Explicit model to use with the optional OpenAI provider. |
+| `GEMINI_API_KEY` | unset | Server-side key for the optional Gemini provider. |
+| `JARVIS_GEMINI_MODEL` | unset | Explicit model to use with the optional Gemini provider. |
 
 Install the optional provider with `.venv/bin/python -m pip install -e '.[openai]'`. Set `JARVIS_LLM_PROVIDER=openai`, `OPENAI_API_KEY`, and `JARVIS_OPENAI_MODEL` to enable live chat. Leave `JARVIS_LLM_PROVIDER=none` to browse the UI and use health checks without an LLM; chat requests then return 503. The adapter passes `store=False` to the OpenAI Responses API and keeps credentials on the server.
 
 For local vector indexing, install `.venv/bin/python -m pip install -e '.[vector]'` and use `backend.memory.chroma.ChromaVectorIndex`. It accepts caller-generated embeddings and is not yet connected to the chat API. See [vector search](docs/vector-search.md).
+
+For Gemini, install `.venv/bin/python -m pip install -e '.[gemini]'` and export `JARVIS_LLM_PROVIDER=gemini`, `GEMINI_API_KEY`, and `JARVIS_GEMINI_MODEL`. The separate adapter uses Google's documented `generateContent` and `streamGenerateContent` REST endpoints. It sends JARVIS's bounded text history on each request, passes `store: false`, and keeps the key in a server-side header. Gemini's newer Interactions API requires preserving all model steps for stateless follow-ups; JARVIS's provider contract stores text turns, so this adapter uses the still-supported content generation API to preserve restart continuity without changing that contract. If `JARVIS_MEMORY_VAULT_PATH` is set, matching reviewed memory excerpts are also sent to the selected provider.
 
 Set `JARVIS_MEMORY_VAULT_PATH` to an existing Obsidian vault to include matching approved notes in chat. The configured LLM provider receives bounded excerpts; see [chat memory behavior](docs/chat.md). With this variable unset, chat does not read or send long-term memory.
 

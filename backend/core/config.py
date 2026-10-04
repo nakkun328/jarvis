@@ -10,7 +10,7 @@ class ConfigError(ValueError):
 
 
 _LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
-_LLM_PROVIDERS = frozenset({"none", "openai"})
+_LLM_PROVIDERS = frozenset({"none", "openai", "gemini"})
 
 
 @dataclass(frozen=True)
