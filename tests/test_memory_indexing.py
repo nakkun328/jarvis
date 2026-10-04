@@ -663,3 +663,189 @@ def test_restored_vault_rebuilds_fresh_index_and_reopens_in_another_process(tmp_
     assert len(repository.review_events(current.id)) == 1
     assert len(repository.lifecycle_events(original.id)) == 1
     assert len(repository.lifecycle_events(retired.id)) == 1
+
+@pytest.mark.parametrize("operation", ["populate", "refresh", "audit"])
+@pytest.mark.parametrize("change", ["name", "version"])
+def test_contract_change_during_operation_preserves_active_index_and_allows_retry(
+    tmp_path: Path, operation: str, change: str
+) -> None:
+    repository, vault, writer, provider, active, builder = _setup(tmp_path)
+    approved = _record("Original approved content")
+    writer.submit(approved)
+    writer.approve(approved.id)
+    original_space = provider.space
+    changed_space = EmbeddingSpace(
+        "fake/other" if change == "name" else original_space.name,
+        "v2" if change == "version" else original_space.version,
+        original_space.dimension,
+    )
+    original_embed = provider.embed
+
+    async def run() -> None:
+        await builder.populate_empty()
+        before = await active.search(original_space.query((0.0, 1.0)))
+        original_note = vault.read(approved.id)
+        assert original_note is not None
+        candidate = ChromaVectorIndex(tmp_path / "candidate-index")
+        target = (
+            MemoryIndexBuilder(repository, MemoryRetriever(repository, vault), provider, candidate)
+            if operation == "populate"
+            else builder
+        )
+        inspection_name = "list_entries"
+        original_ids = getattr(active, inspection_name)
+
+        async def drift_embed(texts):
+            values = await original_embed(texts)
+            provider.space = changed_space
+            return values
+
+        async def drift_ids(space):
+            ids = await original_ids(space)
+            provider.space = changed_space
+            return ids
+
+        if operation == "audit":
+            setattr(active, inspection_name, drift_ids)
+        else:
+            provider.embed = drift_embed
+        with pytest.raises(IndexBuildError, match="contract"):
+            if operation == "populate":
+                await target.populate_empty()
+            elif operation == "refresh":
+                await target.refresh_approved(approved.id)
+            else:
+                await target.audit_ids()
+        # No active reader switch or canonical mutation on a rejected contract.
+        assert await active.search(original_space.query((0.0, 1.0))) == before
+        assert vault.read(approved.id) == original_note
+        assert repository.get(approved.id).status is MemoryStatus.APPROVED
+        assert await candidate.list_ids(original_space.identifier) == ()
+        assert await candidate.list_ids(changed_space.identifier) == ()
+        provider.space = original_space
+        provider.embed = original_embed
+        setattr(active, inspection_name, original_ids)
+        if operation == "populate":
+            report = await target.populate_empty()
+            assert report.memory_ids == (str(approved.id),)
+        elif operation == "refresh":
+            await target.refresh_approved(approved.id)
+        else:
+            assert (await target.audit_ids()).healthy
+        assert vault.read(approved.id) == original_note
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("failure", ["second-batch", "partial-upsert"])
+def test_failed_private_rebuild_preserves_active_index_and_retries_fresh(
+    tmp_path: Path, failure: str
+) -> None:
+    repository, vault, writer, provider, active, builder = _setup(tmp_path)
+    records = [_record("First approved content"), _record("Edited approved content")]
+    for record in records:
+        writer.submit(record)
+        writer.approve(record.id)
+    space = provider.space
+    candidate = ChromaVectorIndex(tmp_path / "failed-candidate")
+    target = MemoryIndexBuilder(
+        repository, MemoryRetriever(repository, vault), provider, candidate
+    )
+    original_embed = provider.embed
+    original_upsert = candidate.upsert
+    batches = 0
+
+    async def fail_second_batch(texts):
+        nonlocal batches
+        batches += 1
+        if batches == 2:
+            raise RuntimeError("synthetic encoder failure")
+        return await original_embed(texts)
+
+    async def partial_upsert(values):
+        await original_upsert(values[:1])
+        raise RuntimeError("synthetic cache failure")
+
+    async def run() -> None:
+        await builder.populate_empty()
+        before_ids = await active.list_ids(space.identifier)
+        before_matches = {
+            m.memory_id: m for m in await active.search(space.query((0.0, 1.0)))
+        }
+        before_notes = {r.id: vault.read(r.id) for r in records}
+        if failure == "second-batch":
+            provider.embed = fail_second_batch
+        else:
+            candidate.upsert = partial_upsert
+        with pytest.raises(RuntimeError, match="synthetic"):
+            await target.populate_empty(batch_size=1)
+        assert await active.list_ids(space.identifier) == before_ids
+        assert {
+            m.memory_id: m for m in await active.search(space.query((0.0, 1.0)))
+        } == before_matches
+        for record in records:
+            assert vault.read(record.id) == before_notes[record.id]
+            assert repository.get(record.id).status is MemoryStatus.APPROVED
+        failed_ids = await candidate.list_ids(space.identifier)
+        assert len(failed_ids) == (0 if failure == "second-batch" else 1)
+        provider.embed = original_embed
+        if failed_ids:
+            with pytest.raises(IndexBuildError, match="not empty"):
+                await target.populate_empty()
+        retry = ChromaVectorIndex(tmp_path / "retry-candidate")
+        report = await MemoryIndexBuilder(
+            repository, MemoryRetriever(repository, vault), provider, retry
+        ).populate_empty(batch_size=1)
+        assert report.memory_ids == before_ids
+        assert await active.list_ids(space.identifier) == before_ids
+        for record in records:
+            assert vault.read(record.id) == before_notes[record.id]
+
+    asyncio.run(run())
+
+
+def test_partial_refresh_write_keeps_approval_existing_index_and_allows_retry(tmp_path: Path):
+    repository, vault, writer, provider, index, builder = _setup(tmp_path)
+    existing = _record("Existing approved content")
+    newly_reviewed = _record("Edited newly reviewed content")
+    writer.submit(existing)
+    writer.approve(existing.id)
+    writer.submit(newly_reviewed)
+    asyncio.run(builder.populate_empty())
+    original_note = vault.read(existing.id)
+    before_matches = {
+        m.memory_id: m for m in asyncio.run(index.search(provider.space.query((0.0, 1.0))))
+    }
+    pipeline = MemoryConsolidator(
+        repository.database,
+        writer,
+        MemoryRetriever(repository, vault),
+        index_refresher=SynchronousIndexRefresher(builder),
+    )
+    original_upsert = index.upsert
+
+    async def write_then_fail(records):
+        await original_upsert(records)
+        raise RuntimeError("synthetic partial cache failure")
+
+    index.upsert = write_then_fail
+    with pytest.raises(IndexRefreshError, match="was approved") as error:
+        pipeline.publish_reviewed(newly_reviewed.id)
+    assert "synthetic partial cache failure" not in str(error.value)
+    assert repository.get(newly_reviewed.id).status is MemoryStatus.APPROVED
+    published_note = vault.read(newly_reviewed.id)
+    assert published_note is not None
+    assert vault.read(existing.id) == original_note
+    after_matches = {
+        m.memory_id: m for m in asyncio.run(index.search(provider.space.query((0.0, 1.0))))
+    }
+    assert after_matches[str(existing.id)] == before_matches[str(existing.id)]
+    assert asyncio.run(index.list_ids(provider.space.identifier)) == tuple(
+        sorted((str(existing.id), str(newly_reviewed.id)))
+    )
+    index.upsert = original_upsert
+    pipeline.publish_reviewed(newly_reviewed.id)
+    assert vault.read(newly_reviewed.id) == published_note
+    assert vault.read(existing.id) == original_note
+    assert len(repository.review_events(newly_reviewed.id)) == 1
+    assert asyncio.run(builder.audit_ids()).healthy

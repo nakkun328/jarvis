@@ -154,3 +154,63 @@ def test_invalid_query_fails_before_remote_embedding(tmp_path: Path) -> None:
 
     asyncio.run(run())
     assert provider.calls == []
+
+
+@pytest.mark.parametrize("boundary", ["embedding", "index"])
+@pytest.mark.parametrize("change", ["name", "version"])
+def test_query_contract_drift_fails_without_returning_context_and_can_retry(
+    tmp_path: Path, boundary: str, change: str
+) -> None:
+    repository, vault, writer, provider, index, searcher, builder = _system(tmp_path)
+    approved = _record("observatory opens Friday")
+    writer.submit(approved)
+    writer.approve(approved.id)
+    space = provider.space
+    changed = EmbeddingSpace(
+        "fake-other" if change == "name" else space.name,
+        "v2" if change == "version" else space.version,
+        space.dimension,
+    )
+    original_embed = provider.embed
+    original_search = index.search
+    index_calls = []
+
+    async def drift_embed(texts):
+        values = await original_embed(texts)
+        provider.space = changed
+        return values
+
+    async def drift_search(query):
+        index_calls.append(query)
+        result = await original_search(query)
+        if boundary == "index":
+            provider.space = changed
+        return result
+
+    async def run() -> None:
+        await builder.populate_empty()
+        note = vault.read(approved.id)
+        if boundary == "embedding":
+            provider.embed = drift_embed
+        index.search = drift_search
+        with pytest.raises(ValueError, match="contract"):
+            await searcher.search("orbit question", limit=1)
+        if boundary == "embedding":
+            assert index_calls == []
+        else:
+            assert all(query.space == space.identifier for query in index_calls)
+        assert vault.read(approved.id) == note
+        assert repository.get(approved.id).status is MemoryStatus.APPROVED
+        assert await index.list_ids(space.identifier) == (str(approved.id),)
+        assert await index.list_ids(changed.identifier) == ()
+        provider.space = space
+        provider.embed = original_embed
+        index.search = original_search
+        result = await searcher.search("orbit question", limit=1)
+        assert [m.record.id for m in result.matches] == [approved.id]
+        assert result.matches[0].record.content == note.body
+        assert result.matches[0].record.confidence == 0.9
+        assert result.matches[0].record.origin is MemoryOrigin.USER_EXPLICIT
+        assert result.issues == ()
+
+    asyncio.run(run())

@@ -22,5 +22,13 @@ class SemanticMemorySearcher:
             raise ValueError("query must contain 1 to 4000 characters")
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise ValueError("limit must be a positive integer")
+        space = self.provider.space
+        if not isinstance(space, EmbeddingSpace):
+            raise ValueError("Provider must declare an embedding space")
         vector = (await embed_texts(self.provider, (query,)))[0]
-        return await self.retriever.search_vector(self.provider.space.query(vector, limit=limit))
+        if self.provider.space != space:
+            raise ValueError("Embedding contract changed during semantic search")
+        result = await self.retriever.search_vector(space.query(vector, limit=limit))
+        if self.provider.space != space:
+            raise ValueError("Embedding contract changed during semantic search")
+        return result
