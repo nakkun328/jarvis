@@ -11,6 +11,7 @@ from test_semantic_chat import Chat, record, reference, turns
 
 from backend.api.app import create_app
 from backend.chat.service import ChatService
+from backend.memory.embedding import EmbeddingSpace
 
 system = memory_fixtures.system
 
@@ -179,15 +180,23 @@ def test_real_sse_transport_interruption_closes_semantic_stream_and_session(
 
 
 @pytest.mark.parametrize("endpoint", ["/api/chat", "/api/chat/stream"])
+@pytest.mark.parametrize("failure", ["embedding", "contract"])
 def test_transient_semantic_failure_retries_same_conversation_with_current_note(
-    system, monkeypatch, endpoint, caplog
+    system, monkeypatch, endpoint, failure, caplog
 ):
     db, vault, item, embeddings, chat, app, service = configured(system, monkeypatch)
 
     async def run():
         original = embeddings.embed
+        original_space = embeddings.space
 
-        async def fail(_texts):
+        async def fail(texts):
+            if failure == "contract":
+                values = await original(texts)
+                embeddings.space = EmbeddingSpace(
+                    original_space.name, "fixture-private-v2", original_space.dimension
+                )
+                return values
             raise RuntimeError("fixture-private-upstream-details")
 
         async with app.router.lifespan_context(app):
@@ -213,6 +222,7 @@ def test_transient_semantic_failure_retries_same_conversation_with_current_note(
                     expected_revision=note.revision,
                 )
                 embeddings.embed = original
+                embeddings.space = original_space
                 retried = await client.post(
                     endpoint, json={"message": "retry", "conversation_id": cid}
                 )
