@@ -61,6 +61,26 @@ invalid approved note raises an error instead of producing a reassuring
 report. An empty difference means ID membership matches; it does not prove
 that vectors reflect recent human edits or that semantic ranking is good.
 
+## Refresh after explicit review
+
+For an offline synchronous consolidation job, pass
+`SynchronousIndexRefresher(builder)` to `MemoryConsolidator` as its
+`index_refresher`. `publish_reviewed` then re-reads the approved current note,
+embeds it in the builder's configured space, and upserts its ID and vector.
+The adapter rejects a note whose revision changed between publication and
+refresh. If embedding or Chroma fails, approval and the vault note remain
+durable; `publish_reviewed` reports `IndexRefreshError`. After repairing the
+cause, call `publish_reviewed` again to retry without creating another note.
+Run this synchronous path from a CLI or worker thread, not inside an active
+event loop. It does not watch Obsidian edits or select an embedding provider.
+
+Cache writes are not transactional with canonical publication. A storage failure
+after upsert may leave the newly approved target in the derived index while the
+operation reports failure. Keep the canonical approval and other indexed notes,
+inspect the target, and retry publication after repairing the cache. Do not undo
+the approved note or infer revision freshness from an ID-membership audit; the
+source-revision and final canonical checks belong to the consistency extension
+in PR #29.
 ## Operation contract and scope
 
 Each build, refresh, or ID audit pins the provider's declared model, version,
