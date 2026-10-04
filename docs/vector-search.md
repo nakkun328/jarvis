@@ -94,8 +94,40 @@ Obsidian, then resolve candidate IDs through that canonical store at retrieval
 time. The vector index stores IDs and vectors only; it does not own content,
 review status, provenance, or credentials.
 
-The contract and tests use a fake provider and need no API key. A concrete local
-or remote embedding provider, model selection, credential handling, index rebuild
-and retrieval quality measurement are separate follow-up work. Do not reuse an
+The contract and tests use a fake provider and need no API key. A local
+provider, model selection, active-index configuration and retrieval quality
+measurement remain follow-up work. Do not reuse an
 old space after a model or text preparation change; build a parallel derived
 index and switch after validating its IDs and search results.
+
+## Optional OpenAI embedding adapter
+
+`backend.memory.openai_embedding.OpenAIEmbeddingProvider` implements the same
+contract for a caller-supplied `openai.AsyncOpenAI` client. Construct an
+`EmbeddingSpace` with the exact model ID, an operator-managed version, and the
+requested dimension, then pass it to the adapter:
+
+```python
+from openai import AsyncOpenAI
+from backend.memory.embedding import EmbeddingSpace
+from backend.memory.openai_embedding import OpenAIEmbeddingProvider
+
+space = EmbeddingSpace("text-embedding-3-small", "operator-v1", 1536)
+provider = OpenAIEmbeddingProvider(space, AsyncOpenAI())
+```
+
+The client requires a server-side `OPENAI_API_KEY` when used. The adapter sends text to the
+[OpenAI embeddings API](https://developers.openai.com/api/docs/guides/embeddings)
+with `dimensions` and `encoding_format="float"`; it rejects a different model,
+missing or duplicate response indexes, non-finite values, and wrong dimensions.
+Only use an embedding model that supports the requested dimension. Changing
+the model, version, dimensions, or text preparation needs a new index space and
+rebuild. An alias may change behind a stable model name, so the operator must
+decide when to increment the version; the adapter cannot prove model immutability.
+
+Creating the client is an explicit opt-in that sends current approved memory
+text to OpenAI. Keep its API key server-side and choose this provider only when
+that data transfer is acceptable. The adapter does not install itself in the
+chat path or select a default model. Fake-client tests exercise its request and
+response contract without a key; live semantic quality and costs require a
+separate operator-approved evaluation.
