@@ -208,7 +208,9 @@ def test_semantic_failure_is_safe_and_saves_no_turn(system, endpoint, failure, c
 
     async def changed_contract(texts):
         values = await original_embed(texts)
-        embeddings.space = EmbeddingSpace(original_space.name, "private-v2", original_space.dimension)
+        embeddings.space = EmbeddingSpace(
+            original_space.name, "private-v2", original_space.dimension
+        )
         return values
 
     if failure == "embedding":
