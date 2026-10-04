@@ -2,16 +2,16 @@
 
 `MemoryIndexBuilder.populate_empty` reads every approved memory from SQLite and
 the **current** Obsidian note, validates provenance, generates embeddings with a
-caller-supplied `EmbeddingProvider`, and writes only IDs and vectors to an empty
-index space. It verifies that the indexed ID set exactly matches the approved
-canonical ID set before reporting success. Pending, conflicted, and rejected
+caller-supplied `EmbeddingProvider`, and writes IDs, vectors, and the current
+note revision hash to an empty index space. It verifies that indexed IDs and
+revisions exactly match the approved canonical set before reporting success.
+Pending, conflicted, and rejected
 candidates are never embedded by this builder.
 
-The builder re-reads the full approved set immediately before writing. It
-aborts if a note revision changed or a new memory was approved while embeddings
-were generated. A review operation after that final check may still make the
-derived index lag; run `audit_ids` and refresh or rebuild before switching a
-reader.
+The builder re-reads the full approved set immediately before and after writing.
+It aborts if a note revision changed or a new memory was approved during that
+window. A review operation after the final check may still make the derived
+index lag; run `audit_ids` and refresh or rebuild before switching a reader.
 
 Use a **new, private Chroma directory** for each rebuild. The builder refuses an
 already populated space so stale IDs from an earlier build cannot survive. It
@@ -51,15 +51,20 @@ dimension requires a new `EmbeddingSpace` version and rebuild. Human edits after
 the build may make vectors stale. After an explicitly reviewed change, a caller
 can run `await builder.refresh_approved(memory_id)` to replace that one vector
 from the current note. Retrieval must still resolve every result against current
-SQLite and vault state. Automatic edit detection, active-index switching, and
-supersession cleanup remain follow-up work.
+SQLite and vault state. The read-only audit detects edits when run; no watcher
+automatically triggers it. Active-index switching remains a caller operation.
 
 `await builder.audit_ids()` is a read-only operational check. It validates
 every approved current vault note, then reports approved IDs missing from the
-configured index space and indexed IDs that are not approved. A missing or
-invalid approved note raises an error instead of producing a reassuring
-report. An empty difference means ID membership matches; it does not prove
-that vectors reflect recent human edits or that semantic ranking is good.
+configured index space, extra indexed IDs, `stale_ids` whose indexed note hash
+differs from the current note, and `untracked_ids` indexed before revision
+tracking. A missing or invalid approved note raises an error instead of
+producing a reassuring report. The canonical set is read again after inspecting
+the index; a change during the audit also raises instead of reporting healthy.
+`healthy` requires all four lists to be empty.
+This detects human edits and unknown legacy revisions, but cannot prove that
+the embedding provider generated a useful vector. Refresh an untracked ID or
+rebuild the space before treating it as current.
 
 ## Refresh after explicit review
 
@@ -81,7 +86,22 @@ inspect the target, and retry publication after repairing the cache. Do not undo
 the approved note or infer revision freshness from an ID-membership audit; the
 source-revision and final canonical checks belong to the consistency extension
 in PR #29.
-## Operation contract and scope
+The reviewed lifecycle in PR #30 is required to create superseded or retired records. After a reviewed correction or retirement moves the old SQLite record into a
+terminal inactive state, `remove_inactive(old_id)` removes its ID from every
+derived vector space and verifies absence from each stored space. The synchronous
+adapter exposes the same operation for
+offline publication. It refuses a still-approved ID. If cleanup fails, the
+canonical review state remains durable; retry cleanup and run `audit_ids`.
+
+
+The builder rechecks the canonical note revision and current SQLite review state
+after resolving each approved snapshot. A review retirement or vault edit inside
+the final refresh/audit resolution fails the operation instead of certifying an
+earlier snapshot. The canonical edit/review is preserved; stale derived entries
+can be refreshed or explicitly removed and retried. This does not make external
+edits after the final check atomic; retain the single-worker editing boundary.
+
+## Landed builder contract and consistency extension
 
 Each build, refresh, or ID audit pins the provider's declared model, version,
 and dimension for that operation. A declaration change across an async boundary,
@@ -93,11 +113,11 @@ failure before upsert leaves an existing refresh target intact. A storage error
 after a write may leave a partial derived candidate; inspect it or rebuild in a
 new directory rather than treating the failed operation as a successful switch.
 
-This PR supplies fresh builds, explicit single-note refresh, and ID-membership
-checks. It does not automatically attach semantic retrieval to chat, choose a
+The landed base in PR #21 supplies fresh builds, explicit single-note refresh,
+and ID-membership checks. It does not automatically attach semantic retrieval to chat, choose a
 deployment encoder, or establish semantic quality. Stored source-revision audits,
 post-write canonical race checks, and inactive cleanup are the follow-up
-consistency scope in PR #29. Until that scope lands, an ID audit alone cannot
+consistency scope implemented by this PR #29. In PR #21 alone, an ID audit cannot
 certify vector freshness, and human changes after the final pre-write snapshot
 can make a candidate stale. Readers must continue resolving IDs against the
 current approved SQLite/vault state; deployment and reader switching require

@@ -1,6 +1,6 @@
 # JARVIS
 
-JARVIS is a personal assistant under development. The project aims to use one identity, memory, and task system across devices. The Phase 1 integration includes local chat, bounded conversation context, streamed responses, an OpenAI adapter, and a responsive web client. Persistent memory and remote access remain later phases.
+JARVIS is a personal assistant under development. The project aims to use one identity, memory, and task system across devices. Phase 1 provides local chat, bounded conversation context, streamed responses, an OpenAI adapter, and a responsive web client. Phase 2 adds durable reviewed memories in SQLite and editable Obsidian notes, with a derived local vector index. Remote access remains future work.
 
 ## Setup
 
