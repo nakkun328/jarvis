@@ -189,7 +189,7 @@ def test_semantic_context_shares_bounds_and_inference_freshness(system, monkeypa
 
 
 @pytest.mark.parametrize("endpoint", ["/api/chat", "/api/chat/stream"])
-@pytest.mark.parametrize("failure", ["embedding", "dimension", "index", "note"])
+@pytest.mark.parametrize("failure", ["embedding", "dimension", "contract", "index", "note"])
 def test_semantic_failure_is_safe_and_saves_no_turn(system, endpoint, failure, caplog):
     db, _, vault, writer, embeddings, index, _, builder, chat, settings = system
     item = record("Canonical private lesson")
@@ -200,13 +200,23 @@ def test_semantic_failure_is_safe_and_saves_no_turn(system, endpoint, failure, c
     async def fail(*_args):
         raise RuntimeError("private upstream details /vault/private")
 
+    original_embed = embeddings.embed
+    original_space = embeddings.space
+
     async def wrong_dimension(_texts):
         return [(1.0,)]
+
+    async def changed_contract(texts):
+        values = await original_embed(texts)
+        embeddings.space = EmbeddingSpace(original_space.name, "private-v2", original_space.dimension)
+        return values
 
     if failure == "embedding":
         embeddings.embed = fail
     elif failure == "dimension":
         embeddings.embed = wrong_dimension
+    elif failure == "contract":
+        embeddings.embed = changed_contract
     elif failure == "index":
         index.search = fail
     else:
