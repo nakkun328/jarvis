@@ -80,14 +80,19 @@ class MemoryIndexBuilder:
         if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size < 1:
             raise ValueError("batch_size must be a positive integer")
         space = self.provider.space
-        if await self.index.list_ids(space.identifier):
+        self._check_space(space)
+        existing = await self.index.list_ids(space.identifier)
+        self._check_space(space)
+        if existing:
             raise IndexBuildError("Vector space is not empty; use a new index path")
 
         approved = self._approved_snapshot()
         records = []
         for start in range(0, len(approved), batch_size):
             batch = approved[start : start + batch_size]
+            self._check_space(space)
             vectors = await embed_texts(self.provider, [item.record.content for item in batch])
+            self._check_space(space)
             records.extend(
                 space.record(str(item.record.id), values, source_revision=item.note_revision)
                 for item, values in zip(batch, vectors, strict=True)
@@ -101,12 +106,17 @@ class MemoryIndexBuilder:
         ):
             raise IndexBuildError("Approved memories changed during index build")
 
+        self._check_space(space)
         await self.index.upsert(records)
+        self._check_space(space)
         expected = tuple(sorted(record.memory_id for record in records))
         actual = await self.index.list_ids(space.identifier)
+        self._check_space(space)
         if actual != expected:
             raise IndexBuildError("Vector IDs differ from approved canonical memories")
-        self._check_revisions(latest, await self.index.list_entries(space.identifier))
+        entries = await self.index.list_entries(space.identifier)
+        self._check_space(space)
+        self._check_revisions(latest, entries)
         if self._revision_snapshot() != self._revisions(latest):
             raise IndexBuildError("Approved memories changed during index build")
         return IndexBuildReport(space.identifier, actual)
@@ -115,23 +125,31 @@ class MemoryIndexBuilder:
         """Upsert one explicitly approved, current note after a reviewed change."""
         if not isinstance(memory_id, UUID):
             raise ValueError("memory_id must be a UUID")
+        space = self.provider.space
+        self._check_space(space)
         current = self._checked_approved(memory_id)
         if not isinstance(current, RetrievedMemory):
             raise IndexBuildError("Memory is not a valid approved note")
         values = (await embed_texts(self.provider, [current.record.content]))[0]
+        self._check_space(space)
         latest = self._checked_approved(memory_id)
         if not isinstance(latest, RetrievedMemory) or latest.note_revision != current.note_revision:
             raise IndexBuildError("Approved note changed during index refresh")
+        self._check_space(space)
         await self.index.upsert(
             (
-                self.provider.space.record(
+                space.record(
                     str(memory_id), values, source_revision=current.note_revision
                 ),
             )
         )
-        if str(memory_id) not in await self.index.list_ids(self.provider.space.identifier):
+        self._check_space(space)
+        indexed = await self.index.list_ids(space.identifier)
+        self._check_space(space)
+        if str(memory_id) not in indexed:
             raise IndexBuildError("Refreshed memory ID is missing from vector index")
-        entries = dict(await self.index.list_entries(self.provider.space.identifier))
+        entries = dict(await self.index.list_entries(space.identifier))
+        self._check_space(space)
         if entries.get(str(memory_id)) != current.note_revision:
             raise IndexBuildError("Refreshed memory revision is missing from vector index")
         final = self._checked_approved(memory_id)
@@ -158,9 +176,12 @@ class MemoryIndexBuilder:
         Revision checks detect human edits since indexing. They cannot prove
         that the provider returned useful embeddings.
         """
+        space = self.provider.space
+        self._check_space(space)
         approved = self._approved_snapshot()
         canonical = tuple(sorted(str(item.record.id) for item in approved))
-        entries = await self.index.list_entries(self.provider.space.identifier)
+        entries = await self.index.list_entries(space.identifier)
+        self._check_space(space)
         if self._revision_snapshot() != self._revisions(approved):
             raise IndexBuildError("Approved memories changed during index audit")
         indexed = tuple(memory_id for memory_id, _ in entries)
@@ -169,7 +190,7 @@ class MemoryIndexBuilder:
         canonical_set = set(canonical)
         indexed_set = set(indexed)
         return IndexIdAudit(
-            space=self.provider.space.identifier,
+            space=space.identifier,
             approved_ids=canonical,
             indexed_ids=indexed,
             missing_ids=tuple(sorted(canonical_set - indexed_set)),
@@ -206,6 +227,10 @@ class MemoryIndexBuilder:
         expected = {str(item.record.id): item.note_revision for item in approved}
         if dict(entries) != expected:
             raise IndexBuildError("Vector revisions differ from approved canonical memories")
+
+    def _check_space(self, space: EmbeddingSpace) -> None:
+        if not isinstance(space, EmbeddingSpace) or self.provider.space != space:
+            raise IndexBuildError("Embedding contract changed during index operation")
 
     def _approved_snapshot(self) -> tuple[RetrievedMemory, ...]:
         result: list[RetrievedMemory] = []
