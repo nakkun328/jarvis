@@ -4,7 +4,9 @@ from backend.core.config import ConfigError, Settings
 from backend.providers.base import LLMProvider
 
 
-def create_provider(settings: Settings) -> LLMProvider | None:
+def create_provider(
+    settings: Settings, *, gemini_max_output_tokens: int | None = None
+) -> LLMProvider | None:
     if settings.llm_provider == "none":
         return None
     if settings.llm_provider == "openai":
@@ -18,5 +20,5 @@ def create_provider(settings: Settings) -> LLMProvider | None:
             from backend.providers.gemini import GeminiProvider
         except ImportError as exc:
             raise ConfigError("Install the optional Gemini provider dependency") from exc
-        return GeminiProvider.from_env()
+        return GeminiProvider.from_env(max_output_tokens=gemini_max_output_tokens)
     raise ConfigError(f"Unsupported LLM provider: {settings.llm_provider}")

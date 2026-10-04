@@ -18,21 +18,29 @@ class GeminiProvider:
     name = "gemini"
 
     def __init__(
-        self, *, model: str, api_key: str, client: httpx.AsyncClient | None = None
+        self, *, model: str, api_key: str, client: httpx.AsyncClient | None = None,
+        max_output_tokens: int | None = None
     ) -> None:
         if not _MODEL_ID.fullmatch(model.strip()):
             raise ConfigError("JARVIS_GEMINI_MODEL must be a model ID")
         if not api_key.strip():
             raise ConfigError("GEMINI_API_KEY is required for the Gemini provider")
+        if max_output_tokens is not None and (
+            isinstance(max_output_tokens, bool)
+            or not isinstance(max_output_tokens, int)
+            or not 1 <= max_output_tokens <= 8192
+        ):
+            raise ConfigError("Gemini output limit must be an integer between 1 and 8192")
+        self.max_output_tokens = max_output_tokens
         self.model = model.strip()
         self._api_key = api_key.strip()
         self._client = client or httpx.AsyncClient(timeout=30, follow_redirects=False)
 
     @classmethod
-    def from_env(cls) -> "GeminiProvider":
+    def from_env(cls, *, max_output_tokens: int | None = None) -> "GeminiProvider":
         api_key = os.environ.get("GEMINI_API_KEY", "")
         model = os.environ.get("JARVIS_GEMINI_MODEL", "")
-        return cls(model=model, api_key=api_key)
+        return cls(model=model, api_key=api_key, max_output_tokens=max_output_tokens)
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -68,6 +76,12 @@ class GeminiProvider:
         body["contents"] = contents
         return body
 
+    def _request_body(self, request: CompletionRequest) -> dict[str, object]:
+        body = self._body(request)
+        if self.max_output_tokens is not None:
+            body["generationConfig"] = {"maxOutputTokens": self.max_output_tokens}
+        return body
+
     @staticmethod
     def _content(payload: object) -> tuple[str, str | None]:
         if not isinstance(payload, dict):
@@ -97,7 +111,7 @@ class GeminiProvider:
         return text, reason
 
     async def complete(self, request: CompletionRequest) -> CompletionResponse:
-        body = self._body(request)
+        body = self._request_body(request)
         try:
             response = await self._client.post(
                 self._url(stream=False), headers=self._headers(), json=body
@@ -127,7 +141,7 @@ class GeminiProvider:
             yield json.loads("\n".join(data_lines))
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
-        body = self._body(request)
+        body = self._request_body(request)
         completed = False
         received_text = False
         try:
