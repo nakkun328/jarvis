@@ -78,6 +78,14 @@ durable; `publish_reviewed` reports `IndexRefreshError`. After repairing the
 cause, call `publish_reviewed` again to retry without creating another note.
 Run this synchronous path from a CLI or worker thread, not inside an active
 event loop. It does not watch Obsidian edits or select an embedding provider.
+
+Cache writes are not transactional with canonical publication. A storage failure
+after upsert may leave the newly approved target in the derived index while the
+operation reports failure. Keep the canonical approval and other indexed notes,
+inspect the target, and retry publication after repairing the cache. Do not undo
+the approved note or infer revision freshness from an ID-membership audit; the
+source-revision and final canonical checks belong to the consistency extension
+in PR #29.
 The reviewed lifecycle in PR #30 is required to create superseded or retired records. After a reviewed correction or retirement moves the old SQLite record into a
 terminal inactive state, `remove_inactive(old_id)` removes its ID from every
 derived vector space and verifies absence from each stored space. The synchronous
@@ -92,6 +100,7 @@ the final refresh/audit resolution fails the operation instead of certifying an
 earlier snapshot. The canonical edit/review is preserved; stale derived entries
 can be refreshed or explicitly removed and retried. This does not make external
 edits after the final check atomic; retain the single-worker editing boundary.
+
 ## Landed builder contract and consistency extension
 
 Each build, refresh, or ID audit pins the provider's declared model, version,
