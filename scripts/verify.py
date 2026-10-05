@@ -86,7 +86,8 @@ def verify(args: argparse.Namespace) -> int:
             ("ruff", [args.python, "-m", "ruff", "check", "."]),
             ("compileall", [args.python, "-m", "compileall", "-q", "backend", "tests", "scripts"]),
             ("frontend", [args.node, "--test", "--test-reporter=junit",
-                          "frontend/test/chat-api.test.mjs"]),
+                          *[str(path.relative_to(repo)) for path in sorted(
+                              (repo / "frontend/test").glob("*.test.mjs"))]]),
             *[(f"syntax-{path.name}", [args.node, "--check", str(path)])
               for path in sorted((repo / "frontend").glob("*.js"))],
             ("diff-worktree", ["git", "diff", "--check"]),
