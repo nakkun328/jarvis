@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 _HISTORY_MISMATCH = "SQLite schema version and migration history disagree"
 
 
@@ -188,10 +188,81 @@ class Database:
                         )
                         self._record_migration(connection, 5)
                         connection.execute("PRAGMA user_version = 5")
+                    if version < 6:
+                        self._create_research_tables(connection)
+                        self._record_migration(connection, 6)
+                        connection.execute("PRAGMA user_version = 6")
                     if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
                         raise DatabaseError("SQLite foreign key check failed during migration")
         except (OSError, sqlite3.Error) as exc:
             raise DatabaseError(f"Could not initialize SQLite database at {self.path}") from exc
+
+    @staticmethod
+    def _create_research_tables(connection: sqlite3.Connection) -> None:
+        """v6: research sessions, planned queries, sources, and cited claims."""
+        connection.execute(
+            "CREATE TABLE research_sessions ("
+            "id TEXT PRIMARY KEY, "
+            "question TEXT NOT NULL CHECK(length(question) BETWEEN 1 AND 2000), "
+            "level TEXT NOT NULL CHECK(level IN "
+            "('memory', 'quick', 'standard', 'deep', 'extensive')), "
+            "status TEXT NOT NULL CHECK(status IN "
+            "('pending', 'running', 'waiting', 'failed', 'completed', 'cancelled')), "
+            "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, "
+            "result_text TEXT CHECK(result_text IS NULL OR length(result_text) <= 50000), "
+            "failure_reason TEXT CHECK(failure_reason IS NULL OR failure_reason IN "
+            "('search_failed', 'no_results', 'reader_failed', 'synthesis_failed', "
+            "'timeout', 'budget_exceeded', 'internal_error')), "
+            "CHECK (result_text IS NULL OR status = 'completed'), "
+            "CHECK ((failure_reason IS NOT NULL) = (status = 'failed')))"
+        )
+        connection.execute(
+            "CREATE INDEX research_sessions_by_status ON research_sessions(status, created_at)"
+        )
+        connection.execute(
+            "CREATE TABLE research_queries ("
+            "id TEXT PRIMARY KEY, "
+            "session_id TEXT NOT NULL REFERENCES research_sessions(id) ON DELETE CASCADE, "
+            "text TEXT NOT NULL CHECK(length(text) BETWEEN 1 AND 500), "
+            "position INTEGER NOT NULL CHECK(position >= 0), "
+            "created_at TEXT NOT NULL, "
+            "UNIQUE (session_id, position))"
+        )
+        connection.execute(
+            "CREATE TABLE research_sources ("
+            "id TEXT PRIMARY KEY, "
+            "session_id TEXT NOT NULL REFERENCES research_sessions(id) ON DELETE CASCADE, "
+            "url TEXT NOT NULL CHECK(length(url) BETWEEN 1 AND 2048), "
+            "final_url TEXT NOT NULL CHECK(length(final_url) BETWEEN 1 AND 2048), "
+            "title TEXT, publisher TEXT, published_at TEXT, retrieved_at TEXT NOT NULL, "
+            "content_digest TEXT NOT NULL CHECK(length(content_digest) = 64), "
+            "source_type TEXT NOT NULL CHECK(source_type IN "
+            "('official', 'docs', 'academic', 'news', 'community', 'blog', 'forum', "
+            "'unknown')), "
+            "authority REAL CHECK(authority IS NULL OR authority BETWEEN 0 AND 1), "
+            "freshness REAL CHECK(freshness IS NULL OR freshness BETWEEN 0 AND 1), "
+            "is_primary REAL CHECK(is_primary IS NULL OR is_primary BETWEEN 0 AND 1), "
+            "relevance REAL CHECK(relevance IS NULL OR relevance BETWEEN 0 AND 1), "
+            "agreement REAL CHECK(agreement IS NULL OR agreement BETWEEN 0 AND 1), "
+            "UNIQUE (session_id, final_url, content_digest), "
+            "UNIQUE (session_id, id))"
+        )
+        connection.execute(
+            "CREATE TABLE research_claims ("
+            "id TEXT PRIMARY KEY, "
+            "session_id TEXT NOT NULL REFERENCES research_sessions(id) ON DELETE CASCADE, "
+            "claim_text TEXT NOT NULL CHECK(length(claim_text) BETWEEN 1 AND 2000), "
+            "source_id TEXT NOT NULL, "
+            "quote TEXT NOT NULL CHECK(length(quote) BETWEEN 1 AND 500), "
+            "quote_start INTEGER CHECK(quote_start IS NULL OR quote_start >= 0), "
+            "quote_end INTEGER CHECK(quote_end IS NULL OR quote_end >= 0), "
+            "CHECK ((quote_start IS NULL) = (quote_end IS NULL)), "
+            "CHECK (quote_start IS NULL OR quote_start < quote_end), "
+            "FOREIGN KEY (session_id, source_id) "
+            "REFERENCES research_sources(session_id, id) ON DELETE CASCADE)"
+        )
+        connection.execute("CREATE INDEX research_claims_by_session ON research_claims(session_id)")
+        connection.execute("CREATE INDEX research_claims_by_source ON research_claims(source_id)")
 
     def is_ready(self) -> bool:
         try:
