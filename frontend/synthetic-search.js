@@ -1,4 +1,5 @@
 import { searchSynthetic, validateQuestion } from "./synthetic-search-api.js";
+import { candidateRows, candidateTitle, modeLabel, resultSummary } from "./synthetic-search-view.js";
 
 const form = document.querySelector("#search-form");
 const query = document.querySelector("#query");
@@ -11,9 +12,9 @@ let busy = false;
 let lastQuestion = "";
 
 function showMode(contractOnly) {
-  mode.textContent = contractOnly
-    ? "fake契約検証のみ：日本語semantic検索の品質を示しません。"
-    : "固定revisionのローカルE5検索：外部APIなし。";
+  mode.textContent = modeLabel(contractOnly);
+  mode.classList.toggle("fake", contractOnly === true);
+  document.title = `${contractOnly === true ? "[FAKE] " : ""}JARVIS · 人工記憶の検索試験`;
 }
 
 function element(tag, text) {
@@ -22,25 +23,17 @@ function element(tag, text) {
   return node;
 }
 
-function render(matches) {
+function render(matches, contractOnly) {
   results.replaceChildren();
   matches.forEach((match, index) => {
     const article = element("article", "");
-    article.className = "candidate";
-    article.append(element("h2", `${index + 1}. ${match.fixture_id} · 現在 approved`));
+    article.className = contractOnly ? "candidate fake" : "candidate";
+    article.append(element("h2", candidateTitle(match, index, contractOnly)));
     const body = element("p", match.body);
     body.className = "body";
     article.append(body);
     const metadata = element("dl", "");
-    const entries = [
-      ["出典 / origin", `${match.source} / ${match.origin}`],
-      ["ID / 現在 revision", `${match.id} / ${match.revision}`],
-      ["訂正元（人工fixture名）", match.corrects_fixture_id ?? "なし"],
-      ["承認後の編集 / stale", `${match.edited_since_approval ? "あり" : "なし"} / ${match.stale}`],
-      ["記憶metadata confidence / importance", `${match.memory_confidence} / ${match.importance}（検索の確信度ではありません）`],
-      ["index score", `${match.index_score}（確率・confidence・回答可能性ではありません）`],
-    ];
-    entries.forEach(([label, value]) => metadata.append(element("dt", label), element("dd", value)));
+    candidateRows(match).forEach(([label, value]) => metadata.append(element("dt", label), element("dd", value)));
     article.append(metadata);
     results.append(article);
   });
@@ -66,10 +59,8 @@ async function run(question) {
   try {
     const result = await searchSynthetic(question);
     showMode(result.contract_only);
-    render(result.matches);
-    status.textContent = result.matches.length
-      ? `${result.matches.length}件の検索候補。回答ではありません。質問への支持根拠を本文で確認してください。`
-      : "現在の承認済み記憶の候補はありません。";
+    render(result.matches, result.contract_only);
+    status.textContent = resultSummary(result);
   } catch (error) {
     status.textContent = error.message;
     status.classList.add("error");
@@ -86,4 +77,4 @@ retry.addEventListener("click", () => run(lastQuestion));
 fetch("/api/synthetic-search/status")
   .then((response) => { if (!response.ok) throw new Error(); return response.json(); })
   .then((state) => showMode(state.contract_only))
-  .catch(() => { mode.textContent = "試験モードを確認できません。検索結果で再確認します。"; });
+  .catch(() => showMode(null));

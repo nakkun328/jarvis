@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from backend.memory.chroma import ChromaVectorIndex
 from backend.memory.evaluation import parse_dataset, prepare_synthetic_corpus
@@ -139,10 +140,13 @@ def create_synthetic_app(provider_factory, *, limit=3, contract_only=False):
             await session.aclose()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    # Loopback-only listener: also refuse foreign Host headers (DNS rebinding).
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
 
     @app.get("/api/synthetic-search/status")
     async def status():
-        return {"contract_only": contract_only, "prepared": session.searcher is not None}
+        return {"contract_only": contract_only, "prepared": session.searcher is not None,
+                "synthetic": True, "fixture": "ja-extra-v1"}
 
     @app.post("/api/synthetic-search")
     async def search(request: SearchRequest):

@@ -24,7 +24,12 @@ fakeへの切替はしません。空入力と4000文字超は検索せず、失
 一時データの順で解放します。ブラウザのタブを閉じるだけではサーバーは終了しません。
 
 モデルなしの画面・契約確認には`python scripts/serve_synthetic_search.py --contract-only`を
-使えます（vector依存が必要）。画面にfakeと明記し、日本語semantic品質の証拠にはしません。
+使えます（vector依存が必要）。画面上部に黄色の「FAKE契約検証モード」帯、タブ題名の`[FAKE]`、
+各候補の`[FAKE]`印を出し、順序は無意味で日本語semantic品質の証拠にはしません。
+`--contract-only`は`--cache-dir`を受け付けません。
+サーバーはHostが`127.0.0.1`/`localhost`以外のリクエストを400で拒否します（DNS rebinding対策）。
+画面は「candidate != answer evidence」と、候補が現在の正本で承認済みの記憶だけであること
+（旧版・未承認・却下は除外）を常時表示します。
 
 現在approvedの本文、出典、origin、ID/revision、訂正元、承認後の編集、stale、記憶metadataの
 confidence/importance、index scoreを表示します。scoreは確率・確信度・回答可能性ではありません。
@@ -40,6 +45,6 @@ confidence/importance、index scoreを表示します。scoreは確率・確信�
 無関係の追加確認には`カナダの首都はどこ？`を使えます（人工正本に支持根拠なし）。
 
 軽量確認：`python -m pytest -q tests/test_synthetic_search_browser.py`、
-`node --test frontend/test/synthetic-search.test.mjs`。
+`node --test frontend/test/*.test.mjs`（Nodeによってはディレクトリ指定は不可）。
 fake試験はHTTP入力境界、現在正本・訂正・編集・非承認除外、準備失敗後の再試行、
 検索失敗の秘匿、終了時の解放順序を確認します。実E5での順位・ブラウザ操作は別途確認が必要です。

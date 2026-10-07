@@ -11,6 +11,11 @@ from backend.memory.evaluation import ContractOnlyEmbeddings
 from scripts import serve_synthetic_search as cli
 
 
+def client_for(app):
+    # The app trusts only loopback Host headers, so tests use a loopback base URL.
+    return TestClient(app, base_url="http://127.0.0.1")
+
+
 class OwnedFake(ContractOnlyEmbeddings):
     def __init__(self):
         self.closed = 0
@@ -33,11 +38,13 @@ def test_browser_reuses_current_approved_corpus_and_never_user_environment(monke
 
     monkeypatch.setattr(browser, "prepare_synthetic_corpus", prepare)
     app = browser.create_synthetic_app(lambda: provider, limit=100, contract_only=True)
-    with TestClient(app) as client:
+    with client_for(app) as client:
         assert client.get("/").status_code == 200
         assert "人工記憶の検索試験" in client.get("/").text
         assert client.get("/static/synthetic-search.js").status_code == 200
-        assert client.get("/api/synthetic-search/status").json()["prepared"] is False
+        state = client.get("/api/synthetic-search/status").json()
+        assert state == {"contract_only": True, "prepared": False,
+                         "synthetic": True, "fixture": "ja-extra-v1"}
         assert client.post("/api/chat", json={"message": "質問"}).status_code == 404
         response = client.post("/api/synthetic-search", json={"query": "制御用のチップ"})
         assert response.status_code == 200
@@ -66,14 +73,14 @@ def test_browser_reuses_current_approved_corpus_and_never_user_environment(monke
 @pytest.mark.parametrize("query", ["", " \n ", "x" * 4001, 1])
 def test_invalid_inputs_do_not_prepare_model(query):
     app = browser.create_synthetic_app(lambda: pytest.fail("must not prepare"))
-    with TestClient(app) as client:
+    with client_for(app) as client:
         assert client.post("/api/synthetic-search", json={"query": query}).status_code == 422
 
 
 @pytest.mark.parametrize("field", ["db", "vault", "fixture", "provider", "cache_dir"])
 def test_http_storage_provider_and_fixture_paths_are_rejected(field):
     app = browser.create_synthetic_app(lambda: pytest.fail("must not prepare"))
-    with TestClient(app) as client:
+    with client_for(app) as client:
         response = client.post("/api/synthetic-search", json={"query": "質問", field: "/path"})
         assert response.status_code == 422
 
@@ -109,7 +116,7 @@ def test_failed_preparation_releases_every_resource_and_retry_prepares_again(mon
     monkeypatch.setattr(browser, "prepare_synthetic_corpus", prepare)
     monkeypatch.setattr(browser, "ChromaVectorIndex", index)
     monkeypatch.setattr(browser, "SemanticMemorySearcher", Searcher)
-    with TestClient(browser.create_synthetic_app(factory)) as client:
+    with client_for(browser.create_synthetic_app(factory)) as client:
         failed = client.post("/api/synthetic-search", json={"query": "質問"})
         assert failed.status_code == 503 and "secret" not in failed.text
         assert providers[0].closed == 1 and not paths[0].exists()
@@ -143,7 +150,7 @@ def test_search_failure_redacted_and_same_session_retries(monkeypatch, failure):
 
     monkeypatch.setattr(browser, "prepare_synthetic_corpus", prepare)
     monkeypatch.setattr(browser, "SemanticMemorySearcher", Searcher)
-    with TestClient(browser.create_synthetic_app(lambda: provider)) as client:
+    with client_for(browser.create_synthetic_app(lambda: provider)) as client:
         failed = client.post("/api/synthetic-search", json={"query": "質問"})
         assert failed.status_code == 503
         assert "secret" not in failed.text and "private" not in failed.text
@@ -260,3 +267,103 @@ def test_cli_fake_entrypoint_loopback_only_and_no_normal_settings(monkeypatch):
     monkeypatch.setattr(uvicorn, "run", lambda app, **kwargs: observed.append(kwargs))
     assert cli.main(["--contract-only", "--port", "8799"]) == 0
     assert observed == [{"host": "127.0.0.1", "port": 8799, "access_log": False}]
+
+
+@pytest.mark.parametrize("host", ["evil.example", "127.0.0.1.evil.example", "192.168.0.5"])
+def test_foreign_host_headers_are_rejected_before_any_route(host):
+    app = browser.create_synthetic_app(lambda: pytest.fail("must not prepare"))
+    with client_for(app) as client:
+        for method, path in (("get", "/"), ("get", "/api/synthetic-search/status"),
+                             ("post", "/api/synthetic-search")):
+            kwargs = {"json": {"query": "質問"}} if method == "post" else {}
+            response = getattr(client, method)(path, headers={"Host": host}, **kwargs)
+            assert response.status_code == 400
+        assert client.get("/", headers={"Host": "localhost:8766"}).status_code == 200
+
+
+def test_contract_only_flag_is_reported_for_the_fake_label_and_real_mode_is_not_fake():
+    for flag in (True, False):
+        app = browser.create_synthetic_app(lambda: pytest.fail("must not prepare"),
+                                           contract_only=flag)
+        with client_for(app) as client:
+            assert client.get("/api/synthetic-search/status").json()["contract_only"] is flag
+
+
+@pytest.mark.parametrize("limit", [0, 101, True, "3", None])
+def test_invalid_limit_is_rejected_before_any_resource(limit):
+    with pytest.raises(ValueError):
+        browser.create_synthetic_app(lambda: pytest.fail("must not prepare"), limit=limit)
+
+
+def test_concurrent_first_searches_prepare_exactly_once(monkeypatch):
+    paths = []
+    original = browser.prepare_synthetic_corpus
+
+    async def prepare(root, *args, **kwargs):
+        paths.append(root)
+        return await original(root, *args, **kwargs)
+
+    monkeypatch.setattr(browser, "prepare_synthetic_corpus", prepare)
+
+    async def run():
+        provider = OwnedFake()
+        session = browser.SyntheticSearchSession(lambda: provider, contract_only=True)
+        try:
+            first, second = await asyncio.gather(session.search("質問"), session.search("質問2"))
+        finally:
+            await session.aclose()
+        return provider, first, second
+
+    provider, first, second = asyncio.run(run())
+    assert len(paths) == 1 and not paths[0].exists() and provider.closed == 1
+    assert first["contract_only"] is second["contract_only"] is True
+
+
+def test_cleanup_failure_still_releases_other_resources_and_stays_closed(monkeypatch):
+    events = []
+
+    class Provider(OwnedFake):
+        async def aclose(self):
+            events.append("provider_close")
+            raise RuntimeError("private /secret/path")
+
+    def index(path):
+        return SimpleNamespace(client=SimpleNamespace(close=lambda: events.append("index_close")))
+
+    async def prepare(root, *args, index_factory):
+        index_factory(root / "index")
+        events.append(root)
+        return object(), {}, {}
+
+    monkeypatch.setattr(browser, "prepare_synthetic_corpus", prepare)
+    monkeypatch.setattr(browser, "ChromaVectorIndex", index)
+
+    class Searcher:
+        def __init__(self, *args):
+            pass
+
+        async def search(self, *args, **kwargs):
+            return SimpleNamespace(issues=[], matches=[])
+
+    monkeypatch.setattr(browser, "SemanticMemorySearcher", Searcher)
+
+    async def run():
+        session = browser.SyntheticSearchSession(Provider)
+        await session.search("質問")
+        with pytest.raises(RuntimeError, match="cleanup failed") as failure:
+            await session.aclose()
+        assert "secret" not in str(failure.value)
+        with pytest.raises(RuntimeError, match="closed"):
+            await session.search("質問")
+
+    asyncio.run(run())
+    assert events[1:] == ["provider_close", "index_close"] and not events[0].exists()
+
+
+def test_cli_contract_only_rejects_model_cache_and_bad_limit(tmp_path):
+    for argv in (["--contract-only", "--cache-dir", str(tmp_path)],
+                 ["--contract-only", "--limit", "0"], ["--contract-only", "--limit", "101"],
+                 ["--contract-only", "--port", "80"]):
+        with pytest.raises(SystemExit) as failure:
+            cli.main(argv)
+        assert failure.value.code == 2

@@ -18,8 +18,9 @@
       <main class="conversation search-page">
         <h1>人工記憶の検索試験</h1>
         <p>人工データ専用 · LLM回答生成なし</p>
-        <p class="notice">検索候補があることと、質問へ回答できる支持根拠があることは別です。
-          候補の現在本文を確認してください。回答可能性は判定していません。</p>
+        <p class="notice">検索候補があることと、質問へ回答できる支持根拠があることは別です
+          （candidate != answer evidence）。候補は現在の正本で承認済みの記憶だけです。
+          旧版・未承認・却下は表示されません。本文を確認してください。回答可能性は判定していません。</p>
         <p id="mode" role="status">試験モードを確認しています…</p>
         <form id="search-form">
           <label for="query">質問（4000文字以内）</label>
