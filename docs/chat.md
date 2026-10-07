@@ -17,7 +17,8 @@ Set `JARVIS_LLM_PROVIDER=openai` plus the adapter's server-side key and model va
 
 The default application still uses lexical memory when
 `JARVIS_MEMORY_VAULT_PATH` is configured, and no memory when it is unset.
-The semantic path depends on the unmerged versioned index stack through #29.
+The versioned index stack through #29 is now on main (3030299, 2026-10-04).
+This explicit semantic chat path remains Draft #36; it selects no deployment encoder.
 An application factory caller can opt in by supplying both dependencies:
 
 ```python
@@ -57,7 +58,7 @@ across concurrent external vault edits or multiple workers.
 Fake embeddings/chat plus real Chroma test routing and integrity, not semantic
 quality. Production embedding provider/model selection and quality evaluation,
 browser UI and live API checks remain separate. OpenAI live validation is pending;
-future necessary live checks use Gemini/gemini-2.5-flash. This Draft is not merge
-permission for itself or the dependent index stack.
+necessary live checks use Gemini/gemini-2.5-flash in the separate artificial
+connection trial. This Draft is not merge permission for itself or the dependent index stack.
 
 Alternatively, set `JARVIS_LLM_PROVIDER=gemini` with `GEMINI_API_KEY` and `JARVIS_GEMINI_MODEL`. The Gemini adapter maps the same provider messages to Google's text `generateContent` request and streams response deltas through the existing SSE route. It sends `store: false`; conversation history remains in JARVIS's SQLite database. Opted-in approved memory references are sent to Gemini under the same review and freshness checks as other providers.
