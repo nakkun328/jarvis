@@ -27,6 +27,8 @@ Purpose: let any new session (human or agent) resume JARVIS development from the
 Order inside Research and Tools: smallest end-to-end path first; no scheduler/parallel-agent machinery before the single path works.
 
 ## Open decisions (maintainer's call; none adopted)
+The per-capability gate matrix and recommendations are in [phase2-gate.md](phase2-gate.md).
+
 D1 production embedding encoder · D2 semantic quality acceptance · D3 answer policy when memory lacks support · D4 general candidate extraction scope · D5 importance scale (design 0–5 vs stored 0–1) · D6 semantic consolidation. Until decided: lexical chat stays default, local E5 is an artificial-data trial only, no thresholds, no auto-approval, no physical deletion of vault notes.
 
 ## State snapshot — 2026-10-07 (verify before relying)
