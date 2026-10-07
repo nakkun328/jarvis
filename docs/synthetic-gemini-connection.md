@@ -7,7 +7,7 @@
 軽量契約試験（fake vector と fake HTTP。日本語検索品質・回答品質・実 API の証拠ではない）：
 
 ```sh
-/private/tmp/jarvis-p2-local-encoder-20261004/venv/bin/python \
+<venv-with-torch>/bin/python \
   scripts/verify_synthetic_gemini.py --contract-only \
   --output /tmp/jarvis-synthetic-gemini-contract-new.json
 ```
@@ -15,11 +15,11 @@
 実試験は統括のみが、他の実 E5 process がない状態で一度実行する。既存の server-side `GEMINI_API_KEY` が利用可能なときだけ API を呼ぶ。`.env` を読み込まず、資格情報の探索や入力要求は行わない。キーなしならモデル起動せず pending / request_attempts=0 の JSON を残す。
 
 ```sh
-export JARVIS_LOCAL_MODEL_CACHE=/private/tmp/jarvis-p2-local-encoder-20261004/model-cache
+export JARVIS_LOCAL_MODEL_CACHE=<prepared E5 cache dir outside the repo>
 export JARVIS_GEMINI_MODEL=gemini-2.5-flash
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1
 export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2
-/private/tmp/jarvis-p2-local-encoder-20261004/venv/bin/python \
+<venv-with-torch>/bin/python \
   scripts/verify_synthetic_gemini.py --live --max-output-tokens 4096 \
   --output /tmp/jarvis-synthetic-gemini-live-new.json
 ```
