@@ -18,12 +18,17 @@ from backend.core.logging import configure_logging
 from backend.memory.obsidian import ObsidianVault
 from backend.memory.repository import MemoryRepository
 from backend.memory.retrieval import MemoryRetriever
+from backend.personality.settings import PersonalityError, load_personality
 from backend.providers.base import LLMProvider
 from backend.providers.factory import create_provider
 
 
 def create_app(settings: Settings | None = None, provider: LLMProvider | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
+    try:
+        personality = load_personality(settings.personality_path)
+    except PersonalityError as error:
+        raise ConfigError(f"Invalid personality settings: {error}") from None
     database = Database(settings.db_path)
     memory_context = None
     if settings.memory_vault_path is not None:
@@ -36,7 +41,12 @@ def create_app(settings: Settings | None = None, provider: LLMProvider | None = 
     if provider is None:
         provider = create_provider(settings)
     chat_service = (
-        ChatService(provider, SQLiteConversationStore(database), memory_context=memory_context)
+        ChatService(
+            provider,
+            SQLiteConversationStore(database),
+            memory_context=memory_context,
+            personality=personality,
+        )
         if provider is not None
         else None
     )
@@ -47,6 +57,11 @@ def create_app(settings: Settings | None = None, provider: LLMProvider | None = 
         try:
             database.initialize()
             logging.getLogger(__name__).info("JARVIS backend started")
+            logging.getLogger(__name__).info(
+                "Personality (%s): %s",
+                "file" if settings.personality_path is not None else "default",
+                personality.describe(),
+            )
             yield
         finally:
             close = getattr(provider, "aclose", None)
