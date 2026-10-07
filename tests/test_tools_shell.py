@@ -1656,12 +1656,16 @@ def test_pytest_command_shape(monkeypatch, work):
 
 
 def test_pytest_builder_runs_a_tiny_project(work):
-    """End to end through the tool; skipped when the resolved interpreter lacks pytest."""
+    """End to end through the tool; a stub `pytest` package stands in when the resolved
+    interpreter lacks pytest (venv interpreters resolve to their base), so it never skips."""
     probe = subprocess.run(
         [os.path.realpath(PYTHON), "-c", "import pytest"], capture_output=True, timeout=30
     )
     if probe.returncode != 0:
-        pytest.skip("the resolved interpreter has no pytest (venv interpreters resolve to base)")
+        stub = work / "pytest"
+        stub.mkdir()
+        (stub / "__init__.py").write_text("")
+        (stub / "__main__.py").write_text("print('1 passed')\n")
     (work / "test_tiny.py").write_text("def test_ok():\n    assert 1 + 1 == 2\n")
     tool = make_tool(pytest_command(PYTHON, {"proj": str(work)}, timeout_seconds=60))
     result = run(tool, request(command="pytest", args=["-q", "test_tiny.py"], root="proj"))
