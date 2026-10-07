@@ -21,7 +21,7 @@ async def search(self, query: SearchQuery) -> Sequence[SearchResult]: ...
 | --- | --- |
 | `SearchQuery` | `text` 1-500 characters and not blank; `max_results` 1-20 (default 5); `language` optional tag such as `ja` or `en-US`; `recency_days` optional 1-3650. Validated on construction. |
 | `SearchResult` | `title`, `url` (absolute http(s), no credentials, at most 2048 characters), `snippet`, `rank` (1-based), `provider`, `retrieved_at` (aware UTC), `published_at` (aware UTC or `None`), `source_type` (default `unknown`). Frozen and validated on construction. |
-| `SourceType` | `official`, `docs`, `academic`, `news`, `community`, `blog`, `forum`, `unknown`. Providers leave it `unknown`; classification belongs to the later quality step. |
+| `SourceType` | Defined once in `backend/research/models.py` and imported by the search contract (`backend.research.search.SourceType` still resolves). Values: `official`, `docs`, `academic`, `news`, `community`, `blog`, `forum`, `unknown`. Providers leave it `unknown`; classification belongs to the later quality step. |
 | `SearchError` | Carries only `reason`, a `SearchFailure`: `invalid_query`, `unauthorized`, `rate_limited`, `timeout`, `network_error`, `bad_response`, `unavailable`. It rejects free text, so upstream messages cannot be attached. |
 
 Semantics providers must keep:

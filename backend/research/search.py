@@ -13,23 +13,14 @@ from enum import StrEnum
 from typing import Protocol
 from urllib.parse import urlsplit
 
+from backend.research.models import SourceType
+
 MAX_QUERY_CHARS = 500
 MAX_RESULTS_LIMIT = 20
 MAX_RECENCY_DAYS = 3650
 MAX_URL_CHARS = 2048
 
 _LANGUAGE = re.compile(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,3}")
-
-
-class SourceType(StrEnum):
-    OFFICIAL = "official"
-    DOCS = "docs"
-    ACADEMIC = "academic"
-    NEWS = "news"
-    COMMUNITY = "community"
-    BLOG = "blog"
-    FORUM = "forum"
-    UNKNOWN = "unknown"
 
 
 class SearchFailure(StrEnum):
