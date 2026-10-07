@@ -39,4 +39,4 @@ python scripts/evaluate_memory.py --provider-factory local_adapter:make_provider
 
 factory はローカルでレビューしたコードを指定する。runner は `.env` を読み込まず provider を自動選択しない。factory 内のモデル設定や接続は呼び出し側が管理する。CLI は取得した provider の optional async `aclose` を成功・失敗・取消時に呼ぶ。core の `evaluate` へ注入した provider は呼び出し側所有。契約出力の数・有限値・次元を既存経路で検証し、障害の本文・credential・path を report に転記しない。部分結果は failed 状態で残る。
 
-今回は fake のみで、実 API 呼び出しはない。OpenAI 実 API は pending、必要な将来の標準は Gemini / gemini-2.5-flash。配備 provider/model、品質しきい値、無関係 query の abstention、重要度尺度、一般抽出・意味的統合の方針は未決定。現在の top-k が根拠のない質問にも context を返すことを診断として可視化するが、chat/search policy は変更しない。JAR-88 で選択肢と影響を判断し、未着地 index stack #18→#21→#24→#26→#29 を前提に Draft としてレビューする。
+今回は fake のみで、実 API 呼び出しはない。OpenAI 実 API は pending、必要な将来の標準は Gemini / gemini-2.5-flash。配備 provider/model、品質しきい値、無関係 query の abstention、重要度尺度、一般抽出・意味的統合の方針は未決定。現在の top-k が根拠のない質問にも context を返すことを診断として可視化するが、chat/search policy は変更しない。JAR-88 で選択肢と影響を判断し、main に着地済みの index stack #18→#21→#24→#26→#29（3030299、2026-10-04）を基準に、この評価基盤 #37 を Draft としてレビューする。実ローカル E5・人工検索の追加は子 Draft #38 に分離している。
