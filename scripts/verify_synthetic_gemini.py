@@ -67,6 +67,16 @@ def redact(text):
     return re.sub(r"AIza[A-Za-z0-9_-]{20,}", "[REDACTED]", text)
 
 
+_ENUM = re.compile(r"[A-Z][A-Z0-9_]{0,63}\Z")
+
+
+def _enum_or_marker(value):
+    """Keep only enum-shaped upstream labels (STOP, MAX_TOKENS, SAFETY, ...)."""
+    if value is None:
+        return None
+    return value if isinstance(value, str) and _ENUM.fullmatch(value) else "[unrecognized]"
+
+
 class RecordedSemanticContext(SemanticMemoryContext):
     """Observe the existing verifier/renderer without modifying the chat prompt."""
 
@@ -120,13 +130,18 @@ def observe_gemini_responses(provider):
 
     async def record_response(response):
         record = {"http_status": response.status_code, "response_text": None,
-                  "finish_reason": None, "usage": {}, "parse_failure": None}
+                  "finish_reason": None, "block_reason": None, "usage": {},
+                  "parse_failure": None}
         try:
             await response.aread()
             payload = response.json()
+            # Upstream error bodies carry no candidates, so only the status is kept.
             text, reason = GeminiProvider._content(payload)
             record["response_text"] = redact(text)
-            record["finish_reason"] = redact(reason) if reason else None
+            record["finish_reason"] = _enum_or_marker(reason)
+            feedback = payload.get("promptFeedback") if isinstance(payload, dict) else None
+            if isinstance(feedback, dict):
+                record["block_reason"] = _enum_or_marker(feedback.get("blockReason"))
             usage = payload.get("usageMetadata", {}) if isinstance(payload, dict) else {}
             if isinstance(usage, dict):
                 record["usage"] = {
@@ -305,27 +320,40 @@ def main(argv=None):
         parser.error("contract-only does not accept a model cache")
     if not 1 <= args.max_output_tokens <= 8192:
         parser.error("max-output-tokens must be between 1 and 8192")
-    # Reserve before inference/API calls. Refuse overwrite and symlinks; mode 0600.
+    # Preconditions are checked before any model/API work and before anything is created.
+    output = args.output
+    if os.path.lexists(output):
+        print("Use a new writable output path; existing evidence is preserved.", file=sys.stderr)
+        return 2
+    cache = None
+    live_pending = False
+    if args.live:
+        live_pending = not os.environ.get("GEMINI_API_KEY", "").strip()
+        if not live_pending:
+            cache = args.cache_dir or os.environ.get("JARVIS_LOCAL_MODEL_CACHE")
+            if cache is None or not Path(cache).is_dir():
+                print("Prepared fixed E5 cache is required.", file=sys.stderr)
+                return 2
+            if os.environ.get("JARVIS_GEMINI_MODEL") != MODEL:
+                print("Set explicit JARVIS_GEMINI_MODEL=gemini-2.5-flash.", file=sys.stderr)
+                return 2
+    # Reserve a private sibling temp file first (fails early if the directory is not
+    # writable), then publish it with a hard link: atomic, never overwrites, no partial
+    # report is ever visible at the final path. Mode 0600.
+    temporary = output.with_name(f".{output.name}.{os.getpid()}.partial")
     try:
-        descriptor = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except OSError:
         print("Use a new writable output path; existing evidence is preserved.", file=sys.stderr)
         return 2
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-            if args.live and not os.environ.get("GEMINI_API_KEY", "").strip():
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            if live_pending:
                 plan, _ = load_plan()
                 report = {"synthetic": True, "evidence_kind": "live", "status": "pending",
                           "reason": "No existing server-side Gemini credential available",
                           "request_attempts": 0, "plan": plan}
             elif args.live:
-                cache = args.cache_dir or os.environ.get("JARVIS_LOCAL_MODEL_CACHE")
-                if cache is None or not Path(cache).is_dir():
-                    print("Prepared fixed E5 cache is required.", file=sys.stderr)
-                    return 2
-                if os.environ.get("JARVIS_GEMINI_MODEL") != MODEL:
-                    print("Set explicit JARVIS_GEMINI_MODEL=gemini-2.5-flash.", file=sys.stderr)
-                    return 2
                 report = run_trial(LocalE5Embeddings(Path(cache)),
                                    chat_factory=live_chat_factory, evidence_kind="live",
                                    max_output_tokens=args.max_output_tokens)
@@ -333,13 +361,28 @@ def main(argv=None):
                 report = run_trial(
                     ContractOnlyEmbeddings(), max_output_tokens=args.max_output_tokens
                 )
-            output.write(redact(json.dumps(report, ensure_ascii=False, indent=2)) + "\n")
+            handle.write(redact(json.dumps(report, ensure_ascii=False, indent=2)) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary, output)  # EEXIST (also for a symlink) keeps old evidence.
+        except OSError:
+            print("Output path appeared during the run; the report was kept at "
+                  f"{temporary.name} in the same directory.", file=sys.stderr)
+            temporary = None
+            return 2
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("Artificial connection trial cancelled; no automatic retry.", file=sys.stderr)
         return 130
     except Exception:
         print("Artificial connection trial failed; provider details withheld.", file=sys.stderr)
         return 1
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
     failed = report.get("failure") or report.get("cleanup_failures") or any(
         row["failure"] for row in report.get("questions", [])
     )

@@ -263,3 +263,176 @@ def test_cancellation_releases_owned_providers_and_temporary_data(monkeypatch):
         trial.run_trial(embeddings, chat_factory=factory_with_transport(reply, observed))
     assert embeddings.closed == 1 and observed["client"].is_closed
     assert not observed["root"].exists()
+
+
+@pytest.mark.parametrize(
+    ("payload", "finish", "block"),
+    [
+        ({"candidates": [{"content": {"parts": [{"text": "cut"}]},
+                          "finishReason": "SAFETY"}]}, "SAFETY", None),
+        ({"candidates": [{"content": {"parts": [{"text": "x"}]},
+                          "finishReason": "RECITATION"}]}, "RECITATION", None),
+        ({"candidates": [{"content": {"parts": [{"text": "  "}]},
+                          "finishReason": "STOP"}]}, "STOP", None),
+        ({"candidates": [{"content": {"parts": [{"text": "only thought", "thought": True}]},
+                          "finishReason": "STOP"}]}, "STOP", None),
+        ({"candidates": [{"content": {"parts": [{"text": "no finish reason"}]}}]}, None, None),
+        ({"candidates": [], "promptFeedback": {"blockReason": "SAFETY"}}, None, "SAFETY"),
+        ({"candidates": [{"finishReason": "weird secret-ish text"}]}, "[unrecognized]", None),
+    ],
+)
+def test_non_stop_empty_or_blocked_responses_are_failures_never_saved(
+    monkeypatch, payload, finish, block
+):
+    embeddings = OwnedEmbeddings()
+    observed = observe_corpus(monkeypatch)
+    report = trial.run_trial(
+        embeddings,
+        chat_factory=factory_with_transport(lambda _r: httpx.Response(200, json=payload), observed),
+    )
+    assert report["request_attempts"] == 4 and report["conversation_messages_saved"] == 0
+    for row in report["questions"]:
+        assert row["answer"] is None and row["failure"]["type"] == "ProviderError"
+        response, = row["api_responses"]
+        assert response["finish_reason"] == finish and response["block_reason"] == block
+        assert "weird secret-ish text" not in json.dumps(row)
+    assert embeddings.closed == 1 and observed["client"].is_closed
+
+
+def test_upstream_error_payload_and_url_never_reach_report_or_logs(monkeypatch, caplog):
+    embeddings = OwnedEmbeddings()
+    observed = observe_corpus(monkeypatch)
+    monkeypatch.setenv("GEMINI_API_KEY", "error-key-sentinel")
+    caplog.set_level("DEBUG")
+
+    def reply(_request):
+        return httpx.Response(429, json={"error": {
+            "message": "quota for error-key-sentinel https://upstream.invalid/?key=error-key-sentinel",
+            "status": "RESOURCE_EXHAUSTED",
+        }})
+
+    report = trial.run_trial(embeddings, chat_factory=factory_with_transport(reply, observed))
+    assert report["request_attempts"] == 4 and report["conversation_messages_saved"] == 0
+    serialized = json.dumps(report)
+    for row in report["questions"]:
+        assert row["answer"] is None and row["failure"]["type"] == "ProviderError"
+        response, = row["api_responses"]
+        assert response["http_status"] == 429 and response["response_text"] == ""
+    for secret in ("error-key-sentinel", "upstream.invalid", "RESOURCE_EXHAUSTED"):
+        assert secret not in serialized
+    assert "error-key-sentinel" not in caplog.text
+    assert "x-goog-api-key" not in caplog.text.lower()
+
+
+def test_each_question_uses_its_own_new_conversation(monkeypatch):
+    embeddings = OwnedEmbeddings()
+    observed = observe_corpus(monkeypatch)
+    complete = trial.ChatService.complete
+    calls = []
+
+    async def recording(self, message, conversation_id=None):
+        result = await complete(self, message, conversation_id)
+        calls.append((conversation_id, result.conversation_id))
+        return result
+
+    monkeypatch.setattr(trial.ChatService, "complete", recording)
+
+    def reply(_request):
+        return httpx.Response(200, json={"candidates": [{
+            "content": {"parts": [{"text": "fake"}]}, "finishReason": "STOP"}]})
+
+    report = trial.run_trial(embeddings, chat_factory=factory_with_transport(reply, observed))
+    assert report["failure"] is None and len(calls) == 4
+    assert all(requested is None for requested, _ in calls)
+    assert len({created for _, created in calls}) == 4
+    plan, _ = trial.load_plan()
+    assert [r["question"] for r in report["questions"]] == plan["questions"]
+
+
+def test_report_publish_is_atomic_private_and_never_overwrites(tmp_path, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    output = tmp_path / "new.json"
+    assert trial.main(["--contract-only", "--output", str(output)]) == 0
+    assert output.stat().st_mode & 0o777 == 0o600
+    assert json.loads(output.read_text())["evidence_kind"] == "fake"
+    assert list(tmp_path.iterdir()) == [output]  # no leftover partial file
+    before = output.read_bytes()
+    assert trial.main(["--contract-only", "--output", str(output)]) == 2
+    assert output.read_bytes() == before
+    target = tmp_path / "target.json"
+    target.write_text("keep")
+    link = tmp_path / "link.json"
+    link.symlink_to(target)
+    assert trial.main(["--contract-only", "--output", str(link)]) == 2
+    dangling = tmp_path / "dangling.json"
+    dangling.symlink_to(tmp_path / "nowhere.json")
+    assert trial.main(["--contract-only", "--output", str(dangling)]) == 2
+    assert target.read_text() == "keep" and not (tmp_path / "nowhere.json").exists()
+
+
+def test_publish_race_keeps_existing_evidence_and_leaves_recoverable_partial(
+    tmp_path, monkeypatch, capsys
+):
+    output = tmp_path / "race.json"
+
+    def racing_link(source, destination):
+        destination.write_text("someone else")
+        raise FileExistsError
+
+    monkeypatch.setattr(trial.os, "link", racing_link)
+    assert trial.main(["--contract-only", "--output", str(output)]) == 2
+    assert output.read_text() == "someone else"
+    kept, = [p for p in tmp_path.iterdir() if p != output]
+    assert json.loads(kept.read_text())["evidence_kind"] == "fake"
+    assert kept.name in capsys.readouterr().err
+
+
+def test_failed_preconditions_leave_no_report_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "contract-only-not-a-credential")
+    monkeypatch.delenv("JARVIS_LOCAL_MODEL_CACHE", raising=False)
+    monkeypatch.setenv("JARVIS_GEMINI_MODEL", trial.MODEL)
+    monkeypatch.setattr(trial, "LocalE5Embeddings", lambda *a: pytest.fail("No model needed"))
+    monkeypatch.setattr(trial, "run_trial", lambda *a, **k: pytest.fail("No run"))
+    out = tmp_path / "out.json"
+    assert trial.main(["--live", "--output", str(out)]) == 2  # no cache
+    assert trial.main(["--live", "--cache-dir", str(tmp_path / "missing"),
+                       "--output", str(out)]) == 2
+    monkeypatch.setenv("JARVIS_GEMINI_MODEL", "gemini-other")
+    assert trial.main(["--live", "--cache-dir", str(tmp_path), "--output", str(out)]) == 2
+    assert not out.exists() and list(tmp_path.iterdir()) == []
+    with pytest.raises(SystemExit):
+        trial.main(["--contract-only", "--max-output-tokens", "0", "--output", str(out)])
+    with pytest.raises(SystemExit):
+        trial.main(["--contract-only", "--cache-dir", str(tmp_path), "--output", str(out)])
+
+
+def test_live_mode_is_wired_to_fixed_adapter_without_any_network(tmp_path, monkeypatch):
+    seen = {}
+
+    class FakeEncoder:
+        def __init__(self, cache):
+            seen["cache"] = cache
+
+    def fake_run(embeddings, *, chat_factory, evidence_kind, max_output_tokens):
+        seen.update(embeddings=embeddings, factory=chat_factory, kind=evidence_kind,
+                    cap=max_output_tokens)
+        return {"synthetic": True, "evidence_kind": evidence_kind, "questions": [],
+                "failure": None, "cleanup_failures": []}
+
+    monkeypatch.setenv("GEMINI_API_KEY", "contract-only-not-a-credential")
+    monkeypatch.setenv("JARVIS_GEMINI_MODEL", trial.MODEL)
+    monkeypatch.setattr(trial, "LocalE5Embeddings", FakeEncoder)
+    monkeypatch.setattr(trial, "run_trial", fake_run)
+    output = tmp_path / "live.json"
+    assert trial.main(["--live", "--cache-dir", str(tmp_path), "--max-output-tokens", "4096",
+                       "--output", str(output)]) == 0
+    assert seen["factory"] is trial.live_chat_factory and seen["kind"] == "live"
+    assert seen["cap"] == 4096 and isinstance(seen["embeddings"], FakeEncoder)
+    assert "contract-only-not-a-credential" not in output.read_text()
+
+
+def test_live_factory_refuses_unpinned_model(monkeypatch, tmp_path):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake")
+    monkeypatch.setenv("JARVIS_GEMINI_MODEL", "gemini-other")
+    with pytest.raises(ValueError, match="gemini-2.5-flash"):
+        trial.live_chat_factory(Settings(db_path=tmp_path / "x.db", llm_provider="gemini"))

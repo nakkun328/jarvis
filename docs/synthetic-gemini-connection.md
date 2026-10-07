@@ -24,9 +24,9 @@ export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2
   --output /tmp/jarvis-synthetic-gemini-live-new.json
 ```
 
-各 question は新会話、最大 4 attempt、API の自動再試行なし。失敗を直すための再起動も追加 live request なので、今回の最大 4 リクエスト許可を超えて再試験しない。新規 report path を専用 mode 0600 で作り、既存 evidence / symlink を上書きしない。正常 exit0、質問・準備・cleanup 失敗 exit1、引数・cache・出力 path の問題 exit2、取消 exit130。close 後に worker 終了を待ち、利用可能な Chroma client.close を呼んで一時 SQLite/vault/index を除去する。
+各 question は新会話、最大 4 attempt、API の自動再試行なし。失敗を直すための再起動も追加 live request なので、今回の最大 4 リクエスト許可を超えて再試験しない。report は既存 path / symlink（dangling 含む）を拒否し、同一 directory の mode 0600 一時 file へ書いて fsync 後に hard link で原子的に公開する（途中 report は最終 path に現れず、上書きしない）。引数・cache・model の事前条件エラーでは何も作らない。公開直前に同名 path が現れた場合は既存を保持し、一時 file 名を stderr に示して exit2。正常 exit0、質問・準備・cleanup 失敗 exit1、引数・cache・出力 path の問題 exit2、取消 exit130。close 後に worker 終了を待ち、利用可能な Chroma client.close を呼んで一時 SQLite/vault/index を除去する。
 
-`--max-output-tokens` は 1〜8192 の明示 cap（既定1024）。REST の `generationConfig.maxOutputTokens` を毎 request に設定し、通常 provider の指定なし動作は保持する。[公式 generateContent](https://ai.google.dev/api/generate-content) と [公式 thinking](https://ai.google.dev/gemini-api/docs/generate-content/thinking) を 2026-10-04 に確認した。上限は思考 token も含み、2.5 Flash の既定 dynamic thinking は変更しない。上限で空／途中出力や MAX_TOKENS があり得る。既存 adapter は STOP 以外を失敗にする。試験側 observer は安全な応答 text / finish reason / 数値 usage だけを失敗と併記し、headers、URL、上流 error payload、thought text は記録しない。
+`--max-output-tokens` は 1〜8192 の明示 cap（既定1024）。REST の `generationConfig.maxOutputTokens` を毎 request に設定し、通常 provider の指定なし動作は保持する。[公式 generateContent](https://ai.google.dev/api/generate-content) と [公式 thinking](https://ai.google.dev/gemini-api/docs/generate-content/thinking) を 2026-10-04 に確認した。上限は思考 token も含み、2.5 Flash の既定 dynamic thinking は変更しない。上限で空／途中出力や MAX_TOKENS があり得る。既存 adapter は STOP 以外を失敗にする。試験側 observer は安全な応答 text / finish reason / promptFeedback.blockReason（enum 形式のみ、他は [unrecognized]）/ 数値 usage だけを失敗と併記し、headers、URL、上流 error payload、thought text は記録しない。
 
 記録には実 source HEAD / dirty、fixture / plan digest、embedding space、送信 bounded JSON 実文、各 excerpt と現在正本全文、ID / revision / 出典 / origin / confidence、候補順位・score、回答・安全な failure・履歴保存数がある。既存 context 上限（最大3件、本文500字、出典200字、JSON2400字）を再利用する。score は confidence や回答可能性ではない。現在正本の再確認失敗なら provider を呼ばず、provider 失敗ならその会話履歴を保存しない。
 
