@@ -34,6 +34,7 @@ D1 production embedding encoder · D2 semantic quality acceptance · D3 answer p
 ## State snapshot — 2026-10-07 (verify before relying)
 - `main` = `3030299` (includes #29). Landed Memory stack: #2–#26, #29, #30, #32–#35.
 - Draft stack: #36 semantic chat (base main) · #37 evaluation runner/gold (base main) · #38 local E5 trial + search CLI (base #37 branch) · #39 browser entry for artificial search (base #38 branch). Parent order #37 → #38 → #39; none is permitted to merge unless the maintainer names it.
+- Independent Drafts on `main`: #41 deterministic memory candidate detection (JAR-27 slice) · #42 structured redacted logging (JAR-13) · #43 validated personality settings (JAR-19).
 - Hold: #31 Gemini provider (Draft, no Ready/merge). Optional: #25 OpenAI embedding (conflicting). Stale docs PRs: #27, #28, #1.
 - Evidence so far: real E5 (`intfloat/multilingual-e5-small`@`614241f…`) only on artificial Japanese sets (`docs/evidence/` on the #38 branch); production quality is not established.
 
