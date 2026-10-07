@@ -6,6 +6,7 @@ Phase 1 exposes health checks, a local chat API, and a web client. The chat API 
 - Never return secrets to frontend code or include them in logs.
 - Validate external inputs at API and tool boundaries.
 - Give tools the smallest needed privileges and require confirmation for red-level operations.
+- Command execution only goes through named, application-registered commands with a deny-by-default argument grammar, a scrubbed environment, and bounded time and output; see [tools-shell.md](tools-shell.md). Never register a general shell or interpreter.
 - Record execution and verification without logging sensitive request bodies.
 - Review new dependencies and protect database and vault files with appropriate local permissions.
 

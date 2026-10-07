@@ -1,6 +1,6 @@
 # Tools and skills
 
-Tools are the boundary between the core and external operations. The contract, registry, and permission layer live in `backend/tools/` (Phase 4 / T1: JAR-68, JAR-69, JAR-70). **No real tools exist yet**: there are no filesystem, shell, network, or device tools, no LLM wiring, no API route, and no task queue. Tests exercise the layer with fake tools only.
+Tools are the boundary between the core and external operations. The contract, registry, and permission layer live in `backend/tools/` (Phase 4 / T1: JAR-68, JAR-69, JAR-70). The first real tool is the structured shell tool (Phase 4 / T3, JAR-72), described in [tools-shell.md](tools-shell.md); it registers nothing by default. There are no filesystem, network, or device tools, no LLM wiring, no API route, and no task queue. The contract, registry, and permission tests use fake tools only.
 
 Skills compose multiple tools into workflows such as research, development, or file organization. Execution records will preserve observations and verification results. A tool reporting success is insufficient to mark a task complete; the orchestrator checks the resulting state when possible.
 
@@ -58,7 +58,7 @@ Voice, chat, or model text is never a confirmation. Tool arguments such as "the 
 
 ## Not implemented
 
-- Real tools (filesystem, shell, network, calendar, GitHub) and their sandboxing; scope predicates are supplied by each tool's integration later.
+- Real tools beyond the first shell slice (filesystem, network, calendar, GitHub) and OS-level sandboxing; scope predicates are supplied by each tool's integration (see [tools-shell.md](tools-shell.md) for the shell tool's).
 - Confirmation UI and the identity or authentication of the confirming human. Grants carry no actor and nothing verifies who created one; the grant ledger is in-process and is lost on restart.
 - Persistent audit storage and rotation.
 - Task queue, orchestrator loop, retries, and result verification by the orchestrator.
