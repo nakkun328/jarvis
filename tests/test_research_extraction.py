@@ -193,7 +193,12 @@ def test_malformed_html_does_not_raise() -> None:
     assert "Unclosed paragraph one" in result.text
     assert "Paragraph two with bold nested wrongly text" in result.text
     assert "- Item A" in result.text and "- Item B" in result.text
-    assert "entities <ok> A" in result.text  # character references are decoded to plain text
+    # Text after the unterminated attribute quote is deliberately not asserted: html.parser
+    # treats it differently across Python versions (3.11 vs 3.13); only "does not raise" holds.
+
+
+def test_character_references_are_decoded_to_plain_text() -> None:
+    assert page("<p>entities &lt;ok&gt; &#x41; &amp; more</p>").text == "entities <ok> A & more"
 
 
 def test_unclosed_nav_is_recovered_by_the_fallback_pass() -> None:
