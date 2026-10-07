@@ -1,6 +1,6 @@
 # Tools and skills
 
-Tools are the boundary between the core and external operations. The contract, registry, and permission layer live in `backend/tools/` (Phase 4 / T1: JAR-68, JAR-69, JAR-70). **No real tools exist yet**: there are no filesystem, shell, network, or device tools, no LLM wiring, no API route, and no task queue. Tests exercise the layer with fake tools only.
+Tools are the boundary between the core and external operations. The contract, registry, and permission layer live in `backend/tools/` (Phase 4 / T1: JAR-68, JAR-69, JAR-70). The only real tools so far are the **read-only filesystem tools** (`fs.list`, `fs.read_text`, `fs.search`; Phase 4 / T2 first slice, JAR-71), described in [tools-filesystem.md](tools-filesystem.md). There are no write, move, delete, shell, network, or device tools, no LLM wiring, no API route, and no task queue. The contract tests use fake tools; the filesystem tests use pytest temporary directories only.
 
 Skills compose multiple tools into workflows such as research, development, or file organization. Execution records will preserve observations and verification results. A tool reporting success is insufficient to mark a task complete; the orchestrator checks the resulting state when possible.
 
@@ -58,7 +58,8 @@ Voice, chat, or model text is never a confirmation. Tool arguments such as "the 
 
 ## Not implemented
 
-- Real tools (filesystem, shell, network, calendar, GitHub) and their sandboxing; scope predicates are supplied by each tool's integration later.
+- Real tools beyond the read-only filesystem slice (filesystem write/move/delete, shell, network, calendar, GitHub) and their sandboxing. `filesystem_scope_checks()` supplies scope predicates for the filesystem tools; later tools need their own.
+- A way for a tool to report a specific `ToolErrorCode` (for example `invalid_arguments` or `permission_denied`): the registry maps every exception raised inside a tool to `internal_error`.
 - Confirmation UI and the identity or authentication of the confirming human. Grants carry no actor and nothing verifies who created one; the grant ledger is in-process and is lost on restart.
 - Persistent audit storage and rotation.
 - Task queue, orchestrator loop, retries, and result verification by the orchestrator.

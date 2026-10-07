@@ -1,1 +1,1 @@
-"""Tool contract, registry, and permission enforcement (no real tools yet)."""
+"""Tool contract, registry, permission enforcement, and read-only filesystem tools."""

@@ -56,5 +56,6 @@ node --test frontend/test/chat-api.test.mjs
 - [Local memory review](docs/memory-review.md)
 - [Research](docs/research.md)
 - [Tools](docs/tools.md)
+- [Read-only filesystem tools](docs/tools-filesystem.md)
 - [Security](docs/security.md)
 - [Development plan](docs/development.md)
