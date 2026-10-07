@@ -1,0 +1,33 @@
+{
+  "note": "Artificial questions. queries = the exact plan (max 6 queries).",
+  "cases": [
+    {"question": "Pythonの最新バージョンを教えて", "language": "ja",
+     "queries": ["Pythonの最新バージョンを教えて", "Python バージョン 最新", "Python バージョン"]},
+    {"question": "What is the latest version of Python?", "language": "en",
+     "queries": ["What is the latest version of Python?", "version Python latest", "version Python"]},
+    {"question": "PostgreSQL vs MySQL performance for small apps", "language": "en",
+     "targets": ["PostgreSQL", "MySQL"],
+     "queries": ["PostgreSQL vs MySQL performance for small apps", "PostgreSQL performance small apps", "MySQL performance small apps", "PostgreSQL MySQL performance small apps"]},
+    {"question": "PostgreSQLとMySQLの違いは何ですか", "language": "ja",
+     "targets": ["PostgreSQL", "MySQL"],
+     "queries": ["PostgreSQLとMySQLの違いは何ですか", "PostgreSQL", "MySQL", "PostgreSQL MySQL"]},
+    {"question": "電気自動車とガソリン車はどちらが安い？", "language": "ja",
+     "targets": ["電気自動車", "ガソリン車"],
+     "queries": ["電気自動車とガソリン車はどちらが安い?", "電気自動車", "ガソリン車", "電気自動車 ガソリン車"]},
+    {"question": "compare Visual Studio Code and Vim for editing in 2025", "language": "en",
+     "targets": ["Visual Studio Code", "Vim"],
+     "queries": ["compare Visual Studio Code and Vim for editing in 2025", "Visual Studio Code editing", "Vim editing", "Visual Studio Code Vim editing 2025", "Visual Studio Code Vim editing"]},
+    {"question": "Which is better, Python or Go for scripting?", "language": "en",
+     "targets": ["Python", "Go"],
+     "queries": ["Which is better, Python or Go for scripting?", "Python scripting", "Go scripting", "Python Go scripting"]},
+    {"question": "React vs Vue vs Svelte", "language": "en",
+     "targets": ["React", "Vue", "Svelte"],
+     "queries": ["React vs Vue vs Svelte", "React", "Vue", "Svelte", "React Vue Svelte"]},
+    {"question": "How does TCP work?", "language": "en",
+     "queries": ["How does TCP work?", "TCP work"]},
+    {"question": "ラズパイで音声AIを作る方法", "language": "ja",
+     "queries": ["ラズパイで音声AIを作る方法", "ラズパイ 音声 AI 方法"]},
+    {"question": "tcp", "language": "en", "queries": ["tcp"]},
+    {"question": "the of and", "language": "en", "queries": ["the of and"]}
+  ]
+}
