@@ -894,10 +894,13 @@ class ShellFacts:
 
     @property
     def exit_zero(self) -> bool:
-        """Process ended with status 0 and nothing was cut short. Not a verdict on the task."""
+        """Process ended with status 0, nothing was cut short, and no process was left behind.
+
+        Not a verdict on the task."""
         return (
             self.exit_code == 0
             and self.signal == 0
+            and self.cleanup_complete
             and not (self.timed_out or self.cancelled or self.truncated)
         )
 
@@ -1083,8 +1086,10 @@ async def _returncode(proc: "asyncio.subprocess.Process") -> int:
     `Process.wait()` also waits for the pipes to close, which a background grandchild can hold
     open, so poll the exit status that asyncio records as soon as the child is reaped.
     """
+    delay = 0.005
     while proc.returncode is None:
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(delay)
+        delay = min(delay * 1.5, 0.1)  # quick for short commands, cheap for long ones
     return proc.returncode
 
 
@@ -1493,7 +1498,9 @@ def shell_scope_checks(tools: Iterable[ShellTool]) -> dict[str, ScopeCheck]:
 
 # Builders -------------------------------------------------------------------------------------
 
-_GIT_REV = Matches(r"[A-Za-z0-9_][A-Za-z0-9_./~^@{}:-]{0,99}")
+# A revision or range (`main..HEAD` is fine), never a path: `/../` segments and `//` are refused so
+# the cwd-containment guarantee does not depend on git's own pathspec checks.
+_GIT_REV = Matches(r"(?!.*(?:^|/)\.\.(?:/|$))(?!.*//)[A-Za-z0-9_][A-Za-z0-9_./~^@{}:-]{0,99}")
 _GIT_FORBIDDEN = (
     r"-c.*",
     r"-C.*",
@@ -1530,7 +1537,9 @@ def git_readonly_command(
     timeout_seconds: float = 30.0,
     max_output_bytes: int = 32_768,
 ) -> AllowedCommand:
-    """Conservative read-only git: `status`, `log`, `diff` with a bounded flag set. Yellow.
+    """Conservative git: `status`, `log`, `diff` with a bounded flag set (no write flags). Yellow,
+    and `read_only=False` on purpose: the flag would claim no side effects, which repository
+    config can defeat.
 
     Not registered by default. No global options, aliases, `-c`, `--exec-path`, upload/receive
     pack, external diff, textconv, pager, or output-to-file. The application pins config with
@@ -1608,7 +1617,7 @@ def git_readonly_command(
         env_allowlist=(),
         timeout_seconds=timeout_seconds,
         max_output_bytes=max_output_bytes,
-        read_only=True,
+        read_only=False,  # no write flags, but repository config can still run programs
         fixed_args=(
             "--no-pager",
             "--no-optional-locks",

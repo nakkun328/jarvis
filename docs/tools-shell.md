@@ -83,7 +83,7 @@ The tool reports facts and nothing else. A command can exit 0 without achieving 
 - `FAILED` when the tool result is not `ok`, the output is malformed, or the verifier raises or returns something else;
 - otherwise the verifier's own `VerificationOutcome`.
 
-`ShellFacts.exit_zero` only says "ended with status 0 and nothing was cut short"; it is not a verdict.
+`ShellFacts.exit_zero` only says "ended with status 0, nothing was cut short, and no process was left behind"; it is not a verdict.
 
 ## Permission wiring and the second gate
 
@@ -101,7 +101,7 @@ The executable is re-checked on every run: the realpath of the registered path m
 
 Both are Yellow and must be registered explicitly.
 
-`git_readonly_command(executable, cwd_roots)`: `status`, `log`, and `diff` with a bounded flag set. It rejects `-c`, `-C`, `--exec-path`, `--upload-pack`, `--receive-pack`, `--git-dir`, `--work-tree`, `--output`, `--ext-diff`, `--textconv`, pagers, `--no-index`, and every other flag or subcommand it does not list, so there are no aliases or global options. The application pins config with trusted `-c` overrides (`core.fsmonitor=false`, pager and signature settings), `--no-pager`, `--no-optional-locks`, and fixed `GIT_CONFIG_NOSYSTEM`/`GIT_CONFIG_GLOBAL`/`GIT_PAGER` values; no `GIT_*` variable is inherited, so `GIT_EXTERNAL_DIFF`, `GIT_SSH_COMMAND`, and similar are dropped. `diff` and `log` get `--no-ext-diff --no-textconv` injected. Because its positionals are free-form, it can never be Green. "Read-only" means no write flags: git reading a repository whose own `.git/config` or `.gitattributes` you do not control can still run programs those files configure (filter drivers, for example).
+`git_readonly_command(executable, cwd_roots)`: `status`, `log`, and `diff` with a bounded flag set. It rejects `-c`, `-C`, `--exec-path`, `--upload-pack`, `--receive-pack`, `--git-dir`, `--work-tree`, `--output`, `--ext-diff`, `--textconv`, pagers, `--no-index`, and every other flag or subcommand it does not list, so there are no aliases or global options. The application pins config with trusted `-c` overrides (`core.fsmonitor=false`, pager and signature settings), `--no-pager`, `--no-optional-locks`, and fixed `GIT_CONFIG_NOSYSTEM`/`GIT_CONFIG_GLOBAL`/`GIT_PAGER` values; no `GIT_*` variable is inherited, so `GIT_EXTERNAL_DIFF`, `GIT_SSH_COMMAND`, and similar are dropped. `diff` and `log` get `--no-ext-diff --no-textconv` injected. Because its positionals are free-form, it can never be Green. Revision positionals refuse `/../` segments and `//` (ranges like `main..HEAD` still work), so paths only go through the cwd-contained `--` list. The command is registered with `read_only=False` because "read-only" here means only no write flags: git reading a repository whose own `.git/config` or `.gitattributes` you do not control can still run programs those files configure (filter drivers, for example).
 
 `pytest_command(python_executable, cwd_roots)`: runs `python -m pytest -p no:cacheprovider --confcutdir=.` with a small flag set (`-q`, `-v`, `-x`, `--maxfail=N`, `-k`, `-m`, `--tb=…`, `--durations=N`, relative test paths). It rejects `-p`, `-c`, `-o`, `--rootdir`, `--confcutdir`, `--basetemp`, `--junitxml`, `--pdb`, `--pdbcls`, `--import-mode`, `--pyargs`, and anything else not listed. Plugin autoload is off unless `autoload_plugins=True`. **Warning: pytest imports and executes project code** (test modules, `conftest.py`, plugins named in the project's own configuration). The flag allow-list limits what the model can add; it does not sandbox the project. Register this command only for a project you would run yourself, keep its cwd root narrow, and treat the output as untrusted. Because the executable is resolved with `realpath`, a venv interpreter becomes its base interpreter and loses the venv's packages; register an interpreter that has pytest installed.
 
@@ -113,3 +113,9 @@ Both are Yellow and must be registered explicitly.
 - Process-group handling was exercised on macOS (Python 3.13). Linux and Python 3.11 behaviour is expected to match but is verified only by CI.
 - Windows is unsupported and refuses to build.
 - No network tools, no task queue, no UI for grants, and no persistent audit storage (see [tools.md](tools.md)).
+
+## Known design choices (not changed)
+
+- One shared byte cap for stdout and stderr; exceeding it kills the process group and sets `truncated` (with `exit_code` -1 and the kill signal). This is deliberate flood protection; a command that is merely chatty is stopped, and the result says so.
+- The process group is signalled by numeric id after the leader exits; a reused id is a theoretical race that signalling by group id cannot remove.
+- Three tool names (one per permission level) and `internal_error` for second-gate refusals follow from the #49 contract (single permission per `ToolSpec`, fixed error vocabulary). Changing them means changing #49.

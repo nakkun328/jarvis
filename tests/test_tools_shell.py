@@ -1415,7 +1415,10 @@ def test_exit_zero_helper_requires_a_clean_run():
         "cleanup_complete": True,
     }  # fmt: skip
     assert ShellFacts.from_output(base).exit_zero
-    for change in ({"exit_code": 1}, {"signal": 9}, {"timed_out": True}, {"truncated": True}):
+    for change in (
+        {"exit_code": 1}, {"signal": 9}, {"timed_out": True}, {"truncated": True},
+        {"cleanup_complete": False},
+    ):  # fmt: skip
         assert not ShellFacts.from_output({**base, **change}).exit_zero
 
 
@@ -1490,6 +1493,10 @@ GIT_REJECT = [  # every entry must raise
     (["log", "$(id)"], R.ARG_VALUE_INVALID),
     (["log", "--", "/etc/passwd"], R.ARG_VALUE_INVALID),
     (["log", "--", "../x"], R.ARG_VALUE_INVALID),
+    (["diff", "sub/../../outside"], R.ARG_VALUE_INVALID),
+    (["diff", "../outside"], R.ARG_VALUE_INVALID),
+    (["log", "a//b"], R.ARG_VALUE_INVALID),
+    (["log", "a/.."], R.ARG_VALUE_INVALID),
     (["diff", "a", "b", "c"], R.ARG_TOO_MANY_POSITIONALS),
     (["log", "a", "b", "c", "d", "e"], R.ARG_TOO_MANY_POSITIONALS),
     (["status", "HEAD"], R.ARG_TOO_MANY_POSITIONALS),
@@ -1514,7 +1521,7 @@ def test_git_policy_rejects(git_cmd, work, args, reason):
 
 
 def test_git_command_shape(git_cmd, monkeypatch, work):
-    assert git_cmd.permission is PermissionLevel.YELLOW and git_cmd.read_only
+    assert git_cmd.permission is PermissionLevel.YELLOW and not git_cmd.read_only
     assert git_cmd.env_allowlist == ()
     fixed = git_cmd.fixed_args
     assert fixed[:2] == ("--no-pager", "--no-optional-locks")
@@ -1665,7 +1672,15 @@ def test_pytest_builder_runs_a_tiny_project(work):
         stub = work / "pytest"
         stub.mkdir()
         (stub / "__init__.py").write_text("")
-        (stub / "__main__.py").write_text("print('1 passed')\n")
+        # Fails unless it got exactly the arguments the builder is supposed to pass.
+        (stub / "__main__.py").write_text(
+            "import sys\n"
+            "expected = ['-p', 'no:cacheprovider', '--confcutdir=.', '-q', 'test_tiny.py']\n"
+            "if sys.argv[1:] != expected:\n"
+            "    print('unexpected arguments', sys.argv[1:], file=sys.stderr)\n"
+            "    sys.exit(2)\n"
+            "print('1 passed')\n"
+        )
     (work / "test_tiny.py").write_text("def test_ok():\n    assert 1 + 1 == 2\n")
     tool = make_tool(pytest_command(PYTHON, {"proj": str(work)}, timeout_seconds=60))
     result = run(tool, request(command="pytest", args=["-q", "test_tiny.py"], root="proj"))
