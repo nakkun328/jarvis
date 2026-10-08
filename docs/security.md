@@ -1,6 +1,6 @@
 # Security baseline
 
-Phase 1 exposes health checks, a local chat API, and a web client. The chat API has no authentication or authorization. Bind the server to `127.0.0.1`; add access control and a secure transport before allowing remote devices to connect. When the OpenAI provider is enabled, chat messages are sent to its API for generation.
+Phase 1 exposes health checks, a local chat API, and a web client. By default the API has no authentication or authorization, so bind the server to `127.0.0.1`. For remote devices, enable the single-owner login layer and put a TLS-terminating proxy or tunnel in front; see [login and remote access](auth.md). `python -m backend.serve` refuses a non-loopback bind unless login is enabled. When the OpenAI provider is enabled, chat messages are sent to its API for generation.
 
 - Keep credentials in environment variables or a suitable secret store; never commit `.env` or hard-coded secrets.
 - Never return secrets to frontend code or include them in logs.
