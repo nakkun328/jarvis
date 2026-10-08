@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.chat import build_chat_router
+from backend.api.research import create_research_router
 from backend.chat.memory_context import MemoryContext
 from backend.chat.persistence import SQLiteConversationStore
 from backend.chat.service import ChatService
@@ -20,6 +21,7 @@ from backend.memory.repository import MemoryRepository
 from backend.memory.retrieval import MemoryRetriever
 from backend.providers.base import LLMProvider
 from backend.providers.factory import create_provider
+from backend.research.repository import ResearchRepository
 
 
 def create_app(settings: Settings | None = None, provider: LLMProvider | None = None) -> FastAPI:
@@ -73,6 +75,7 @@ def create_app(settings: Settings | None = None, provider: LLMProvider | None = 
         return {"status": "ok"}
 
     app.include_router(build_chat_router(chat_service))
+    app.include_router(create_research_router(ResearchRepository(database)))
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
     if (frontend_dir / "index.html").is_file():
@@ -81,6 +84,10 @@ def create_app(settings: Settings | None = None, provider: LLMProvider | None = 
         @app.get("/", include_in_schema=False)
         def web_client() -> FileResponse:
             return FileResponse(frontend_dir / "index.html")
+
+        @app.get("/research", include_in_schema=False)
+        def research_client() -> FileResponse:
+            return FileResponse(frontend_dir / "research.html")
 
     return app
 

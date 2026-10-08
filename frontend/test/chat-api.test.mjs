@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { sendChat, ChatError } from "../chat-api.js";
 import { readEventStream } from "../sse.js";
+// The gate runs only this file, so the Research screen tests are pulled in from here.
+import "./research.test.mjs";
 
 const encode = (text) => new TextEncoder().encode(text);
 
