@@ -74,7 +74,7 @@ There is no automatic retry. `retry(task_id)` (also on the queue) is explicit an
 
 ## Not done in this slice
 
-- No daemon, scheduler, or timer that calls the queue, and no multi-worker coordination, leases, or heartbeats. A second process may only claim safely through the atomic claim; it must not call `recover_in_flight` while another worker is live.
+- No general daemon, scheduler, or timer that calls the queue (the only worker is the in-app research worker, started only when research is enabled; see [research.md](research.md#requesting-a-research-off-by-default)), and no multi-worker coordination, leases, or heartbeats. A second process may only claim safely through the atomic claim; it must not call `recover_in_flight` while another worker is live.
 - No device routing: the target device is a label.
 - No real tools or planner. Executors and verifiers are contracts; this package contains only fakes in tests. Permission levels from [tools.md](tools.md) are not enforced here.
 - No push notification or write API. Progress is stored, readable over the read-only HTTP API, and streamed over SSE; the read-only screen only displays it.

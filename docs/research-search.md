@@ -4,8 +4,8 @@ Search is the first stage of the R1 research path (search, read, source, citatio
 page covers the provider-neutral contract (`backend/research/search.py`), the result
 normaliser (`backend/research/normalizer.py`), the deterministic mock
 (`backend/research/mock_search.py`) and the optional Tavily adapter
-([below](#tavily-adapter-off-by-default)). Search is off by default and nothing calls it
-yet; see [provider selection](research-provider-selection.md).
+([below](#tavily-adapter-off-by-default)). Search is off by default and is called only by a
+research the owner requests; see [provider selection](research-provider-selection.md).
 
 Search results are untrusted data. A title or snippet is never an instruction, and a result
 URL is only a candidate: the Reader decides whether it may be fetched.
@@ -138,10 +138,12 @@ overridden. `MockSearchProvider.from_mapping({...})` builds one from JSON-style 
 ## Tavily adapter (off by default)
 
 `backend/research/tavily.py` implements the contract for Tavily
-(`POST https://api.tavily.com/search`, `Authorization: Bearer <key>`). Nothing in JARVIS
-calls it yet: there is no Quick/Standard trigger, route or chat hook. Only the library, a
-factory (`backend/research/search_factory.py`) and the owner's trial script exist.
-JAR-36 stays open until the owner has made the first real call and checked the terms.
+(`POST https://api.tavily.com/search`, `Authorization: Bearer <key>`). It is used only by
+a research the owner requests from the Research screen, and only when research is switched
+on (see [Using it from the Research screen](#using-it-from-the-research-screen)); chat never
+searches. The library, a factory (`backend/research/search_factory.py`) and the owner's
+trial script exist. JAR-36 stays open until the owner has made the first real call and
+checked the terms.
 
 ### What is sent and what is read
 
@@ -253,6 +255,51 @@ balance in the Tavily dashboard, and set the limit from it.
 
 The requests ignore proxy environment variables (`trust_env` is off) and do not follow
 redirects.
+
+### Using it from the Research screen
+
+The Research screen can start a Quick or Standard research. It stays off until all three of
+these are set in the shell that starts JARVIS (the key is read without echo, never written
+to a file in the repository):
+
+```sh
+read -rs JARVIS_SEARCH_API_KEY && export JARVIS_SEARCH_API_KEY   # your own Tavily key
+export JARVIS_SEARCH_PROVIDER=tavily                             # a search provider
+export JARVIS_RESEARCH_ENABLED=1                                 # the switch
+```
+
+A chat provider must be configured too (the one chat uses; the research model calls go to
+it). With any of the three missing, or an invalid `JARVIS_RESEARCH_ENABLED`, the form is
+disabled and says why (an invalid value stops startup). `JARVIS_SEARCH_MONTHLY_LIMIT` (default
+800) is the local cap described above; a request is refused with `search_budget_exhausted`
+before anything is queued once it is reached.
+
+What is sent where, per research:
+
+- **To Tavily**: search queries built from the question only (never from memory notes): the
+  question itself (a query longer than 400 characters is refused locally; the shorter keyword
+  query still runs) and, for Standard, up to a few reworded or follow-up queries. A Quick
+  research sends at most 2 queries and a Standard at most 5, each one credit. The vendor may
+  retain and use them (see below). The screen says so next to the start button.
+- **To the pages' own sites**: a plain GET for up to 3 (Quick) or 8 (Standard) result pages,
+  through the safe reader (public addresses only, redirects re-checked, no cookies, size and
+  time bounds).
+- **To the chat provider**: the question and bounded excerpts of the fetched pages. Memory
+  notes are not included.
+
+Limits: one research at a time, at most 2 or 5 queries, 3 or 8 pages, 120 s or 300 s. Nothing
+runs unless you press the button; there is no retry and no background research.
+
+To stop a research, press 調査を取り消す on the screen (or `POST
+/api/research/sessions/{id}/cancel`). A queued research stops at once; a running one stops at
+its next checkpoint, so a query already sent still counts against the credits. Stopping
+JARVIS also stops the run; the session is marked failed or cancelled and is never re-run.
+Check the credit balance in the Tavily dashboard: the local counter only knows what JARVIS
+recorded.
+
+Nothing in the automated tests or the browser checks used a real key, the real service or a
+real model; they use a fake search provider, a fake page transport and a scripted model. The
+first live research is yours to run.
 
 ### Checks that remain with the owner
 
