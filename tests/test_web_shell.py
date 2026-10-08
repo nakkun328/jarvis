@@ -124,11 +124,11 @@ def test_every_declared_page_has_an_html_file_that_loads_the_shell() -> None:
 
 def test_nav_and_shell_scripts_never_render_markup() -> None:
     forbidden = re.compile(r"innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(")
-    for name in ("nav.js", "shell.js", "pwa.js", "sw.js"):
+    for name in ("nav.js", "shell.js", "pwa.js", "sw.js", "session.js"):
         assert not forbidden.search((FRONTEND / name).read_text()), name
 
 
-@pytest.mark.parametrize("name", ["shell.css", "shell.js", "nav.js", "pwa.js"])
+@pytest.mark.parametrize("name", ["shell.css", "shell.js", "nav.js", "pwa.js", "session.js"])
 def test_shell_files_are_served_from_static(client: TestClient, name: str) -> None:
     response = client.get(f"/static/{name}")
     assert response.status_code == 200
@@ -235,3 +235,64 @@ def test_offline_and_login_caching_are_documented() -> None:
     text = (ROOT / "docs" / "web-shell.md").read_text()
     assert "offline use is not supported" in text.lower()
     assert "login" in text.lower() and "must not be cached" in text.lower()
+
+
+# ----- login session (logout button, 401 redirect) -----
+
+
+def test_pwa_and_session_files_are_listed_as_shell_files() -> None:
+    cached = set(shell_files())
+    assert {"/static/session.js", "/static/shell.js"} <= cached
+    # The login page is not part of the shell and is never cached.
+    assert not [path for path in cached if "login" in path]
+
+
+def test_only_the_shell_session_module_and_the_login_page_touch_the_auth_api() -> None:
+    users = sorted(
+        path.name for path in FRONTEND.glob("*.js") if "/api/auth/" in path.read_text()
+    )
+    assert users == ["login.js", "session.js"]
+    session = (FRONTEND / "session.js").read_text()
+    assert sorted(set(re.findall(r"/api/auth/[a-z]+", session))) == [
+        "/api/auth/logout",
+        "/api/auth/status",
+    ]
+    assert session.count('method: "POST"') == 1
+    for sink in ("localStorage", "sessionStorage", "document.cookie", "indexedDB"):
+        assert sink not in session
+
+
+def test_every_background_fetch_helper_handles_a_refused_session() -> None:
+    helpers = ("chat-api.js", "tasks-api.js", "research-api.js", "memory-api.js", "tasks-stream.js")
+    for name in helpers:
+        source = (FRONTEND / name).read_text()
+        assert 'from "./session.js"' in source, name
+        assert "sessionEnded()" in source, name
+        assert "401" in source, name
+
+
+def test_the_login_page_does_not_load_the_shell_or_the_session_module() -> None:
+    page = (FRONTEND / "login.html").read_text()
+    assert "shell.js" not in page and "session.js" not in page and "manifest" not in page
+    assert "session.js" not in (FRONTEND / "login.js").read_text()
+
+
+def test_the_logout_button_is_not_in_any_page_markup() -> None:
+    # It is added by session.js only when login is on and this browser is signed in.
+    for name in PAGE_FILES:
+        assert "logout" not in (FRONTEND / name).read_text().lower(), name
+
+
+def test_pages_without_login_show_no_logout_and_have_no_auth_routes(client: TestClient) -> None:
+    assert client.get("/api/auth/status").status_code == 404
+    assert client.post("/api/auth/logout").status_code == 404
+
+
+def test_docs_explain_the_pwa_and_auth_decision() -> None:
+    web = (ROOT / "docs" / "web-shell.md").read_text()
+    auth = (ROOT / "docs" / "auth.md").read_text()
+    for text in (web, auth):
+        assert "/manifest.webmanifest" in text and "exact" in text.lower()
+        assert "/static/icons/icon-192.png" in text
+        assert "use-credentials" in text
+    assert "/sw.js" in auth and "logout" in auth.lower()

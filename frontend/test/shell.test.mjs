@@ -273,8 +273,12 @@ test("a shell file that is neither reachable nor cached is an error, not a made-
   await assert.rejects(event.response, TypeError);
 });
 
+const basic = (body, init) => Object.defineProperty(new Response(body, init), "type", { value: "basic" });
+
 test("install precaches only the shell files and activate drops older versions", async () => {
   const { context, listeners, stores } = await loadWorker();
+  context.fetch = async (request) =>
+    basic("x", { headers: { "content-type": request.url.endsWith(".css") ? "text/css" : "text/javascript" } });
   stores.set("jarvis-shell-v0", new Map());
   stores.set("unrelated-cache", new Map());
   let installed;
@@ -288,6 +292,7 @@ test("install precaches only the shell files and activate drops older versions",
     const { pathname } = new URL(url);
     assert.match(pathname, /^\/static\/.+\.(css|js|png|svg)$/);
   }
+  assert.ok(urls.includes("http://localhost:8000/static/session.js"));
   let activated;
   listeners.activate({ waitUntil: (promise) => { activated = promise; } });
   await activated;
@@ -295,4 +300,74 @@ test("install precaches only the shell files and activate drops older versions",
   assert.equal(stores.has("unrelated-cache"), true);
   assert.equal(stores.has(current), true);
   assert.ok(context.self);
+});
+
+// ----- login enabled: a refused or redirected answer is never stored or replaced by the cache -----
+
+async function installFailure(respond) {
+  const { context, listeners, stores } = await loadWorker();
+  context.fetch = async () => respond();
+  let installed;
+  listeners.install({ waitUntil: (promise) => { installed = promise; } });
+  await assert.rejects(installed);
+  return [...stores.values()].flatMap((store) => [...store.keys()]);
+}
+
+test("install fails, and caches nothing, while the session is refused or redirected", async () => {
+  assert.deepEqual(await installFailure(() => basic('{"detail":"unauthorized"}', { status: 401 })), []);
+  const redirected = () => {
+    const response = basic("<html>login</html>", { headers: { "content-type": "text/html" } });
+    return Object.defineProperty(response, "redirected", { value: true });
+  };
+  assert.deepEqual(await installFailure(redirected), []);
+  assert.deepEqual(
+    await installFailure(() => basic("<html>login</html>", { headers: { "content-type": "text/html; charset=utf-8" } })),
+    [],
+  );
+});
+
+test("a refusal after logout is passed through and the cached copy does not answer it", async () => {
+  const { context, listeners, stores } = await loadWorker();
+  context.fetch = async () => basic("body{}", { headers: { "content-type": "text/css" } });
+  const first = fetchEvent(SHELL_FILE);
+  listeners.fetch(first);
+  await first.response;
+  assert.equal([...stores.values()][0].has(SHELL_FILE), true);
+  // Logged out: the server answers 401 (network reachable). That answer is returned as is.
+  const refusal = basic('{"detail":"unauthorized"}', { status: 401 });
+  context.fetch = async () => refusal;
+  const second = fetchEvent(SHELL_FILE);
+  listeners.fetch(second);
+  const answered = await second.response;
+  assert.equal(answered, refusal);
+  assert.equal(answered.status, 401);
+  // And the 401 did not replace the stored copy.
+  assert.equal(await (await [...stores.values()][0].get(SHELL_FILE)).text(), "body{}");
+});
+
+test("redirects and HTML answers are not stored under a shell file's address", async () => {
+  const { context, listeners, stores } = await loadWorker();
+  const login = Object.defineProperty(
+    basic("<html>login</html>", { headers: { "content-type": "text/html" } }),
+    "redirected",
+    { value: true },
+  );
+  for (const answer of [login, basic("<html></html>", { headers: { "content-type": "text/html" } })]) {
+    context.fetch = async () => answer;
+    const event = fetchEvent(SHELL_FILE);
+    listeners.fetch(event);
+    await event.response;
+  }
+  assert.equal([...stores.values()].flatMap((store) => [...store.keys()]).length, 0);
+});
+
+test("the shell files are static code only: no pages, login files or user data endpoints", async () => {
+  const source = await readFile(new URL("../sw.js", import.meta.url), "utf8");
+  const block = source.split("const SHELL_FILES = [")[1].split("];")[0];
+  const files = [...block.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  for (const file of files) {
+    assert.match(file, /^\/static\/[A-Za-z0-9_./-]+\.(css|js|png|svg)$/);
+    assert.doesNotMatch(file, /login|\/api\//);
+  }
+  assert.ok(files.includes("/static/session.js"));
 });

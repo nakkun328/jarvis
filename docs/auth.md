@@ -8,7 +8,7 @@ JARVIS has one user: the owner. By default there is no login and the server must
 - One passphrase, checked against a scrypt hash. A correct login sets a signed, expiring session cookie; there is no database table and no schema change.
 - Every route except those listed below needs the cookie. API calls without it get `401 {"detail":"unauthorized"}`; page requests are redirected (303) to `/login`.
 
-Public routes (and nothing else): `GET /login`, `GET /static/login.css`, `GET /static/login.js`, `POST /api/auth/login`, `GET /api/auth/status` (returns only `{"authenticated": true|false}`), `GET /health/live`. `/health/ready` is **not** public, so an external uptime monitor should use `/health/live`.
+Public routes (and nothing else): `GET /login`, `GET /static/login.css`, `GET /static/login.js`, `POST /api/auth/login`, `GET /api/auth/status` (returns only `{"authenticated": true|false}`), `GET /health/live`, and five exact PWA files: `GET /manifest.webmanifest`, `GET /static/icons/icon.svg`, `GET /static/icons/icon-192.png`, `GET /static/icons/icon-512.png`, `GET /static/icons/icon-maskable-512.png` (see *Login and the installable app*). `/health/ready` is **not** public, so an external uptime monitor should use `/health/live`.
 
 ## Threat model: one owner, reachable from the internet
 
@@ -34,6 +34,27 @@ Not protected, by design or limitation:
 - **Everything after login.** Once signed in, the owner session has the full API, including tools the application registers. Login does not reduce what an authenticated session can do.
 - **Unauthenticated loopback mode.** With login off, any local process, and any web page that can reach `127.0.0.1` through DNS rebinding, can use the API. That mode is for a trusted single-user machine only.
 - **Starting uvicorn directly** (`uvicorn ... --host 0.0.0.0`) bypasses the startup safety check. Use `python -m backend.serve`.
+
+## Login and the installable app (PWA)
+
+A browser fetches the web app manifest and its icons for the install check **without the session cookie** (a manifest request omits credentials unless the page opts in, and the icons are fetched by the browser itself rather than by the page). With login on, those requests would get `401`, and the app could not be installed from a signed-in browser.
+
+Decision: the manifest and the four icon files are public, by **exact path** (`PWA_ASSETS` in `backend/auth/middleware.py`). Reasoning:
+
+- They hold nothing sensitive: the app name, colours, and four static images that are also in this public repository. Exposing them tells an outsider only that "JARVIS" runs here, which the `/login` page already says.
+- The list is exact: no `/static/icons/` prefix, no wildcard, no trailing slash or case variants, GET and HEAD only. `/static/icons/other.png`, `/static/icons/../app.js` and a POST to any of them are refused as before. A test pins this and checks the list equals the manifest's icons.
+- `crossorigin="use-credentials"` on the manifest link was not chosen: it covers only the manifest request, not the browser's own icon and install-time fetches, and it would tie installability to cookie behaviour that differs between browsers (for example `SameSite=Strict` on a cross-context fetch).
+
+Everything else of the PWA stays behind login:
+
+- `/sw.js` and the shell scripts and styles need the session. The service worker script and its update checks are sent with the cookie; once the session has ended, the update request is redirected to `/login`, which a worker script update cannot follow, so the installed worker simply stays until the next login. Nothing is lost by that.
+- The worker never intercepts `/api/*`, event streams or pages, so authenticated HTML and data are never cached. It stores only same-origin static shell files (`SHELL_FILES` in `frontend/sw.js`): scripts, stylesheets and icons that contain no user data and are identical for every visitor. A `401`, a redirect (for example to `/login`), an HTML answer or a `no-store` response is never stored, an install that is refused fails instead of caching the refusal, and the cached copy is used only when the network itself fails, never to answer a refusal. A logged-out visitor can therefore read nothing from the cache that the public repository does not already show.
+- With login on the server marks every response `Cache-Control: no-store`, so the worker keeps the copies made at install time (it does not refresh them at run time). A new `CACHE_VERSION` replaces them.
+
+## Logout and ended sessions in the browser
+
+- With login on and a valid session, the shared header (every page except `/login`) shows a **ログアウト** button. The page asks `GET /api/auth/status`; with login off that route does not exist, so no button appears and nothing else changes. The button sends `POST /api/auth/logout` from the page, so the browser adds the `Origin` the same-origin check needs, then goes to `/login`. If the request fails the button says so and can be pressed again.
+- A background request (chat, tasks, research, memory, a task event stream) that gets `401` because the cookie expired, was removed or was invalidated by a key or passphrase change sends the page to `/login` **once** instead of showing a generic error. The redirect is guarded per page load and never runs on the login page itself, and a task event stream stops instead of reconnecting. A chat message that was being sent is not saved and has to be typed again after signing in.
 
 ## Setup
 
@@ -101,5 +122,6 @@ Bind JARVIS to `127.0.0.1` and let a TLS-terminating proxy or tunnel reach it: T
 
 - The enforcement middleware (`backend/auth/middleware.py`) is deny-by-default and exact-match: only the routes above skip the session check, and `/static/` assets other than the two login files need a session. Unmatched paths are answered with the same 401 or 303 as protected ones, so paths are not enumerable without a session.
 - Login attempts are counted before the passphrase is checked and refunded on success, so parallel guesses cannot exceed the limit. Malformed requests are rejected first and do not count.
-- Other front-end pages do not yet show a logout control or send you back to `/login` on a 401 from a background request; reloading the page does.
+- Front end: `frontend/session.js` holds the logout button and the one-time redirect; `login.html` does not load the shell. The status route doubles as the "is login on" probe, so it stays public and returns only a boolean.
+- The public PWA paths are an allowlist of five exact strings. Adding an icon or changing the manifest's `src` values means updating `PWA_ASSETS`; `tests/test_auth_api.py` fails if the two drift.
 - Tests: `tests/test_auth_core.py` (hashing, tokens, limiter, config, startup refusal) and `tests/test_auth_api.py` (enforcement matrix, cookies, CSRF, SSE, logging, hostile input).

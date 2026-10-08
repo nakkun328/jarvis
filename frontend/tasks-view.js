@@ -256,6 +256,7 @@ export function statusChangeMessage(previous, next) {
 // ----- error and connection messages -----
 
 const API_ERROR_MESSAGES = {
+  unauthorized: "ログインの有効期限が切れました。ログイン画面に移動します。",
   network: "サーバーに接続できません。JARVIS が起動しているか確認してください。",
   offline: "オフラインです。ネットワーク接続を確認してください。",
   unavailable: "タスクの保存先を読み取れません。しばらくしてからもう一度お試しください。",
@@ -277,6 +278,7 @@ const CONNECTION_MESSAGES = {
   done: "このタスクは終了しました。これ以上更新されません。",
   not_found: "このタスクは見つかりませんでした。",
   paused: "タブが非表示のため更新を止めています。",
+  unauthorized: "ログインの有効期限が切れました。ログイン画面に移動します。",
   idle: "",
 };
 

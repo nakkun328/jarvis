@@ -63,6 +63,13 @@ button:disabled { cursor: wait; opacity: .55; }
 .nav-link:hover { background: var(--surface-raised); color: var(--text); }
 .nav-link[aria-current="page"] { background: var(--surface-hover); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
 
+/* Added by session.js only while signed in with login enabled. */
+.logout-button {
+  min-height: var(--tap); padding: .45rem .9rem; border: 1px solid var(--border-strong); border-radius: .6rem;
+  background: var(--surface-raised); color: var(--text-soft); font-size: .82rem; white-space: nowrap;
+}
+.logout-button:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
+
 /* Shared building blocks of the read-only screens. */
 .readonly-note {
   margin: 0 0 1rem; padding: .6rem .8rem; border: 1px solid var(--border-strong); border-left: 4px solid var(--accent);

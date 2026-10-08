@@ -1,3 +1,4 @@
+import { SESSION_ENDED_MESSAGE, sessionEnded } from "./session.js";
 import { readEventStream } from "./sse.js";
 
 // kind: why the request failed. retryable: whether sending the same text again can help.
@@ -56,6 +57,9 @@ const SERVER_MESSAGES = {
 function serverError(text, status) {
   const known = SERVER_MESSAGES[text];
   if (known) return new ChatError(known.message, known);
+  if (status === 401) {
+    return new ChatError(SESSION_ENDED_MESSAGE, { kind: "unauthorized", retryable: false });
+  }
   if (status === 422) {
     return new ChatError("メッセージを受け付けられませんでした（空、または 4,000 文字を超えています）。", {
       kind: "invalid",
@@ -72,6 +76,8 @@ function serverError(text, status) {
 }
 
 async function httpError(response) {
+  // A refused session sends the browser to the login page once, instead of a generic error.
+  if (response.status === 401) sessionEnded();
   let detail;
   try {
     detail = (await response.json())?.detail;

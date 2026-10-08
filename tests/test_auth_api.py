@@ -10,6 +10,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+import backend.auth.middleware as middleware_module
 from backend.api.app import create_app
 from backend.auth.limiter import LoginLimiter
 from backend.auth.passwords import hash_passphrase
@@ -257,6 +258,88 @@ def test_public_allowlist_is_exact(env: Env, path: str) -> None:
     response = env.client.get(path, follow_redirects=False)
     assert response.status_code in (401, 303, 405), path
     assert "text/css" not in response.headers.get("content-type", "")
+
+
+PWA_PUBLIC = [
+    "/manifest.webmanifest",
+    "/static/icons/icon.svg",
+    "/static/icons/icon-192.png",
+    "/static/icons/icon-512.png",
+    "/static/icons/icon-maskable-512.png",
+]
+
+
+@pytest.mark.parametrize("path", PWA_PUBLIC)
+def test_manifest_and_icons_load_without_a_cookie(env: Env, path: str) -> None:
+    """Browsers fetch the manifest and its icons without credentials; they must not be 401."""
+    methods = ("GET",) if path.endswith(".webmanifest") else ("GET", "HEAD")
+    for method in methods:
+        response = env.client.request(method, path, follow_redirects=False)
+        assert response.status_code == 200, (method, path)
+        hardened(response)
+    assert env.client.get("/manifest.webmanifest").headers["content-type"].startswith(
+        "application/manifest+json"
+    )
+
+
+def test_the_public_pwa_files_are_exactly_the_manifest_and_its_icons(env: Env) -> None:
+    manifest = env.client.get("/manifest.webmanifest").json()
+    assert sorted(icon["src"] for icon in manifest["icons"]) == sorted(PWA_PUBLIC[1:])
+    assert sorted(PWA_PUBLIC) == sorted(middleware_module.PWA_ASSETS)
+    # Nothing in them is user-specific: static bytes that are also in the public repository.
+    frontend = Path(__file__).resolve().parents[1] / "frontend"
+    for path in PWA_PUBLIC[1:]:
+        on_disk = (frontend / path.removeprefix("/static/")).read_bytes()
+        assert env.client.get(path).content == on_disk
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/sw.js",
+        "/static/pwa.js",
+        "/static/shell.js",
+        "/static/shell.css",
+        "/static/nav.js",
+        "/static/icons/",
+        "/static/icons",
+        "/static/icons/icon.svg/",
+        "/static/icons/icon.svg/x",
+        "/static/icons/icon.svg%00.png",
+        "/static/icons/Icon.svg",
+        "/static/icons/other.png",
+        "/static/icons/../app.js",
+        "/static/icons/%2e%2e/app.js",
+        "/static/icons/icon-192.png.map",
+        "/manifest.webmanifest/",
+        "/manifest.webmanifest.map",
+        "/manifest.webmanifest/x",
+        "/Manifest.webmanifest",
+        "//manifest.webmanifest",
+    ],
+)
+def test_nothing_else_near_the_pwa_files_is_public(env: Env, path: str) -> None:
+    response = env.client.get(path, follow_redirects=False)
+    assert response.status_code in (401, 303, 404, 405), path
+    assert response.status_code != 200, path
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+@pytest.mark.parametrize("path", PWA_PUBLIC)
+def test_public_pwa_files_are_read_only(env: Env, method: str, path: str) -> None:
+    response = env.client.request(method, path, headers={"Origin": HOST}, follow_redirects=False)
+    assert response.status_code == 401, (method, path)
+
+
+def test_service_worker_script_still_needs_the_session(env: Env) -> None:
+    # A redirect to /login, like every page: a worker script update cannot follow it, so an
+    # expired session simply keeps the installed worker until the next login.
+    anonymous = env.client.get("/sw.js", follow_redirects=False)
+    assert anonymous.status_code == 303 and anonymous.headers["location"] == "/login"
+    signed_in = env.client.get("/sw.js", headers=env.cookie())
+    assert signed_in.status_code == 200
+    assert signed_in.headers["service-worker-allowed"] == "/"
+    assert signed_in.headers["cache-control"] == "no-cache"
 
 
 def test_auth_disabled_changes_nothing(open_env: Callable[..., Env]) -> None:
