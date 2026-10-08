@@ -77,3 +77,60 @@
   /* Small print stays at least 12.8px on phones. */
   .session-meta, .session-time, .item-number, .source-sub, .source-url, .source-times, .ratings, .quote-range, .claim-source, .meta dt, .meta dd { font-size: .8rem; }
 }
+
+/* New research: form, progress and the cited result. */
+.run-panel { margin: 0 0 1.25rem; padding: 1rem; border: 1px solid #263a4c; border-radius: .8rem; background: #0f1b29; }
+.run-form { display: grid; gap: .45rem; max-width: 46rem; }
+.run-label { font-size: .86rem; font-weight: 650; margin-top: .25rem; }
+.run-question, .run-level {
+  width: 100%; padding: .55rem .7rem; border: 1px solid #385165; border-radius: .6rem;
+  background: #0b1420; color: #e7eff7; line-height: 1.55;
+}
+.run-question { min-height: 7rem; resize: vertical; }
+.run-level { min-height: 2.75rem; }
+.run-counter, .run-hint { margin: 0; color: #9fb2c2; font-size: .76rem; line-height: 1.5; }
+.run-counter { text-align: right; font-variant-numeric: tabular-nums; }
+.run-counter.over { color: #ffc6be; font-weight: 700; }
+.run-error { min-height: 1.2rem; margin: 0; font-size: .84rem; }
+.run-notice {
+  margin: .25rem 0 0; padding: .6rem .8rem; border: 1px solid #5b4a1f; border-left: 4px solid #f2c46d;
+  border-radius: .5rem; background: #1c1810; color: #f3e2b5; font-size: .84rem; line-height: 1.6;
+}
+.run-primary, .run-secondary {
+  min-height: 2.75rem; padding: .55rem 1.1rem; border-radius: .6rem; font-size: .9rem; font-weight: 650;
+}
+.run-primary { border: 1px solid #75d4ea; background: #1a4a5c; color: #fff; justify-self: start; }
+.run-primary:hover:not(:disabled) { background: #20607a; }
+.run-primary:disabled { cursor: not-allowed; opacity: .5; }
+.run-secondary { border: 1px solid #385165; background: #152738; color: #e7eff7; }
+.run-secondary:hover:not(:disabled) { background: #20394d; }
+.run-unavailable { margin: 0 0 .75rem; padding: .6rem .8rem; border: 1px solid #5b4a1f; border-radius: .5rem; background: #1c1810; color: #f3e2b5; font-size: .86rem; line-height: 1.6; }
+.run-progress h3, .run-result h3 { margin: 0 0 .5rem; font-size: 1rem; }
+.run-live { min-height: 1.3rem; margin: 0 0 .6rem; color: #8fdcef; font-size: .9rem; }
+.stages { list-style: none; margin: 0 0 .8rem; padding: 0; display: flex; flex-wrap: wrap; gap: .4rem; }
+.stage { display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .7rem; border: 1px solid #385165; border-radius: 999px; font-size: .8rem; color: #9fb2c2; }
+.stage-current { border-color: #75d4ea; color: #fff; background: #1a3347; font-weight: 700; }
+.stage-done { color: #8fe0a8; border-color: #2e5a43; }
+.run-counters { display: flex; flex-wrap: wrap; gap: .4rem 1.4rem; margin: 0 0 .8rem; }
+.counter-item { display: inline-flex; gap: .4rem; font-size: .84rem; }
+.counter-item dt { color: #8298a9; }
+.counter-item dd { margin: 0; font-variant-numeric: tabular-nums; color: #e7eff7; }
+.run-callout { margin: 0 0 1rem; padding: .6rem .8rem; border: 1px solid #385165; border-radius: .5rem; background: #12212f; line-height: 1.6; }
+.run-subheading { margin: 0 0 .4rem; font-size: .9rem; }
+.run-claims { counter-reset: none; }
+.run-notes { margin: 0; padding-left: 1.2rem; display: grid; gap: .35rem; font-size: .86rem; line-height: 1.55; overflow-wrap: anywhere; }
+.run-conflicts { padding: .6rem .8rem; border: 1px solid #6b3f39; border-left: 4px solid #ff9b8f; border-radius: .5rem; background: #1d1311; }
+.run-conflicts .run-subheading { color: #ffc6be; }
+.run-caveats { padding: .6rem .8rem; border: 1px solid #5b4a1f; border-left: 4px solid #f2c46d; border-radius: .5rem; background: #1c1810; }
+.run-caveats .run-subheading { color: #f3e2b5; }
+.run-citation-note { margin: 1rem 0; color: #b9cddd; font-size: .8rem; line-height: 1.6; }
+.run-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
+
+@media (max-width: 800px) {
+  .research-main[data-view="detail"] .run-panel { display: none; }
+}
+@media (max-width: 600px) {
+  .run-panel { padding: .8rem; }
+  .run-primary, .run-actions .run-secondary, .run-progress .run-secondary { width: 100%; }
+  .run-counter, .run-hint, .run-notice, .run-citation-note, .counter-item, .stage { font-size: .8rem; }
+}

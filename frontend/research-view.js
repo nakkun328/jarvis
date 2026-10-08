@@ -164,6 +164,20 @@ export function normalizeSession(raw) {
     session.claims = (Array.isArray(raw.claims) ? raw.claims : [])
       .map(normalizeClaim)
       .filter((claim) => claim !== null);
+    session.conflicts = (Array.isArray(raw.conflicts) ? raw.conflicts : [])
+      .filter(isRecord)
+      .map((conflict) => ({ kind: text(conflict.kind) ?? "", status: text(conflict.status) ?? "" }));
+    // Present only while this server is running the session: a stage code and counters.
+    if (isRecord(raw.progress)) {
+      session.progress = {
+        stage: text(raw.progress.stage),
+        round: integer(raw.progress.round),
+        queries: integer(raw.progress.queries),
+        pages: integer(raw.progress.pages),
+        sources: integer(raw.progress.sources),
+        claims: integer(raw.progress.claims),
+      };
+    }
   }
   return session;
 }

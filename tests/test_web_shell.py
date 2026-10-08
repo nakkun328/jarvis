@@ -263,7 +263,14 @@ def test_only_the_shell_session_module_and_the_login_page_touch_the_auth_api() -
 
 
 def test_every_background_fetch_helper_handles_a_refused_session() -> None:
-    helpers = ("chat-api.js", "tasks-api.js", "research-api.js", "memory-api.js", "tasks-stream.js")
+    helpers = (
+        "chat-api.js",
+        "tasks-api.js",
+        "research-api.js",
+        "research-run-api.js",
+        "memory-api.js",
+        "tasks-stream.js",
+    )
     for name in helpers:
         source = (FRONTEND / name).read_text()
         assert 'from "./session.js"' in source, name

@@ -17,7 +17,14 @@ RESEARCH_FILES = [
     "research.js",
     "research-api.js",
     "research-view.js",
+    "research-run.js",
+    "research-run-api.js",
+    "research-run-view.js",
 ]
+NOTICE = (
+    "調べるときは、質問文が検索サービス(Tavily)へ送信されます。"
+    "サービス側で保持・利用される可能性があります。記憶の内容は送信しません。"
+)
 
 
 @pytest.fixture
@@ -72,7 +79,8 @@ def test_research_route_serves_the_page(client: TestClient) -> None:
     response = client.get("/research")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
-    assert "ローカル専用・読み取り専用" in response.text
+    assert "ローカル専用" in response.text
+    assert "読み取り専用" not in response.text
     assert '<script type="module" src="/static/research.js">' in response.text
     assert response.text == (FRONTEND / "research.html").read_text()
 
@@ -107,16 +115,27 @@ def test_chat_and_research_pages_use_the_shared_shell() -> None:
         assert "app-nav" not in page
 
 
-def test_research_scripts_never_render_markup_or_write() -> None:
+def test_research_scripts_never_render_markup_or_use_other_channels() -> None:
     forbidden = re.compile(
         r"innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function|"
-        r"createContextualFragment|\bmethod\s*:|XMLHttpRequest|sendBeacon|localStorage|"
-        r"EventSource|\.setAttribute\(\s*[\"']on"
+        r"createContextualFragment|XMLHttpRequest|sendBeacon|localStorage|sessionStorage|"
+        r"EventSource|WebSocket|\.setAttribute\(\s*[\"']on"
     )
     scripts = sorted(FRONTEND.glob("research*.js"))
-    assert len(scripts) == 3
+    assert len(scripts) == 6
     for path in scripts:
         assert not forbidden.search(path.read_text()), path.name
+
+
+def test_only_the_run_client_writes_and_only_with_two_posts() -> None:
+    for path in sorted(FRONTEND.glob("research*.js")):
+        text = path.read_text()
+        methods = re.findall(r"\bmethod\s*:\s*[\"'](\w+)[\"']", text)
+        if path.name == "research-run-api.js":
+            assert methods == ["POST", "POST"]
+            assert not re.search(r"PUT|PATCH|DELETE", text)
+        else:
+            assert methods == [], path.name
 
 
 def test_research_links_always_carry_a_safe_rel_and_a_checked_href() -> None:
@@ -125,9 +144,74 @@ def test_research_links_always_carry_a_safe_rel_and_a_checked_href() -> None:
     assert script.count('target = "_blank"') == 2
     # The href values come from view-model fields that safeHref produced.
     assert script.count("link.href = href;") + script.count("link.href = claim.source.href;") == 2
+    run = (FRONTEND / "research-run.js").read_text()
+    assert run.count(".href = ") == run.count('rel = "noopener noreferrer"') == 1
+    assert run.count('target = "_blank"') == 1
+    assert run.count("link.href = source.href;") == 1
+    assert "if (source.href)" in run
 
 
-def test_research_screen_has_no_write_controls() -> None:
+def test_the_run_form_has_labels_a_counter_and_the_notice_beside_the_button() -> None:
     page = (FRONTEND / "research.html").read_text()
-    assert not re.search(r"<form|<input|<textarea|<select|<progress", page)
-    assert not re.search(r"開始する|新規作成|削除|キャンセル", page)
+    assert '<label class="run-label" for="run-question">' in page
+    assert '<label class="run-label" for="run-level">' in page
+    assert 'id="run-counter"' in page
+    for needed in ("<form", "<textarea", "<select", 'type="submit"'):
+        assert needed in page
+    assert NOTICE in page
+    # The notice sits in the form directly before the button and describes it.
+    assert page.index(NOTICE) < page.index('id="run-submit"')
+    assert page.index('id="run-notice"') < page.index('id="run-submit"')
+    assert 'aria-describedby="run-notice"' in page
+    assert 'role="alert"' in page and 'aria-live="polite"' in page
+    assert "novalidate" in page and "maxlength" not in page  # a long text is flagged, not cut
+
+
+def test_the_notice_text_is_the_same_in_the_page_and_the_view_module() -> None:
+    view = (FRONTEND / "research-run-view.js").read_text()
+    assert NOTICE in view
+    assert view.count("Tavily") == 1
+
+
+def test_the_result_texts_the_client_translates_cover_every_server_caveat() -> None:
+    from backend.research.runner import QUICK_NO_CLAIM_NOTICE
+    from backend.research.standard import CAVEAT_TEXT, Caveat
+
+    view = (FRONTEND / "research-run-view.js").read_text()
+    for caveat, sentence in CAVEAT_TEXT.items():
+        if caveat in (Caveat.READS_FAILED, Caveat.CLAIMS_REMOVED):
+            continue  # shown with a count in front; the client has a pattern for the pair
+        assert f'"{sentence}"' in view, caveat
+    assert "Some pages could not be read." in view
+    assert "Some proposed claims were removed because they could not be verified." in view
+    assert QUICK_NO_CLAIM_NOTICE in view
+
+
+def test_failure_labels_cover_every_failure_reason_the_server_can_store() -> None:
+    from backend.research.models import FailureReason
+
+    view = (FRONTEND / "research-view.js").read_text()
+    for reason in FailureReason:
+        assert f"{reason.value}:" in view, reason
+
+
+def test_every_error_code_the_api_sends_has_a_client_message() -> None:
+    import backend.api.research as api
+
+    messages = (FRONTEND / "research-run-view.js").read_text()
+    codes = [
+        value
+        for name, value in vars(api).items()
+        if name.startswith("ERROR_") and isinstance(value, str)
+    ]
+    assert len(codes) >= 12
+    for code in [*codes, "busy", "search_budget_exhausted", "not_cancellable"]:
+        if code in {"invalid_limit", "invalid_status"}:
+            continue  # list filters; the screen never sends them
+        assert f"  {code}:" in messages, code
+
+
+def test_research_screen_scripts_are_modules_loaded_from_static() -> None:
+    page = (FRONTEND / "research.html").read_text()
+    assert '<script type="module" src="/static/research.js">' in page
+    assert "research-run" not in page  # imported by research.js, not by the page
