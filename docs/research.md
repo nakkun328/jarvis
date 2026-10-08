@@ -21,6 +21,8 @@ Status transitions are compare-and-swap with an allowed-transition table: `pendi
 
 The repository offers no physical deletion. The Quick Research pipeline that fills these tables is described in [research-quick.md](research-quick.md).
 
+Standard Research (several passes, cross-check, conflicts, bounded follow-up searches) and the follow-up query generator are described in [research-standard.md](research-standard.md).
+
 Level selection, the deterministic query planner, source type classification and the authority, freshness and relevance ratings (R2, not yet wired into Quick Research) are described in [research-quality.md](research-quality.md).
 
 ## Source evaluation, cross-check, conflicts and the search decision (schema v8)
