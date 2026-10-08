@@ -67,6 +67,21 @@ class BudgetedSearchProvider:
     def in_flight(self) -> int:
         return self._in_flight
 
+    def is_exhausted(self) -> bool:
+        """True when the next search would be refused for the local budget (no network).
+
+        A counter that fails or misbehaves reads as "not exhausted" here: this is only an early
+        hint for callers that want to refuse before queueing work, and the guard in ``search``
+        still fails closed.
+        """
+        try:
+            used = self._usage_counter()
+        except Exception:
+            return False
+        if isinstance(used, bool) or not isinstance(used, int) or used < 0:
+            return False
+        return used + self._in_flight >= self._monthly_limit
+
     async def search(self, query: SearchQuery) -> Sequence[SearchResult]:
         # No await between the check and the increment, so concurrent calls cannot overshoot.
         try:

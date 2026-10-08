@@ -315,3 +315,28 @@ def test_factory_rejects_an_unsupported_name(tmp_path: Path) -> None:
     object.__setattr__(settings, "search_provider", "other")
     with pytest.raises(ConfigError):
         create_search_provider(settings, usage_counter=lambda: 0)
+
+
+def test_is_exhausted_reports_the_local_limit_without_searching() -> None:
+    from backend.research.search_budget import BudgetedSearchProvider
+
+    class Inner:
+        calls = 0
+
+        async def search(self, query):
+            Inner.calls += 1
+            return []
+
+    used = {"n": 2}
+    guard = BudgetedSearchProvider(Inner(), monthly_limit=3, usage_counter=lambda: used["n"])
+    assert guard.is_exhausted() is False
+    used["n"] = 3
+    assert guard.is_exhausted() is True
+    assert Inner.calls == 0
+
+    def broken() -> int:
+        raise RuntimeError("counter down")
+
+    for counter in (broken, lambda: -1):
+        guard = BudgetedSearchProvider(Inner(), monthly_limit=3, usage_counter=counter)
+        assert guard.is_exhausted() is False

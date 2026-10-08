@@ -62,6 +62,9 @@ class Settings:
     search_provider: str = "none"
     search_key: str | None = field(default=None, repr=False)
     search_monthly_limit: int = _DEFAULT_SEARCH_MONTHLY_LIMIT
+    # Starting a web research from the Research screen is off by default. It also needs a
+    # search provider and a chat provider; with any of the three missing it stays unavailable.
+    research_enabled: bool = False
 
     @property
     def auth_enabled(self) -> bool:
@@ -90,6 +93,8 @@ class Settings:
             raise ConfigError(
                 f"JARVIS_SEARCH_MONTHLY_LIMIT must be between 1 and {_MAX_SEARCH_MONTHLY_LIMIT}"
             )
+        if not isinstance(self.research_enabled, bool):
+            raise ConfigError("JARVIS_RESEARCH_ENABLED must be true or false")
         if self.memory_vault_path is not None and not str(self.memory_vault_path).strip():
             raise ConfigError("JARVIS_MEMORY_VAULT_PATH must not be empty")
         if self.personality_path is not None and not str(self.personality_path).strip():
@@ -153,4 +158,5 @@ class Settings:
             search_monthly_limit=_env_int(
                 "JARVIS_SEARCH_MONTHLY_LIMIT", _DEFAULT_SEARCH_MONTHLY_LIMIT
             ),
+            research_enabled=_env_bool("JARVIS_RESEARCH_ENABLED", False),
         )

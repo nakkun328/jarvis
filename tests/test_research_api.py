@@ -414,13 +414,42 @@ def test_later_read_failure_in_detail_is_also_503(
     assert response.json() == {"detail": "storage_unavailable"}
 
 
-@pytest.mark.parametrize("method", ["post", "put", "patch", "delete"])
+@pytest.mark.parametrize("method", ["put", "patch", "delete"])
 @pytest.mark.parametrize(
-    "path", ["/api/research/sessions", f"/api/research/sessions/{uuid4()}"]
+    "path",
+    [
+        "/api/research/sessions",
+        f"/api/research/sessions/{uuid4()}",
+        f"/api/research/sessions/{uuid4()}/cancel",
+        "/api/research/status",
+    ],
 )
-def test_there_are_no_write_routes(client: TestClient, method: str, path: str) -> None:
+def test_only_get_and_the_two_posts_exist(client: TestClient, method: str, path: str) -> None:
     response = getattr(client, method)(path)
     assert response.status_code == 405
+
+
+@pytest.mark.parametrize(
+    "path", [f"/api/research/sessions/{uuid4()}", "/api/research/status"]
+)
+def test_post_is_405_where_no_post_route_exists(client: TestClient, path: str) -> None:
+    assert client.post(path).status_code == 405
+
+
+def test_the_post_routes_say_research_is_not_configured_without_a_run_service(
+    client: TestClient,
+) -> None:
+    created = client.post(
+        "/api/research/sessions", json={"question": "anything", "level": "quick"}
+    )
+    assert created.status_code == 503
+    assert created.json() == {"detail": "research_not_configured"}
+    cancelled = client.post(f"/api/research/sessions/{uuid4()}/cancel")
+    assert (cancelled.status_code, cancelled.json()) == (
+        503,
+        {"detail": "research_not_configured"},
+    )
+    assert client.get("/api/research/status").json() == {"enabled": False, "reason": "disabled"}
 
 
 def test_reading_changes_nothing(client: TestClient, repo: ResearchRepository) -> None:
@@ -441,8 +470,10 @@ def test_router_module_only_depends_on_stored_research_data() -> None:
         elif isinstance(node, ast.Import):
             imported.update(alias.name for alias in node.names)
     assert {name for name in imported if name.startswith("backend.")} == {
+        "backend.api.origin",
         "backend.research.models",
         "backend.research.repository",
+        "backend.research.run_control",  # the run contract only; never the pipeline
     }
     assert not imported & {"httpx", "requests", "urllib.request", "socket", "aiohttp"}
 
