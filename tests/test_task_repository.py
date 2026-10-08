@@ -188,6 +188,44 @@ def test_list_tasks_is_oldest_first_and_filters_by_status(repo: TaskRepository) 
         repo.list_tasks("pending")  # type: ignore[arg-type]
 
 
+def test_list_tasks_newest_first_orders_and_limits_after_ordering(repo: TaskRepository) -> None:
+    tasks = [repo.create_task(f"g{i}", STEPS) for i in range(5)]
+    ids = [t.id for t in tasks]
+    repo.transition(ids[1], TaskStatus.PENDING, TaskStatus.CANCELLED)
+    repo.transition(ids[3], TaskStatus.PENDING, TaskStatus.CANCELLED)
+    assert [t.id for t in repo.list_tasks(newest_first=True)] == ids[::-1]
+    # More rows than the limit: the default keeps the oldest, newest_first the newest.
+    assert [t.id for t in repo.list_tasks(limit=2)] == ids[:2]
+    assert [t.id for t in repo.list_tasks(limit=2, newest_first=True)] == ids[:-3:-1]
+    # The status filter applies before the limit in both directions.
+    assert [t.id for t in repo.list_tasks(TaskStatus.PENDING, limit=2)] == [ids[0], ids[2]]
+    assert [t.id for t in repo.list_tasks(TaskStatus.PENDING, limit=2, newest_first=True)] == [
+        ids[4],
+        ids[2],
+    ]
+    assert [t.id for t in repo.list_tasks(TaskStatus.CANCELLED, newest_first=True)] == [
+        ids[3],
+        ids[1],
+    ]
+    assert repo.list_tasks(TaskStatus.RUNNING, newest_first=True) == []
+
+
+def test_list_tasks_ties_on_creation_time_break_by_insertion_order(database: Database) -> None:
+    repo = TaskRepository(database, clock=lambda: NOW)  # every task gets the same timestamp
+    ids = [repo.create_task(f"g{i}", STEPS).id for i in range(4)]
+    assert [t.id for t in repo.list_tasks()] == ids
+    assert [t.id for t in repo.list_tasks(newest_first=True)] == ids[::-1]
+    assert [t.id for t in repo.list_tasks(limit=2, newest_first=True)] == ids[:1:-1]
+
+
+@pytest.mark.parametrize("value", [1, 0, None, "yes"])
+def test_list_tasks_newest_first_must_be_a_bool(repo: TaskRepository, value: object) -> None:
+    with pytest.raises(ValueError):
+        repo.list_tasks(newest_first=value)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        repo.list_tasks(None, 10, True)  # type: ignore[misc]  # keyword-only
+
+
 # ----- state machine -----
 
 

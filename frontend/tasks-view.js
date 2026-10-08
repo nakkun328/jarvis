@@ -156,11 +156,6 @@ export function filterTasks(tasks, filter) {
   return TASK_STATUSES.includes(filter) ? tasks.filter((task) => task.status === filter) : tasks;
 }
 
-// The API returns oldest first. The screen shows the newest first within the returned range.
-export function newestFirst(tasks) {
-  return [...tasks].reverse();
-}
-
 export function listItemModel(task, { selectedId = null, timeZone } = {}) {
   const info = statusInfo(task.status);
   return {
@@ -175,12 +170,13 @@ export function listItemModel(task, { selectedId = null, timeZone } = {}) {
 
 // `all` is every task the API returned (it feeds the counts); `shown` is the part the screen
 // lists. They differ only when the server was asked for one status because `all` was cut off.
+// The API returns the newest tasks first and the screen keeps that order.
 export function listViewModel(
   all,
   shown,
   { filter = "all", selectedId = null, truncated = false, timeZone } = {},
 ) {
-  const rows = newestFirst(filterTasks(shown, filter));
+  const rows = filterTasks(shown, filter);
   return {
     counts: countByStatus(all),
     items: rows.map((task) => listItemModel(task, { selectedId, timeZone })),

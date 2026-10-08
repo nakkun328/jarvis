@@ -86,7 +86,7 @@ Code: `backend/api/tasks.py` (`create_tasks_router`), registered in `create_app`
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/tasks?status=&limit=` | `{"tasks": [...]}` summaries, oldest first (creation time, then insertion order). `status` is one of the task statuses; `limit` is 1 to 100, default 50. |
+| `GET /api/tasks?status=&limit=` | `{"tasks": [...]}` summaries, newest first (creation time, then insertion order, both descending), so `limit` keeps the newest tasks. `status` is one of the task statuses; `limit` is 1 to 100, default 50. |
 | `GET /api/tasks/{task_id}` | One task with its goal, `result_summary`, and `steps` (index, description, status, `started_at`, `finished_at`, note). |
 | `GET /api/tasks/{task_id}/events` | Server-sent events for one task, described below. |
 
@@ -113,7 +113,7 @@ A task that is already terminal gets `snapshot` and `done` only. A `waiting` tas
 - Disconnect cancels the generator, which stops polling. A server that reports a gone client only as a failed send (ASGI spec 2.4 and later) is noticed at the next send, so an idle stream can hold its slot for up to the heartbeat interval; uvicorn reports disconnects directly.
 - Each repository call opens and closes its own short-lived SQLite connection through `Database.connect`. The list and detail endpoints are sync functions run in FastAPI's thread pool; the stream runs every poll in a worker thread, so the event loop is never blocked by SQLite. Worker threads are shared with other sync endpoints, and a poll that is already running finishes (SQLite timeout 5 s) before a cancelled stream completes.
 - Local-only posture, as for the rest of the app: bind to `127.0.0.1`, run one worker, no authentication, and no CORS changes. Goals and results can be sensitive, so do not expose this API beyond the local machine until access control exists.
-- The list has no pagination: it returns the oldest tasks first, up to the limit. Use the `status` filter to reach active tasks in a long history.
+- The list has no pagination: it returns the newest tasks first, up to the limit, so older tasks are not reachable through the API. Use the `status` filter to narrow a long history.
 
 ### Not done in the API
 
@@ -128,7 +128,7 @@ A task that is already terminal gets `snapshot` and `done` only. A `waiting` tas
 
 What it shows, and only what the API returned:
 
-- A list (up to 100 oldest tasks, shown newest first) with a status filter. Status is a text label plus a glyph shape plus a colour. Counts are counted from the returned tasks; when the list hits the 100 limit the screen says so and asks the server for the chosen status. `steps_completed/steps_total` is shown as a plain count; there is no percentage, ETA, or weighted bar. The segmented indicator has one segment per step, taken from that step's stored status. A task is labelled running only when its status is `running`.
+- A list (up to 100 newest tasks, in the order the API returns them: newest first) with a status filter. Status is a text label plus a glyph shape plus a colour. Counts are counted from the returned tasks; when the list hits the 100 limit the screen says so and asks the server for the chosen status. `steps_completed/steps_total` is shown as a plain count; there is no percentage, ETA, or weighted bar. The segmented indicator has one segment per step, taken from that step's stored status. A task is labelled running only when its status is `running`.
 - A detail panel with the goal, steps (status, timestamps, note), failure code and waiting reason as Japanese labels from the fixed enums (an unknown code is shown as その他), the verification state, and the result summary. All task text is rendered with `textContent`, never as HTML.
 - Live updates for the selected task that is not finished, over `GET /api/tasks/{id}/events` read with `fetch` and `sse.js`. `stream_time_limit` reconnects for a fresh snapshot (at most 20 in a row without progress). Network errors, `storage_unavailable`, and 429 use exponential backoff (1 s up to 30 s, honouring a bounded `Retry-After`) and stop after 6 consecutive failures, leaving a manual 再接続 button. `task_not_found` and HTTP 404 or 422 stop the stream and say the task was not found. `done` closes the stream.
 - The list polls every 5 s (backoff up to 30 s while failing). When the tab is hidden, polling and the stream pause and resume with a fresh read when it is visible again. Loading, empty, error, and offline states have their own text, and a failed refresh keeps the last data labelled as possibly stale.

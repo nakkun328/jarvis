@@ -58,10 +58,10 @@ async function fetchTasks(options) {
   return tasks;
 }
 
-// Loads the list for the screen. `all` (up to LIST_LIMIT oldest tasks) feeds the counts. The
-// API returns the oldest tasks first without pagination, so when `all` hit the limit the
-// chosen filter is also asked of the server, otherwise recent tasks of that status could be
-// missing from the page. `truncated` says the counts cover only part of the stored tasks.
+// Loads the list for the screen. `all` (up to LIST_LIMIT newest tasks, newest first) feeds the
+// counts. The API has no pagination, so when `all` hit the limit the chosen filter is also
+// asked of the server, otherwise older tasks of that status could be missing from the page.
+// `truncated` says the counts cover only part of the stored tasks.
 export async function loadTaskList({ filter = "all", limit = LIST_LIMIT, fetchImpl, signal } = {}) {
   const all = await fetchTasks({ limit, fetchImpl, signal });
   const truncated = all.length >= limit;

@@ -190,7 +190,7 @@ def create_tasks_router(
         limit: int = Query(DEFAULT_LIST_LIMIT, ge=1, le=MAX_LIST_LIMIT),
     ) -> dict[str, Any]:
         try:
-            tasks = repository.list_tasks(status, limit=limit)
+            tasks = repository.list_tasks(status, limit=limit, newest_first=True)
         except TaskRepositoryError as exc:
             raise storage_unavailable(exc) from exc
         return {"tasks": [task_summary(task) for task in tasks]}
