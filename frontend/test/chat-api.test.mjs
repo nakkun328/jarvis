@@ -99,3 +99,99 @@ test("SSE error and incomplete streams fail without a duplicate fallback request
     assert.equal(calls, 1);
   }
 });
+
+test("server error text is mapped to actionable Japanese, never shown verbatim", async () => {
+  const cases = [
+    ["conversation not found", "conversation-missing", false],
+    ["chat provider failed", "provider", true],
+    ["conversation capacity reached", "capacity", true],
+    ["conversation storage unavailable", "unavailable", true],
+    ["memory context unavailable", "unavailable", true],
+    ["something unexpected from a future server", "http", true],
+  ];
+  for (const [serverMessage, kind, retryable] of cases) {
+    await assert.rejects(
+      sendChat({
+        message: "hello",
+        onDelta: () => {},
+        fetchImpl: async () =>
+          eventResponse(encode(`event: error\ndata: ${JSON.stringify({ message: serverMessage })}\n\n`)),
+      }),
+      (error) => {
+        assert.ok(error instanceof ChatError);
+        assert.equal(error.kind, kind, serverMessage);
+        assert.equal(error.retryable, retryable, serverMessage);
+        assert.ok(!error.message.includes(serverMessage), `leaked: ${error.message}`);
+        return true;
+      },
+    );
+  }
+});
+
+test("HTTP 503 without a provider is explained, not retryable, and not retried as nonstreaming", async () => {
+  const calls = [];
+  await assert.rejects(
+    sendChat({
+      message: "hello",
+      onDelta: () => {},
+      fetchImpl: async (url) => {
+        calls.push(url);
+        return Response.json({ detail: "chat provider is not configured" }, { status: 503 });
+      },
+    }),
+    (error) => error.kind === "not-configured" && error.retryable === false && /LLM/.test(error.message),
+  );
+  assert.deepEqual(calls, ["/api/chat/stream"]);
+});
+
+test("nonstreaming fallback reports a missing conversation and 5xx/422 statuses", async () => {
+  const fallback = (status, detail) => async (url) =>
+    url.endsWith("/stream")
+      ? new Response(null, { status: 404 })
+      : Response.json({ detail }, { status });
+  const run = (status, detail) =>
+    sendChat({ message: "x", conversationId: "old", onDelta: () => {}, fetchImpl: fallback(status, detail) });
+  await assert.rejects(run(404, "conversation not found"), (e) => e.kind === "conversation-missing" && !e.retryable);
+  await assert.rejects(run(502, "chat provider failed"), (e) => e.kind === "provider" && e.retryable);
+  await assert.rejects(run(500, "boom"), (e) => e.kind === "server" && /500/.test(e.message));
+  await assert.rejects(run(422, [{ msg: "too long" }]), (e) => e.kind === "invalid" && !e.retryable);
+});
+
+test("a stream that ends without done is reported as incomplete", async () => {
+  await assert.rejects(
+    sendChat({ message: "hi", onDelta: () => {}, fetchImpl: async () => eventResponse(encode("")) }),
+    (error) => error.kind === "incomplete" && /途中/.test(error.message),
+  );
+});
+
+test("abort signal is passed to fetch and aborts an in-flight stream", async () => {
+  const controller = new AbortController();
+  const deltas = [];
+  let seenSignal;
+  const pending = sendChat({
+    message: "slow",
+    signal: controller.signal,
+    onDelta: (text) => deltas.push(text),
+    fetchImpl: async (_url, options) => {
+      seenSignal = options.signal;
+      return new Response(
+        new ReadableStream({
+          start(stream) {
+            stream.enqueue(encode('event: delta\ndata: {"text":"a"}\n\n'));
+            options.signal.addEventListener("abort", () => stream.error(options.signal.reason));
+          },
+        }),
+        { headers: { "Content-Type": "text/event-stream" } },
+      );
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  controller.abort();
+  await assert.rejects(pending);
+  assert.equal(seenSignal, controller.signal);
+  assert.deepEqual(deltas, ["a"]);
+});
+
+// UI state-machine tests live in their own file; importing it keeps them inside the single
+// test file that scripts/verify.py and CI run.
+import "./chat-session.test.mjs";
