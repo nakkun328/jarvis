@@ -23,6 +23,7 @@ Purpose: let any new session (human or agent) resume JARVIS development from the
 | 3 | Research: Search→Reader→Source→Citation (Quick first), then Standard/Deep, reuse, UI | M3 |
 | 4 | Task/Tools: contract, registry, permissions, filesystem, shell, queue, verification | M4 |
 | 5–7 | productivity, multi-device, voice/home | later |
+| M5 (plan) | conversation routing (casual / memory / research), activity view, realtime voice: see [conversation-routing-plan.md](../conversation-routing-plan.md) | M5 |
 
 Order inside Research and Tools: smallest end-to-end path first; no scheduler/parallel-agent machinery before the single path works.
 
