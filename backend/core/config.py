@@ -12,7 +12,7 @@ class ConfigError(ValueError):
 
 
 _LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
-_LLM_PROVIDERS = frozenset({"none", "openai"})
+_LLM_PROVIDERS = frozenset({"none", "openai", "gemini"})
 _SEARCH_PROVIDERS = frozenset({"none", "tavily"})
 _DEFAULT_SEARCH_MONTHLY_LIMIT = 800
 _MAX_SEARCH_MONTHLY_LIMIT = 1_000_000
