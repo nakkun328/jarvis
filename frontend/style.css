@@ -20,6 +20,9 @@
 .message-label { display: block; margin: .15rem 0 .35rem; color: #aabed0; font-size: .76rem; }
 .message-text { min-width: 0; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-error .message-text { color: #ffc6be; }
+.reply-link { color: #8fe3ff; text-decoration: underline; text-underline-offset: .15em; }
+.reply-link:hover { color: #c4f1ff; }
+.reply-link:focus-visible { outline: 2px solid #8fe3ff; outline-offset: 2px; border-radius: 2px; }
 .message-meta { margin-top: .5rem; color: #849aaa; font-size: .7rem; }
 
 .composer-wrap { position: sticky; bottom: 0; background: linear-gradient(transparent, #0b1420 1.4rem); padding: 1.4rem 1rem max(.6rem, env(safe-area-inset-bottom)); }

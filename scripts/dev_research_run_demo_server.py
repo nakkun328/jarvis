@@ -5,7 +5,7 @@ Not imported by production code and not part of any gate. It starts the real `cr
 a canned search provider, a fake page transport behind the real safe reader, and a scripted
 "model". No network call is made, `.env` is never read, and no key of any kind is used.
 
-    python scripts/dev_research_run_demo_server.py [--port N] [--fast] [--research-off]
+    python scripts/dev_research_run_demo_server.py [--port N] [--fast] [--research-off] [--chat]
 
 Open the printed URL and type a question. Markers in the question pick the scenario:
 
@@ -15,6 +15,12 @@ Open the printed URL and type a question. Markers in the question pick the scena
     #hostile     page, title and quote contain markup and script-like text -> must render inert
     #conflict    pages disagree (60 s against 120 s) -> an open conflict is listed
     #nothing     the model cites nothing -> "no claim could be verified"
+
+With --chat the chat page (/) is served too, with a FAKE router and a FAKE chat model, to try a
+research started from the chat. Markers in the chat message pick the route: `#research` (or
+"調べて") is decided research, `#casual` casual, `#lowconf` is a router fallback, anything else is
+memory. The whole message becomes the research question, so the scenario markers above work in it
+too. A turn answered by the Main Agent gets a fixed fake reply.
 
 Stop with Ctrl-C or SIGTERM; the temporary database is removed.
 """
@@ -43,6 +49,7 @@ HOSTILE = (
     '<script>window.__pwned = "text"</script><img src=x onerror="window.__pwned=\'img\'"> '
     "[link](javascript:alert(1)) <b>bold?</b>"
 )
+CHAT_REPLY = "（デモ）これは偽のモデルによる通常の応答です。調査は行っていません。"
 FACT = "The Foo widget cache keeps entries for 60 seconds."
 OTHER_FACT = "The Foo widget cache keeps entries for 120 seconds."
 
@@ -62,6 +69,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="0 picks a free port")
     parser.add_argument("--db", type=Path, help="absolute path of a NEW sqlite file")
     parser.add_argument("--fast", action="store_true", help="no pauses (smoke tests)")
+    parser.add_argument(
+        "--chat",
+        action="store_true",
+        help="also route chat turns with a fake router (see the module docstring)",
+    )
     parser.add_argument(
         "--research-off",
         action="store_true",
@@ -143,9 +155,17 @@ def build_fakes(fast: bool, db_path: Path):
             return [PUBLIC_ADDRESS]
 
     class DemoModel:
-        """Cites the 'FACT:' line of every page it is shown, copied word for word."""
+        """Cites the 'FACT:' line of every page it is shown, copied word for word.
+
+        A chat turn (no evidence block in the request) gets a fixed fake reply.
+        """
+
+        name = "demo"
+        model = "scripted"
 
         async def complete(self, request: CompletionRequest) -> CompletionResponse:
+            if not any("<evidence" in message.content for message in request.messages):
+                return CompletionResponse(text=CHAT_REPLY, provider="demo", model="scripted")
             user = request.messages[1].content
             scenario = current_scenario()
             await asyncio.sleep(pause(scenario))
@@ -164,10 +184,33 @@ def build_fakes(fast: bool, db_path: Path):
             }
             return CompletionResponse(text=json.dumps(reply), provider="demo", model="scripted")
 
-        def stream(self, request):  # pragma: no cover - research never streams
-            raise NotImplementedError
+        async def stream(self, request):
+            # Only chat turns stream (research never does): the fixed fake reply, in two parts.
+            half = len(CHAT_REPLY) // 2
+            yield CHAT_REPLY[:half]
+            yield CHAT_REPLY[half:]
 
     return DemoSearch(), DemoTransport(), DemoResolver(), DemoModel()
+
+
+def build_router():
+    """A fake router: the markers in the message pick the route (no model, no network)."""
+    from backend.router import Route, RouteDecision, RouteReason, fallback
+
+    class DemoRouter:
+        async def decide(self, text: str) -> RouteDecision:
+            lowered = text.lower()
+            if "#lowconf" in lowered:
+                return fallback(RouteReason.low_confidence, 0.2)
+            if "#casual" in lowered:
+                route = Route.casual
+            elif "#research" in lowered or "調べて" in text:
+                route = Route.research
+            else:
+                route = Route.memory
+            return RouteDecision(route, 0.9, RouteReason.model_choice, False)
+
+    return DemoRouter()
 
 
 def main(args: argparse.Namespace) -> None:
@@ -189,6 +232,7 @@ def main(args: argparse.Namespace) -> None:
     os.environ["JARVIS_LLM_PROVIDER"] = "none"
     os.environ["JARVIS_SEARCH_PROVIDER"] = "none"
     os.environ["JARVIS_RESEARCH_ENABLED"] = "0"
+    os.environ["JARVIS_ROUTER"] = "off"
     for name in ("JARVIS_SEARCH_API_KEY", "JARVIS_MEMORY_VAULT_PATH", "OPENAI_API_KEY"):
         os.environ.pop(name, None)
 
@@ -204,10 +248,12 @@ def main(args: argparse.Namespace) -> None:
         model,
         search_provider=search,
         page_reader=PageReader(transport, resolver),
+        router=build_router() if args.chat else None,
     )
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", workers=1)
     print(
-        f"DEMO_URL=http://127.0.0.1:{port}/research  (fake search, pages and model; "
+        f"DEMO_URL=http://127.0.0.1:{port}/{'' if args.chat else 'research'}  "
+        "(fake search, pages, model" + (" and router" if args.chat else "") + "; "
         "temporary database; loopback only)",
         flush=True,
     )
