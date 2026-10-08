@@ -121,6 +121,10 @@ def create_app(
         def web_client() -> FileResponse:
             return FileResponse(frontend_dir / "index.html")
 
+        @app.get("/tasks", include_in_schema=False)
+        def tasks_client() -> FileResponse:
+            return FileResponse(frontend_dir / "tasks.html")
+
     return app
 
 

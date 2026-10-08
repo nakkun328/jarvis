@@ -1,6 +1,6 @@
 # Tasks
 
-This is the first slice of the task layer (roadmap T4): durable task state, a small single-worker queue, progress, and result verification. The queue itself is a library: there is no scheduler or real tool behind it yet. A small read-only HTTP API reports task state and progress (see [HTTP API](#http-api-read-only)); there is no UI.
+This is the first slice of the task layer (roadmap T4): durable task state, a small single-worker queue, progress, and result verification. The queue itself is a library: there is no scheduler or real tool behind it yet. A small read-only HTTP API reports task state and progress (see [HTTP API](#http-api-read-only)); a first read-only screen shows them (see [Tasks screen](#tasks-screen-read-only)).
 
 Code: `backend/tasks/models.py` (frozen dataclasses and enums), `backend/tasks/repository.py` (`TaskRepository`), `backend/tasks/queue.py` (`TaskQueue` and the executor and verifier contracts). Storage is SQLite schema version 7 (`tasks`, `task_steps`), applied by the existing migration path; earlier data is kept and a database from a newer schema is refused.
 
@@ -77,7 +77,7 @@ There is no automatic retry. `retry(task_id)` (also on the queue) is explicit an
 - No daemon, scheduler, or timer that calls the queue, and no multi-worker coordination, leases, or heartbeats. A second process may only claim safely through the atomic claim; it must not call `recover_in_flight` while another worker is live.
 - No device routing: the target device is a label.
 - No real tools or planner. Executors and verifiers are contracts; this package contains only fakes in tests. Permission levels from [tools.md](tools.md) are not enforced here.
-- No UI, push notification, or write API. Progress is stored, readable over the read-only HTTP API, and streamed over SSE; what the screen does with it is later work.
+- No push notification or write API. Progress is stored, readable over the read-only HTTP API, and streamed over SSE; the read-only screen only displays it.
 - Cross-process cancel of a running task, and deletion or archival of old tasks.
 
 ## HTTP API (read-only)
@@ -119,5 +119,20 @@ A task that is already terminal gets `snapshot` and `done` only. A `waiting` tas
 
 - No write, cancel, retry, or create endpoints. Those change state and need a separate permission decision before they exist.
 - No authentication or per-client access control.
-- No UI and no notification delivery (desktop, mobile, or otherwise); the stream is the data source a screen can consume.
+- No notification delivery (desktop, mobile, or otherwise); the stream is the data source the screen consumes.
 - No cross-process change feed. The stream observes SQLite by polling, so it also sees changes made by another process, at polling latency.
+
+## Tasks screen (read-only)
+
+`GET /tasks` serves `frontend/tasks.html` (plain HTML and JS, no build step, no inline script or style, so a strict Content-Security-Policy would work). The chat page and the tasks page link to each other. Code: `tasks.js` (DOM), `tasks-view.js` (labels, view models), `tasks-api.js` (GET calls), `tasks-stream.js` (SSE reducer, reconnect and backoff), `tasks.css`. The pure modules are tested by `frontend/test/tasks.test.mjs`, which `chat-api.test.mjs` imports because the gate runs only that one file.
+
+What it shows, and only what the API returned:
+
+- A list (up to 100 oldest tasks, shown newest first) with a status filter. Status is a text label plus a glyph shape plus a colour. Counts are counted from the returned tasks; when the list hits the 100 limit the screen says so and asks the server for the chosen status. `steps_completed/steps_total` is shown as a plain count; there is no percentage, ETA, or weighted bar. The segmented indicator has one segment per step, taken from that step's stored status. A task is labelled running only when its status is `running`.
+- A detail panel with the goal, steps (status, timestamps, note), failure code and waiting reason as Japanese labels from the fixed enums (an unknown code is shown as その他), the verification state, and the result summary. All task text is rendered with `textContent`, never as HTML.
+- Live updates for the selected task that is not finished, over `GET /api/tasks/{id}/events` read with `fetch` and `sse.js`. `stream_time_limit` reconnects for a fresh snapshot (at most 20 in a row without progress). Network errors, `storage_unavailable`, and 429 use exponential backoff (1 s up to 30 s, honouring a bounded `Retry-After`) and stop after 6 consecutive failures, leaving a manual 再接続 button. `task_not_found` and HTTP 404 or 422 stop the stream and say the task was not found. `done` closes the stream.
+- The list polls every 5 s (backoff up to 30 s while failing). When the tab is hidden, polling and the stream pause and resume with a fresh read when it is visible again. Loading, empty, error, and offline states have their own text, and a failed refresh keeps the last data labelled as possibly stale.
+
+Not in this screen: creating, cancelling, retrying, or resuming tasks, and any other write. Those change state and need a permission design first (who may do it, confirmation, audit). The page says it is local-only and read-only. It is served without authentication like the rest of the app, so keep it on `127.0.0.1`.
+
+`scripts/dev_tasks_demo_server.py` is a dev/test-only harness (not used by the app or the gates): it starts the real app on a free loopback port with a new temporary database and seeds one task of each status through the real queue with a fake executor, plus a task whose text looks like HTML, for looking at the screen in a browser.
