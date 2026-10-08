@@ -16,12 +16,13 @@
 "use strict";
 
 const CACHE_PREFIX = "jarvis-shell-";
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;
 
 const SHELL_FILES = [
   "/static/shell.css",
   "/static/style.css",
+  "/static/activity.css",
   "/static/tasks.css",
   "/static/research.css",
   "/static/memory.css",

@@ -128,11 +128,19 @@ async function sendNonStreaming(body, onDelta, fetchImpl, signal) {
 // Resolves only after the server's `done` event. Anything else (error event, stream ending
 // early, network failure, abort via `signal`) rejects, and the caller must treat any text
 // already delivered through onDelta as an unsaved partial reply.
-export async function sendChat({ message, conversationId, onDelta, signal, fetchImpl = fetch }) {
+//
+// `onActivity(data)` is optional. When given, the request asks for the server's additive
+// `activity` events and each one's raw JSON text is passed on (parsing and validation belong to
+// activity-view.js). Anything wrong with an activity event is ignored: it can never fail a chat.
+export async function sendChat({ message, conversationId, onDelta, onActivity, signal, fetchImpl = fetch }) {
   const body = requestBody(message, conversationId);
   const response = await fetchImpl("/api/chat/stream", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      ...(onActivity ? { "X-Jarvis-Activity": "1" } : {}),
+    },
     body,
     signal,
   });
@@ -146,6 +154,12 @@ export async function sendChat({ message, conversationId, onDelta, signal, fetch
   await readEventStream(response.body, ({ event, data }) => {
     if (event === "delta") {
       onDelta(requireText(parseEventData(data)?.text));
+    } else if (event === "activity") {
+      try {
+        onActivity?.(data);
+      } catch {
+        // A display problem must not break the reply.
+      }
     } else if (event === "done") {
       completion = parseEventData(data);
     } else if (event === "error") {
