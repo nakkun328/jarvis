@@ -12,6 +12,20 @@ _MAX_SOURCE = 200
 _MAX_CONTEXT = 2400
 
 
+def rendered_note_count(rendered: str | None) -> int:
+    """How many notes a rendered memory reference holds (0 when nothing matched).
+
+    Activity events carry only this number, never the notes themselves.
+    """
+    if not rendered:
+        return 0
+    try:
+        items = json.loads(rendered)
+    except ValueError:
+        return 0
+    return len(items) if isinstance(items, list) else 0
+
+
 class MemoryContextError(RuntimeError):
     """Configured memory could not be checked safely for a chat request."""
 
