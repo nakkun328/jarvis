@@ -22,4 +22,6 @@ The application factory accepts explicit settings so tests and future embedding 
 - Tools encapsulate external operations and permission checks. Skills compose tools into reusable procedures. The tool contract, registry, and permission policy exist in `backend.tools` (see [tools.md](tools.md)); no real tools are implemented yet.
 - The device layer routes work to capable agents while the server owns shared state.
 
+Task state, a single-worker queue, progress, and result verification are described in [tasks.md](tasks.md); they are a library with no daemon, API, or UI yet.
+
 The later phases in [development.md](development.md) keep storage and provider choices replaceable.
