@@ -7,7 +7,7 @@ One JARVIS will serve multiple devices with one identity, personality, memory, t
 ## Implemented in Phase 0
 
 - `backend.api`: FastAPI application factory, startup initialization, liveness and readiness checks.
-- `backend.core`: environment configuration, logging, SQLite connection and schema bootstrap.
+- `backend.core`: environment configuration, structured redacted logging ([details](logging.md)), SQLite connection and schema bootstrap.
 - `backend.providers`: a contract for complete and streamed LLM responses, with an OpenAI adapter added as the first Phase 1 increment.
 
 Phase 1 adds an OpenAI Responses API adapter behind that contract. The adapter uses explicit model configuration, passes `store=False`, checks that each response completed, and keeps the API key server-side. Streaming exposes text deltas and closes the SDK stream after use. The chat service combines a personality prompt with bounded process-local context and exposes regular and streamed HTTP endpoints. The web client uses the same origin as the API.
@@ -19,7 +19,9 @@ The application factory accepts explicit settings so tests and future embedding 
 - Personality and process-local conversation context sit above the provider interface; durable memory follows in Phase 2.
 - Memory separates user facts, project facts, conversation logs, work state, temporary state, and self memory.
 - The agent orchestrator owns plan, execution, observation, verification, retries, and reporting.
-- Tools encapsulate external operations and permission checks. Skills compose tools into reusable procedures.
+- Tools encapsulate external operations and permission checks. Skills compose tools into reusable procedures. The tool contract, registry, and permission policy exist in `backend.tools` (see [tools.md](tools.md)); no real tools are implemented yet.
 - The device layer routes work to capable agents while the server owns shared state.
+
+Task state, a single-worker queue, progress, and result verification are described in [tasks.md](tasks.md); they are a library with no daemon, API, or UI yet.
 
 The later phases in [development.md](development.md) keep storage and provider choices replaceable.
