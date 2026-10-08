@@ -3,9 +3,12 @@ import test from "node:test";
 import {
   LIST_LIMIT,
   MemoryApiError,
+  candidateDetailUrl,
   candidatesUrl,
   classifyStatus,
   loadMemory,
+  loadMemoryDetail,
+  noteDetailUrl,
   notesUrl,
 } from "../memory-api.js";
 import {
@@ -14,8 +17,18 @@ import {
   categoryLabel,
   formatScore,
   formatTimestamp,
+  ID_PATTERN,
+  MAX_QUERY_CHARS,
+  cleanQuery,
+  createDebouncer,
+  detailModel,
+  emptyMessage,
+  isMemoryId,
   itemModel,
   listViewModel,
+  normalizeDetail,
+  queryMessage,
+  resultSummary,
   normalizeMemory,
   originInfo,
   shortRevision,
@@ -164,7 +177,7 @@ test("loadMemory reads both lists with GET and flags a list that hit the limit",
 });
 
 test("loadMemory maps failures to fixed kinds", async () => {
-  const cases = [[503, "unavailable"], [422, "bad_request"], [500, "server"], [404, "server"]];
+  const cases = [[503, "unavailable"], [422, "bad_request"], [500, "server"], [404, "not_found"], [401, "unauthorized"]];
   for (const [status, kind] of cases) {
     await assert.rejects(
       loadMemory({ fetchImpl: async () => json({ detail: "x" }, status) }),
@@ -186,4 +199,198 @@ test("an aborted request is not reported as a network failure", async () => {
     loadMemory({ fetchImpl: async () => { throw new DOMException("aborted", "AbortError"); } }),
     (error) => error.name === "AbortError",
   );
+});
+
+// ----- search -----
+
+test("search text is a URL-encoded query value only, and blank is left out", () => {
+  assert.equal(notesUrl(100, ""), "/api/memory/notes?limit=100");
+  assert.equal(notesUrl(100), "/api/memory/notes?limit=100");
+  assert.equal(notesUrl(20, "緑茶 tea"), "/api/memory/notes?limit=20&q=%E7%B7%91%E8%8C%B6+tea");
+  const hostile = "a&limit=1#x/../?z=%00";
+  const url = candidatesUrl(5, hostile);
+  assert.equal(new URL(url, "http://x").searchParams.get("q"), hostile);
+  assert.equal(new URL(url, "http://x").searchParams.get("limit"), "5");
+  assert.equal(new URL(url, "http://x").pathname, "/api/memory/candidates");
+});
+
+test("loadMemory passes the query to both lists", async () => {
+  const urls = [];
+  await loadMemory({
+    q: "tea",
+    fetchImpl: async (url) => {
+      urls.push(url);
+      return json(url.includes("/notes") ? { notes: [] } : { candidates: [] });
+    },
+  });
+  assert.deepEqual(urls.sort(), ["/api/memory/candidates?limit=100&q=tea", "/api/memory/notes?limit=100&q=tea"]);
+});
+
+test("cleanQuery mirrors the API rules and explains refusals", () => {
+  assert.deepEqual(cleanQuery("  tea  "), { ok: true, value: "tea", terms: ["tea"] });
+  assert.deepEqual(cleanQuery("緑　茶 tea"), { ok: true, value: "緑　茶 tea", terms: ["緑", "茶", "tea"] });
+  assert.deepEqual(cleanQuery(""), { ok: true, value: "", terms: [] });
+  assert.deepEqual(cleanQuery("   "), { ok: true, value: "", terms: [] });
+  assert.deepEqual(cleanQuery(undefined), { ok: true, value: "", terms: [] });
+  assert.equal(cleanQuery("x".repeat(MAX_QUERY_CHARS)).ok, true);
+  assert.equal(cleanQuery("語".repeat(MAX_QUERY_CHARS)).ok, true);
+  assert.equal(cleanQuery("x".repeat(MAX_QUERY_CHARS + 1)).reason, "too_long");
+  for (const bad of ["a\u0000b", "a\nb", "a\tb", "a\u001bb", "a\u007fb", "a\u0085b", "a\u2028b", "a\u2029b"]) {
+    assert.deepEqual(cleanQuery(bad), { ok: false, reason: "control" }, JSON.stringify(bad));
+  }
+  assert.equal(cleanQuery("1 2 3 4 5 6 7 8").ok, true);
+  assert.equal(cleanQuery("1 2 3 4 5 6 7 8 9").reason, "too_many_terms");
+  for (const reason of ["too_long", "control", "too_many_terms", "nope"]) {
+    assert.ok(queryMessage(reason).length > 0);
+  }
+  // A refused query is never repeated back in the message.
+  assert.equal(queryMessage("constructor"), queryMessage("control"));
+});
+
+test("the debouncer runs the last call once and can be cancelled or flushed", () => {
+  const timers = [];
+  const fake = {
+    set: (fn, ms) => { timers.push({ fn, ms, live: true }); return timers.length - 1; },
+    clear: (handle) => { timers[handle].live = false; },
+  };
+  const ran = [];
+  const debounced = createDebouncer((value) => ran.push(value), 300, fake);
+  debounced.schedule("a");
+  debounced.schedule("b");
+  assert.equal(debounced.pending, true);
+  assert.deepEqual(timers.map((t) => [t.ms, t.live]), [[300, false], [300, true]]);
+  timers[1].fn();
+  assert.deepEqual(ran, ["b"]);
+  assert.equal(debounced.pending, false);
+  debounced.schedule("c");
+  debounced.cancel();
+  assert.equal(debounced.pending, false);
+  assert.equal(timers[2].live, false);
+  debounced.schedule("d");
+  debounced.flush("e");
+  assert.deepEqual(ran, ["b", "e"]);
+});
+
+test("search wording: summary only while searching, and an empty result says so", () => {
+  assert.equal(resultSummary("", { notes: 1, candidates: 2 }), "");
+  assert.match(resultSummary("tea", { notes: 1, candidates: 2 }), /承認済みノート 1 件・確認待ちの候補 2 件/);
+  assert.match(emptyMessage("notes", "tea"), /一致する記録はありません/);
+  assert.match(emptyMessage("notes", ""), /まだありません/);
+  assert.match(emptyMessage("candidates", ""), /候補はありません/);
+});
+
+// ----- detail -----
+
+const OTHER_ID = "22222222-2222-4222-8222-222222222222";
+
+function rawDetail(overrides = {}) {
+  return {
+    ...raw(),
+    replaced_by_id: null,
+    reviews: [{ action: "approve", previous_status: "pending", new_status: "approved", occurred_at: "2026-10-07T12:01:00.000000Z", revision: REVISION }],
+    lifecycle: [],
+    ...overrides,
+  };
+}
+
+test("ids are canonical lowercase UUIDs only", () => {
+  assert.equal(isMemoryId(ID), true);
+  const lettered = "abcdef01-2345-4678-8abc-def012345678";
+  assert.equal(isMemoryId(lettered), true);
+  for (const bad of [lettered.toUpperCase(), ID.replaceAll("-", ""), `{${ID}}`, `${ID}\n`, ` ${ID}`, "", null, 5, "../x"]) {
+    assert.equal(isMemoryId(bad), false, String(bad));
+  }
+  assert.ok(ID_PATTERN.test(OTHER_ID));
+});
+
+test("normalizeDetail adds links and histories and drops non-record shapes", () => {
+  assert.equal(normalizeDetail(raw()), null); // no reviews/lifecycle arrays
+  assert.equal(normalizeDetail(rawDetail({ reviews: [1] })), null);
+  assert.equal(normalizeDetail(rawDetail({ lifecycle: "x" })), null);
+  const detail = normalizeDetail(rawDetail({ replaced_by_id: OTHER_ID, supersedes_id: "not-an-id" }));
+  assert.equal(detail.replaced_by_id, OTHER_ID);
+  assert.equal(detail.supersedes_id, null);
+  assert.equal(normalizeDetail(rawDetail({ replaced_by_id: "<b>" })).replaced_by_id, null);
+  assert.equal(detail.reviews.length, 1);
+});
+
+test("detailModel shows links, the full revision and a time-ordered history", () => {
+  const model = detailModel(normalizeDetail(rawDetail({
+    status: "superseded",
+    replaced_by_id: OTHER_ID,
+    supersedes_id: "33333333-3333-4333-8333-333333333333",
+    lifecycle: [{ action: "supersede", related_id: OTHER_ID, occurred_at: "2026-10-08T01:00:00.000000Z", revision: REVISION }],
+  })), { timeZone: "UTC" });
+  const fields = Object.fromEntries(model.fields);
+  assert.equal(fields["ID"], ID);
+  assert.equal(fields["リビジョン（SHA-256）"], REVISION);
+  assert.equal("訂正の対象" in fields, false);
+  assert.equal(model.status.label, "置換済み");
+  assert.deepEqual(model.links.map((link) => link.id), ["33333333-3333-4333-8333-333333333333", OTHER_ID]);
+  assert.deepEqual(model.history.map((entry) => entry.text), [
+    "承認（確認待ち → 承認済み）",
+    "訂正で置換",
+  ]);
+  assert.equal(model.history[1].relatedId, OTHER_ID);
+  assert.equal(model.history[0].revision, REVISION.slice(0, 12));
+});
+
+test("unknown actions and statuses in a detail fall back to fixed text", () => {
+  const model = detailModel(normalizeDetail(rawDetail({
+    status: "constructor",
+    reviews: [{ action: "__proto__", previous_status: "x", new_status: "y", occurred_at: null, revision: "zz" }],
+  })));
+  assert.equal(model.status.key, "other");
+  assert.match(model.history[0].text, /^その他（その他 → その他）$/);
+  assert.equal(model.history[0].revision, null);
+  assert.equal(model.history[0].time, "—");
+});
+
+test("hostile text in a detail stays plain strings", () => {
+  const model = detailModel(normalizeDetail(rawDetail({ content: HOSTILE, source: HOSTILE, tags: [HOSTILE], project: HOSTILE })));
+  assert.equal(model.content, HOSTILE);
+  assert.equal(Object.fromEntries(model.fields)["タグ"], HOSTILE);
+});
+
+test("loadMemoryDetail asks the note endpoint first, then the candidate endpoint", async () => {
+  const urls = [];
+  const detail = await loadMemoryDetail(ID, {
+    fetchImpl: async (url, options) => {
+      urls.push(url);
+      assert.equal(options.method, undefined);
+      return url.includes("/notes/") ? json({ detail: "not_found" }, 404) : json(rawDetail({ status: "pending" }));
+    },
+  });
+  assert.deepEqual(urls, [noteDetailUrl(ID), candidateDetailUrl(ID)]);
+  assert.equal(detail.status, "pending");
+  urls.length = 0;
+  await loadMemoryDetail(ID, { fetchImpl: async (url) => { urls.push(url); return json(rawDetail()); } });
+  assert.deepEqual(urls, [noteDetailUrl(ID)]);
+});
+
+test("loadMemoryDetail reports not_found, other failures, and mismatched or bad bodies", async () => {
+  await assert.rejects(loadMemoryDetail(ID, { fetchImpl: async () => json({}, 404) }), (e) => e.kind === "not_found");
+  await assert.rejects(loadMemoryDetail(ID, { fetchImpl: async () => json({}, 503) }), (e) => e.kind === "unavailable");
+  await assert.rejects(loadMemoryDetail(ID, { fetchImpl: async () => json(rawDetail({ id: OTHER_ID })) }), (e) => e.kind === "format");
+  await assert.rejects(loadMemoryDetail(ID, { fetchImpl: async () => json(raw()) }), (e) => e.kind === "format");
+  await assert.rejects(loadMemoryDetail(ID, { fetchImpl: async () => { throw new TypeError("down"); } }), (e) => e.kind === "network");
+});
+
+test("an id that is not a canonical UUID is never requested", async () => {
+  let called = 0;
+  const fetchImpl = async () => { called += 1; return json({}); };
+  for (const bad of ["../tasks", "A".repeat(36), `${ID}/x`, "", undefined]) {
+    await assert.rejects(loadMemoryDetail(bad, { fetchImpl }), (e) => e.kind === "not_found");
+  }
+  assert.equal(called, 0);
+  assert.equal(noteDetailUrl("a/b?c"), "/api/memory/notes/a%2Fb%3Fc");
+});
+
+test("the debouncer works with the real timers (they must not be called as methods)", async () => {
+  const ran = [];
+  const debounced = createDebouncer((value) => ran.push(value), 5);
+  debounced.schedule("a");
+  debounced.schedule("b");
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(ran, ["b"]);
 });

@@ -1,9 +1,10 @@
 // Read-only client for the research API. Only GET requests are made here.
 import { SESSION_STATUSES, filterSessions, normalizeSession } from "./research-view.js";
+import { sessionEnded } from "./session.js";
 
 export const LIST_LIMIT = 100;
 
-// kind: network | offline | unavailable | not_found | bad_request | server | format
+// kind: unauthorized | network | offline | unavailable | not_found | bad_request | server | format
 export class ResearchApiError extends Error {
   constructor(kind, status = null) {
     super(kind);
@@ -13,6 +14,7 @@ export class ResearchApiError extends Error {
 }
 
 export function classifyStatus(status) {
+  if (status === 401) return "unauthorized";
   if (status === 404) return "not_found";
   if (status === 422) return "bad_request";
   if (status === 503) return "unavailable";
@@ -27,6 +29,7 @@ async function getJson(url, { fetchImpl = fetch, signal } = {}) {
     if (error?.name === "AbortError") throw error;
     throw new ResearchApiError("network");
   }
+  if (response.status === 401) sessionEnded();
   if (!response.ok) throw new ResearchApiError(classifyStatus(response.status), response.status);
   try {
     return await response.json();

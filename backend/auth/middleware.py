@@ -14,6 +14,19 @@ from backend.auth.service import AuthService
 
 LOGIN_PAGE = "/login"
 LOGIN_ASSETS = frozenset({"/static/login.css", "/static/login.js"})
+#: Fetched by the browser itself without the session cookie (manifest requests and installability
+#: checks omit credentials), so without these the app could not be installed while login is on.
+#: They hold nothing user-specific: the same static bytes as in the public repository. The list is
+#: exact (no directory or prefix match) and read-only; /sw.js and the shell scripts stay protected.
+PWA_ASSETS = frozenset(
+    {
+        "/manifest.webmanifest",
+        "/static/icons/icon.svg",
+        "/static/icons/icon-192.png",
+        "/static/icons/icon-512.png",
+        "/static/icons/icon-maskable-512.png",
+    }
+)
 LOGIN_API = "/api/auth/login"
 STATUS_API = "/api/auth/status"
 LIVENESS = "/health/live"
@@ -31,7 +44,7 @@ SECURITY_HEADERS = (
 def is_public(method: str, path: str) -> bool:
     """The only requests served without a session."""
     if method in ("GET", "HEAD"):
-        return path in (LOGIN_PAGE, LIVENESS, STATUS_API) or path in LOGIN_ASSETS
+        return path in (LOGIN_PAGE, LIVENESS, STATUS_API) or path in LOGIN_ASSETS | PWA_ASSETS
     return method == "POST" and path == LOGIN_API
 
 
