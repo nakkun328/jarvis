@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "dataset_id": "jarvis-synthetic-ja-extra-v1",
+  "fixture_path": "tests/fixtures/semantic-evaluation-ja-extra-v1.json",
+  "source_base_commit": "ba80a2a6530b49d4c4b126884fe62938a7e13593",
+  "locked_at": "2026-10-04T06:53:35.473483+00:00",
+  "canonical_sha256": "015533847686661625ddd52bbf7375a4a70fa58a28dcc0296af16d7fd1fb15b5",
+  "fixture_file_sha256": "5ee1f477bd9ce2b22f488eabfe5293a86e2a1f0cb18ad9ed29778693e08fb06a",
+  "notes": 16,
+  "queries": 25,
+  "states": {
+    "superseded": 1,
+    "approved": 10,
+    "retired": 1,
+    "pending": 3,
+    "conflict": 1
+  },
+  "query_kinds": {
+    "paraphrase": 12,
+    "revision": 1,
+    "correction": 2,
+    "insufficient_evidence": 5,
+    "unrelated": 2,
+    "retirement": 1,
+    "unapproved": 2
+  },
+  "positive_relevant_queries": 20,
+  "supporting_queries": 15,
+  "negative_queries": 5,
+  "multi_source_queries": [
+    "two-controllers-disambiguation",
+    "two-meeting-times-disambiguation",
+    "two-log-formats-disambiguation"
+  ],
+  "prior_fixture": {
+    "path": "tests/fixtures/semantic-evaluation-ja-v1.json",
+    "canonical_sha256": "915366e1a160900992a4ee579dc3bae0c22d4530f0c5086020965549e87be230",
+    "fixture_file_sha256": "a83026370afe529df4b1415ae93c82df68d61b447a6c7c5e238b7cdfe318d042",
+    "queries": 12,
+    "changed": false
+  },
+  "inference_before_lock": false,
+  "retrieval_results_seen_before_lock": false,
+  "inference_owner": "coordinator /root only",
+  "review_gate": "coordinator must compare gold with synthetic current bodies before inference",
+  "gold_policy": "No result-driven changes. If a label error is discovered, preserve v1 and create a separately explained version before using it."
+}
