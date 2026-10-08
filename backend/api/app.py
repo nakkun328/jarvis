@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.chat import build_chat_router
+from backend.api.request_logging import RequestLoggingMiddleware
 from backend.chat.memory_context import MemoryContext
 from backend.chat.persistence import SQLiteConversationStore
 from backend.chat.semantic_context import SemanticMemoryContext
@@ -80,6 +81,7 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
+    app.add_middleware(RequestLoggingMiddleware)
 
     @app.get("/health/live")
     def liveness() -> dict[str, str]:
