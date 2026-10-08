@@ -245,6 +245,27 @@ class ResearchRepository:
             )
         return ResearchQueryRecord(record_id, session_id, text, position, now)
 
+    def count_queries_in_month(self, moment: datetime) -> int:
+        """Search queries recorded during the UTC calendar month containing ``moment``.
+
+        Read-only. This counts what JARVIS recorded, not what a vendor billed.
+        """
+        if not isinstance(moment, datetime) or moment.tzinfo is None:
+            raise ValueError("moment must be a timezone-aware datetime")
+        moment = moment.astimezone(UTC)
+        start = datetime(moment.year, moment.month, 1, tzinfo=UTC)
+        end = (
+            datetime(moment.year + 1, 1, 1, tzinfo=UTC)
+            if moment.month == 12
+            else datetime(moment.year, moment.month + 1, 1, tzinfo=UTC)
+        )
+        with self._read() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM research_queries WHERE created_at >= ? AND created_at < ?",
+                (_ts(start), _ts(end)),
+            ).fetchone()
+        return int(row[0])
+
     def list_queries(self, session_id: UUID) -> list[ResearchQueryRecord]:
         _require_uuid(session_id, "session_id")
         with self._read() as connection:
