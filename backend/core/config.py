@@ -1,8 +1,10 @@
 """Runtime configuration sourced from environment variables."""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+from backend.auth.passwords import PasswordHashError, parse_hash
 
 
 class ConfigError(ValueError):
@@ -11,6 +13,32 @@ class ConfigError(ValueError):
 
 _LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 _LLM_PROVIDERS = frozenset({"none", "openai"})
+_MIN_SIGNING_KEY_CHARS = 32
+_MAX_SESSION_HOURS = 24 * 365
+_TRUE = frozenset({"1", "true", "yes", "on"})
+_FALSE = frozenset({"0", "false", "no", "off"})
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in _TRUE:
+        return True
+    if value in _FALSE:
+        return False
+    raise ConfigError(f"{name} must be true or false")
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        raise ConfigError(f"{name} must be a whole number") from None
 
 
 @dataclass(frozen=True)
@@ -20,6 +48,17 @@ class Settings:
     llm_provider: str = "none"
     memory_vault_path: Path | None = None
     personality_path: Path | None = None
+    # Single-owner login. Setting the passphrase hash turns authentication on. The credentials
+    # are excluded from repr so they cannot leak through logs or assertion messages.
+    auth_passphrase_hash: str | None = field(default=None, repr=False)
+    auth_signing_key: str | None = field(default=None, repr=False)
+    auth_session_hours: int = 168
+    auth_cookie_secure: bool = True
+    trusted_proxy: bool = False
+
+    @property
+    def auth_enabled(self) -> bool:
+        return self.auth_passphrase_hash is not None
 
     def __post_init__(self) -> None:
         if not str(self.db_path).strip():
@@ -34,6 +73,25 @@ class Settings:
             raise ConfigError("JARVIS_MEMORY_VAULT_PATH must not be empty")
         if self.personality_path is not None and not str(self.personality_path).strip():
             raise ConfigError("JARVIS_PERSONALITY_PATH must not be empty")
+        if self.auth_passphrase_hash is not None:
+            try:
+                parse_hash(self.auth_passphrase_hash)
+            except PasswordHashError:
+                raise ConfigError(
+                    "JARVIS_AUTH_PASSPHRASE_HASH is not a valid hash; "
+                    "create one with: python -m backend.auth.hash_password"
+                ) from None
+        if (
+            self.auth_signing_key is not None
+            and len(self.auth_signing_key) < _MIN_SIGNING_KEY_CHARS
+        ):
+            raise ConfigError(
+                f"JARVIS_AUTH_SIGNING_KEY must be at least {_MIN_SIGNING_KEY_CHARS} characters"
+            )
+        if not 1 <= self.auth_session_hours <= _MAX_SESSION_HOURS:
+            raise ConfigError(
+                f"JARVIS_AUTH_SESSION_HOURS must be between 1 and {_MAX_SESSION_HOURS}"
+            )
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -46,6 +104,13 @@ class Settings:
         personality_path = os.environ.get("JARVIS_PERSONALITY_PATH")
         if personality_path is not None and not personality_path.strip():
             raise ConfigError("JARVIS_PERSONALITY_PATH must not be empty")
+        passphrase_hash = os.environ.get("JARVIS_AUTH_PASSPHRASE_HASH")
+        if passphrase_hash is not None and not passphrase_hash.strip():
+            # Fail closed: an empty value must never silently mean "authentication off".
+            raise ConfigError("JARVIS_AUTH_PASSPHRASE_HASH must not be empty")
+        signing_key = os.environ.get("JARVIS_AUTH_SIGNING_KEY")
+        if signing_key is not None and not signing_key.strip():
+            raise ConfigError("JARVIS_AUTH_SIGNING_KEY must not be empty")
         return cls(
             db_path=Path(raw_path).expanduser(),
             log_level=os.environ.get("JARVIS_LOG_LEVEL", "INFO").upper(),
@@ -54,4 +119,9 @@ class Settings:
             personality_path=(
                 Path(personality_path).expanduser() if personality_path is not None else None
             ),
+            auth_passphrase_hash=passphrase_hash.strip() if passphrase_hash is not None else None,
+            auth_signing_key=signing_key.strip() if signing_key is not None else None,
+            auth_session_hours=_env_int("JARVIS_AUTH_SESSION_HOURS", 168),
+            auth_cookie_secure=_env_bool("JARVIS_AUTH_COOKIE_SECURE", True),
+            trusted_proxy=_env_bool("JARVIS_TRUSTED_PROXY", False),
         )
