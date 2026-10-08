@@ -19,7 +19,9 @@ The application factory accepts explicit settings so tests and future embedding 
 - Personality and process-local conversation context sit above the provider interface; durable memory follows in Phase 2.
 - Memory separates user facts, project facts, conversation logs, work state, temporary state, and self memory.
 - The agent orchestrator owns plan, execution, observation, verification, retries, and reporting.
-- Tools encapsulate external operations and permission checks. Skills compose tools into reusable procedures. The tool contract, registry, and permission policy exist in `backend.tools` (see [tools.md](tools.md)); no real tools are implemented yet.
+- Tools encapsulate external operations and permission checks. Skills compose tools into reusable procedures. The tool contract, registry, and permission policy exist in `backend.tools` (see [tools.md](tools.md)); the only real tools are the read-only filesystem tools in `backend.tools.filesystem` (see [tools-filesystem.md](tools-filesystem.md)).
 - The device layer routes work to capable agents while the server owns shared state.
+
+Task state, a single-worker queue, progress, and result verification are described in [tasks.md](tasks.md); they are a library with no daemon, API, or UI yet.
 
 The later phases in [development.md](development.md) keep storage and provider choices replaceable.

@@ -1,6 +1,6 @@
 # Tools and skills
 
-Tools are the boundary between the core and external operations. The contract, registry, and permission layer live in `backend/tools/` (Phase 4 / T1: JAR-68, JAR-69, JAR-70). The first real tool is the structured shell tool (Phase 4 / T3, JAR-72), described in [tools-shell.md](tools-shell.md); it registers nothing by default. There are no filesystem, network, or device tools, no LLM wiring, no API route, and no task queue. The contract, registry, and permission tests use fake tools only.
+Tools are the boundary between the core and external operations. The contract, registry, and permission layer live in `backend/tools/` (Phase 4 / T1: JAR-68, JAR-69, JAR-70). The real tools so far are the **read-only filesystem tools** (`fs.list`, `fs.read_text`, `fs.search`; Phase 4 / T2 first slice, JAR-71), described in [tools-filesystem.md](tools-filesystem.md), and the structured shell tool (Phase 4 / T3, JAR-72), described in [tools-shell.md](tools-shell.md), which registers nothing by default. There are no write, move, delete, network, or device tools, no LLM wiring, no API route, and no task queue. The contract tests use fake tools; the filesystem tests use pytest temporary directories only.
 
 Skills compose multiple tools into workflows such as research, development, or file organization. Execution records will preserve observations and verification results. A tool reporting success is insufficient to mark a task complete; the orchestrator checks the resulting state when possible.
 
@@ -58,7 +58,8 @@ Voice, chat, or model text is never a confirmation. Tool arguments such as "the 
 
 ## Not implemented
 
-- Real tools beyond the first shell slice (filesystem, network, calendar, GitHub) and OS-level sandboxing; scope predicates are supplied by each tool's integration (see [tools-shell.md](tools-shell.md) for the shell tool's).
+- Real tools beyond the read-only filesystem and first shell slices (filesystem write/move/delete, network, calendar, GitHub) and OS-level sandboxing. See [tools-shell.md](tools-shell.md) for the shell tool's scope predicates. `filesystem_scope_checks()` supplies scope predicates for the filesystem tools; later tools need their own.
+- A way for a tool to report a specific `ToolErrorCode` (for example `invalid_arguments` or `permission_denied`): the registry maps every exception raised inside a tool to `internal_error`.
 - Confirmation UI and the identity or authentication of the confirming human. Grants carry no actor and nothing verifies who created one; the grant ledger is in-process and is lost on restart.
 - Persistent audit storage and rotation.
 - Task queue, orchestrator loop, retries, and result verification by the orchestrator.
