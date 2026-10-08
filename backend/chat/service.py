@@ -1,5 +1,6 @@
 """Vendor-neutral chat flow with context updates after verified responses."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack
@@ -8,7 +9,7 @@ from time import perf_counter
 from typing import cast
 from uuid import UUID
 
-from backend.chat.activity import ActivityErrorCode, ActivityEvent
+from backend.chat.activity import ActivityErrorCode, ActivityEvent, ActivityRoute
 from backend.chat.context import (
     ConversationCapacityError,
     ConversationNotFound,
@@ -24,8 +25,13 @@ from backend.providers.base import (
     LLMProvider,
     ProviderError,
 )
+from backend.router import Route, RouteDecision, Router, RouteReason, fallback
 
 _LOG = logging.getLogger(__name__)
+
+# A safety net around ``Router.decide``, which has its own, shorter timeout (8 s by default). It
+# only matters for a router that never answers; the turn then continues on the Main Agent path.
+ROUTER_GUARD_SECONDS = 15.0
 
 # Failure logs carry only these event names, the error type and the elapsed time. Exception
 # messages and request/response content never reach the log.
@@ -67,6 +73,13 @@ def _log_failure(exc: Exception, started: float, *, streaming: bool) -> None:
             return
 
 
+_DECIDED = {
+    Route.casual: ActivityRoute.CASUAL,
+    Route.memory: ActivityRoute.MEMORY,
+    Route.research: ActivityRoute.RESEARCH,
+}
+
+
 @dataclass(frozen=True)
 class ChatResult:
     conversation_id: UUID
@@ -95,12 +108,41 @@ class ChatService:
         *,
         memory_context: MemoryContext | None = None,
         personality: PersonalityProfile | None = None,
+        router: Router | None = None,
     ) -> None:
         self.provider = provider
+        # Off by default. With a router, each turn first asks it for a decision (see _route).
+        self.router = router
         self.store = store or ConversationStore()
         self.memory_context = memory_context
         self._system_prompt = (
             SYSTEM_PROMPT if personality is None else render_system_prompt(personality)
+        )
+
+    async def _route(self, message: str) -> ActivityEvent:
+        """Ask the router for a decision and report it as ``route_selected``.
+
+        Only the Main Agent path exists today, so every decision, whatever the router chose,
+        runs on ``main``; the event says so (``route``) and keeps the router's choice apart
+        (``decided``). A router that fails, hangs or returns something else is the same as a
+        fallback: the turn is never blocked or failed by it. Cancellation propagates. The
+        decision is not stored here: the only records are the optional audit sink the router
+        was wrapped with and its fixed log event.
+        """
+        assert self.router is not None
+        try:
+            decision = await asyncio.wait_for(self.router.decide(message), ROUTER_GUARD_SECONDS)
+        except TimeoutError:
+            _LOG.warning("chat.router_failed", extra={"error_type": "TimeoutError"})
+            decision = fallback(RouteReason.timeout)
+        except Exception as exc:  # CancelledError is a BaseException and propagates.
+            _LOG.warning("chat.router_failed", extra={"error_type": type(exc).__name__})
+            decision = fallback(RouteReason.model_error)
+        if not isinstance(decision, RouteDecision):
+            _LOG.warning("chat.router_failed", extra={"error_type": "InvalidDecision"})
+            decision = fallback(RouteReason.invalid_output)
+        return ActivityEvent.route_selected(
+            ActivityRoute.MAIN, _DECIDED[decision.route], decision.used_fallback
         )
 
     async def _request(
@@ -156,6 +198,9 @@ class ChatService:
         try:
             emit(ActivityEvent.received())
             async with self.store.open(conversation_id) as (current_id, conversation):
+                if self.router is not None:
+                    emit(ActivityEvent.routing())
+                    emit(await self._route(message))
                 request, notes = await self._request(conversation.messages, message)
                 if notes is not None:
                     emit(ActivityEvent.memory_lookup(notes))
@@ -198,6 +243,12 @@ class ChatService:
                 yield ActivityEvent.received()
             async with self.store.open(conversation_id) as (current_id, conversation):
                 chunks: list[str] = []
+                if self.router is not None:
+                    if activity:
+                        yield ActivityEvent.routing()
+                    selected = await self._route(message)
+                    if activity:
+                        yield selected
                 request, notes = await self._request(conversation.messages, message)
                 if activity:
                     if notes is not None:

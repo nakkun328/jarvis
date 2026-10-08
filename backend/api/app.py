@@ -33,7 +33,25 @@ from backend.personality.settings import PersonalityError, load_personality
 from backend.providers.base import LLMProvider
 from backend.providers.factory import create_provider
 from backend.research.repository import ResearchRepository
+from backend.router import AuditedRouter, InMemoryAuditSink, LLMRouter, Router, RuleRouter
 from backend.tasks.repository import TaskRepository
+
+
+def _build_router(settings: Settings, provider: LLMProvider | None) -> Router:
+    """The router chosen by ``JARVIS_ROUTER``, with an in-memory audit (no text, not persisted).
+
+    ``llm`` reuses the already configured chat provider: no new key, model or endpoint. An
+    injected ``router=`` is used as given and is not wrapped.
+    """
+    if settings.router == "rule":
+        inner: Router = RuleRouter()
+    elif settings.router == "llm":
+        if provider is None:
+            raise ConfigError("JARVIS_ROUTER=llm requires a configured chat provider")
+        inner = LLMRouter(provider)
+    else:  # pragma: no cover - Settings validates the value
+        raise ConfigError("JARVIS_ROUTER is invalid")
+    return AuditedRouter(inner, InMemoryAuditSink())
 
 
 def create_app(
@@ -43,6 +61,7 @@ def create_app(
     embedding_provider: EmbeddingProvider | None = None,
     memory_index: VectorIndex | None = None,
     auth: AuthService | None = None,
+    router: Router | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     auth = auth or AuthService.from_settings(settings)
@@ -70,12 +89,15 @@ def create_app(
         )
     if provider is None:
         provider = create_provider(settings)
+    if router is None and settings.router != "off":
+        router = _build_router(settings, provider)
     chat_service = (
         ChatService(
             provider,
             SQLiteConversationStore(database),
             memory_context=memory_context,
             personality=personality,
+            router=router,
         )
         if provider is not None
         else None

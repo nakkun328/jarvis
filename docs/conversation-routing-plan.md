@@ -1,6 +1,6 @@
 # Conversation routing, activity view and realtime voice (plan)
 
-Status: **plan only** (the router contract and evaluation set exist as a library: see [router.md](router.md)). Nothing here is implemented, and nothing is adopted until the maintainer decides the open questions at the end. The Linear milestone is *M5 — Conversation Routing & Voice*.
+Status: **plan only** (the router contract and evaluation set exist as a library, and an opt-in, off-by-default first wiring slice shows the router's decision in the Activity View while the Main Agent still answers every turn: see [router.md](router.md)). Nothing else here is implemented, and nothing is adopted until the maintainer decides the open questions at the end. The Linear milestone is *M5 — Conversation Routing & Voice*.
 
 ## Goal
 
