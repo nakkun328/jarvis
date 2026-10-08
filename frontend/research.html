@@ -19,11 +19,51 @@
 
       <main class="research-main">
         <p class="readonly-note" id="readonly-note">
-          <strong>ローカル専用・読み取り専用</strong>
-          このページは保存された調査の内容を表示するだけです。調査の開始・取り消しなどの操作はできません。
-          引用は、保存された出典の本文に引用文がそのまま含まれていることを確認したものだけです（内容の正しさの保証ではありません）。
+          <strong>ローカル専用</strong>
+          このページでは、調べたいことを依頼して結果を見られます。保存された調査の一覧と詳細も確認できます。
+          引用は、出典の本文に引用文がそのまま含まれていることを確認したものだけです（内容の正しさの保証ではありません）。
           出典の評価値（0〜1）は簡易な目安で、事実の判定ではありません。
         </p>
+
+        <section class="run-panel" id="run-panel" aria-labelledby="run-heading">
+          <h2 id="run-heading">新しい調査</h2>
+          <p class="run-unavailable" id="run-unavailable" role="status" hidden></p>
+
+          <form class="run-form" id="run-form" novalidate hidden>
+            <label class="run-label" for="run-question">調べたいこと</label>
+            <textarea
+              id="run-question"
+              class="run-question"
+              rows="4"
+              autocomplete="off"
+              aria-describedby="run-counter run-error"
+              placeholder="例: 〇〇の最新バージョンで変わったことは？"
+            ></textarea>
+            <p class="run-counter counter" id="run-counter">0 / 2000</p>
+
+            <label class="run-label" for="run-level">調べ方</label>
+            <select id="run-level" class="run-level" aria-describedby="run-level-hint"></select>
+            <p class="run-hint hint" id="run-level-hint"></p>
+
+            <p class="run-error error-text" id="run-error" role="alert"></p>
+            <p class="run-notice" id="run-notice">調べるときは、質問文が検索サービス(Tavily)へ送信されます。サービス側で保持・利用される可能性があります。記憶の内容は送信しません。</p>
+            <button class="run-primary" id="run-submit" type="submit" aria-describedby="run-notice" disabled>
+              調査を開始する
+            </button>
+          </form>
+
+          <div class="run-progress" id="run-progress" hidden>
+            <h3 id="run-progress-heading" tabindex="-1">調査しています</h3>
+            <p class="run-live" id="run-live" role="status" aria-live="polite"></p>
+            <ol class="stages" id="run-stages" aria-label="調査の段階"></ol>
+            <dl class="run-counters" id="run-counters"></dl>
+            <p class="run-progress-note" id="run-progress-note" role="status"></p>
+            <p class="error-text" id="run-progress-error" role="alert"></p>
+            <button class="run-secondary" id="run-cancel" type="button">調査を取り消す</button>
+          </div>
+
+          <div class="run-result" id="run-result" hidden></div>
+        </section>
 
         <div class="research-layout" id="layout" data-view="list">
           <section class="list-pane" aria-labelledby="list-heading">

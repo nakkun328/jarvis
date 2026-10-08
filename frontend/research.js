@@ -1,4 +1,5 @@
 import { ResearchApiError, loadSession, loadSessionList } from "./research-api.js";
+import { initRunPanel } from "./research-run.js";
 import {
   SESSION_STATUSES,
   apiErrorMessage,
@@ -25,6 +26,7 @@ const listBox = $("#session-list");
 const listNote = $("#list-note");
 const layout = $("#layout");
 const detailPane = $("#detail");
+const mainBox = $(".research-main");
 const detailHeading = $("#detail-heading");
 const detailBody = $("#detail-body");
 const backButton = $("#back");
@@ -80,6 +82,11 @@ function urlNode(url, href, className) {
   }
   return wrap;
 }
+
+const runPanel = initRunPanel({
+  onSessionsChanged: () => void refreshList(),
+  onOpenDetail: (id) => navigateTo(id),
+});
 
 const clock = () => new Date().toLocaleTimeString("ja-JP");
 
@@ -166,7 +173,7 @@ function renderList() {
     });
     if (model.empty && state.loaded) {
       const message = model.empty === "none"
-        ? "調査はまだありません。調査データを作る機能はまだ接続されておらず、ここには保存済みの調査の表示だけが行われます。"
+        ? "調査はまだありません。上のフォームから調べたいことを依頼できます。"
         : "この状態の調査はありません。";
       nodes.push(el("li", "empty", message));
     }
@@ -203,6 +210,7 @@ async function refreshList() {
     state.listError = null;
     state.failures = 0;
     state.lastUpdated = clock();
+    runPanel.notifySessions(state.all);
   } catch (error) {
     if (error?.name === "AbortError" || state.listAbort !== controller) return;
     state.failures += 1;
@@ -296,6 +304,7 @@ function claimNode(claim) {
 function renderDetail() {
   detailPane.setAttribute("aria-busy", String(state.detailLoading));
   layout.dataset.view = state.selectedId ? "detail" : "list";
+  mainBox.dataset.view = layout.dataset.view;
   if (!state.selectedId) {
     state.renderedDetail = "";
     detailHeading.textContent = "詳細";

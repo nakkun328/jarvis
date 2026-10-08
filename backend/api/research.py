@@ -1,8 +1,10 @@
-"""Read-only research session endpoints.
+"""Research session endpoints: read what is stored, and (only when configured) start or cancel.
 
-Everything here reports what the research repository has persisted. Nothing is
-searched, fetched, summarised or scored when a request arrives, and there are no
-write routes: the stored data is inspected, never changed, from this API.
+The GET routes report what the research repository has persisted. Nothing is searched,
+fetched, summarised or scored when a GET arrives. The two POST routes hand work to the
+research run service (``backend.research.run_control.ResearchRuns``) and exist only when the
+application is configured for research; otherwise they answer 503 ``research_not_configured``.
+Every POST first passes the same-origin guard, even with login off.
 
 Stored text (question, queries, titles, quotes, results) is untrusted data and is
 only ever placed inside JSON string values. Responses are built from explicit
@@ -11,14 +13,19 @@ accident. Error bodies carry a fixed code and never repeat anything the caller
 sent or anything that was stored.
 """
 
+import json
 import logging
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 
+from backend.api.origin import is_cross_origin_request
 from backend.research.models import (
+    MAX_QUESTION_CHARS,
     RatingName,
     ResearchClaim,
     ResearchConflict,
@@ -28,6 +35,11 @@ from backend.research.models import (
     ResearchStatus,
 )
 from backend.research.repository import ResearchRepository, ResearchRepositoryError
+from backend.research.run_control import (
+    REQUESTABLE_LEVELS,
+    ResearchRuns,
+    RunRefused,
+)
 
 _LOG = logging.getLogger(__name__)
 
@@ -39,6 +51,16 @@ ERROR_INVALID_LIMIT = "invalid_limit"
 ERROR_INVALID_STATUS = "invalid_status"
 ERROR_SESSION_NOT_FOUND = "session_not_found"
 ERROR_STORAGE_UNAVAILABLE = "storage_unavailable"
+ERROR_NOT_CONFIGURED = "research_not_configured"
+ERROR_FORBIDDEN = "forbidden"
+ERROR_UNSUPPORTED_MEDIA = "unsupported_media_type"
+ERROR_INVALID_BODY = "invalid_body"
+ERROR_QUESTION_REQUIRED = "question_required"
+ERROR_QUESTION_TOO_LONG = "question_too_long"
+ERROR_QUESTION_CHARACTERS = "question_invalid_characters"
+ERROR_INVALID_LEVEL = "invalid_level"
+
+MAX_BODY_BYTES = 16 * 1024
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -126,6 +148,7 @@ def session_detail(
     sources: list[ResearchSource],
     claims: list[ResearchClaim],
     conflicts: list[ResearchConflict] | None = None,
+    progress: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     detail = session_summary(session)
     detail["result_text"] = session.result_text
@@ -133,6 +156,9 @@ def session_detail(
     detail["sources"] = [_source_dto(source) for source in sources]
     detail["claims"] = [_claim_dto(claim) for claim in claims]
     detail["conflicts"] = [_conflict_dto(conflict) for conflict in conflicts or []]
+    if progress is not None:
+        # Present only while this process is running the session: a stage code and counters.
+        detail["progress"] = dict(progress)
     return detail
 
 
@@ -166,18 +192,101 @@ def _parse_session_id(raw: str) -> UUID:
     return session_id
 
 
-def create_research_router(repository: ResearchRepository) -> APIRouter:
-    """Build the read-only research router.
+def _validated_question(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise HTTPException(status_code=422, detail=ERROR_QUESTION_REQUIRED)
+    if len(value) > MAX_QUESTION_CHARS:
+        raise HTTPException(status_code=422, detail=ERROR_QUESTION_TOO_LONG)
+    if any(ord(c) < 32 and c not in "\n\t" or ord(c) == 127 for c in value):
+        raise HTTPException(status_code=422, detail=ERROR_QUESTION_CHARACTERS)
+    return value
 
-    The endpoints are sync functions, so FastAPI runs them in its thread pool and
-    a slow disk never blocks the event loop. Each repository call opens and closes
-    its own short-lived read-only SQLite connection.
+
+async def _read_body(request: Request) -> dict[str, Any]:
+    """The JSON object of a POST body, size-bounded. Nothing of it is echoed on failure."""
+    media = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    if media != "application/json":
+        raise HTTPException(status_code=415, detail=ERROR_UNSUPPORTED_MEDIA)
+    declared = request.headers.get("content-length", "")
+    if declared.isascii() and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+        raise HTTPException(status_code=413, detail=ERROR_INVALID_BODY)
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail=ERROR_INVALID_BODY)
+    try:
+        data = json.loads(bytes(body))
+    except (ValueError, RecursionError):
+        raise HTTPException(status_code=422, detail=ERROR_INVALID_BODY) from None
+    if not isinstance(data, dict) or set(data) != {"question", "level"}:
+        raise HTTPException(status_code=422, detail=ERROR_INVALID_BODY)
+    return data
+
+
+def create_research_router(
+    repository: ResearchRepository,
+    runs: ResearchRuns | None = None,
+    *,
+    unavailable_reason: str | None = None,
+    trusted_proxy: bool = False,
+) -> APIRouter:
+    """Build the research router.
+
+    ``runs`` is the run service when research is configured. Without it the status route
+    reports ``unavailable_reason`` and the POST routes answer 503. The endpoints are sync
+    functions (or hand blocking work to the thread pool), so a slow disk never blocks the
+    event loop. Each repository call opens and closes its own short-lived SQLite connection.
     """
     router = APIRouter()
 
     def storage_unavailable(exc: ResearchRepositoryError) -> HTTPException:
         _LOG.warning("Research storage failed: %s", type(exc).__name__)
         return HTTPException(status_code=503, detail=ERROR_STORAGE_UNAVAILABLE)
+
+    def guard_post(request: Request) -> ResearchRuns:
+        if is_cross_origin_request(request.scope, trusted_proxy):
+            raise HTTPException(status_code=403, detail=ERROR_FORBIDDEN)
+        if runs is None:
+            raise HTTPException(status_code=503, detail=ERROR_NOT_CONFIGURED)
+        return runs
+
+    @router.get("/api/research/status")
+    def research_status() -> dict[str, Any]:
+        if runs is not None:
+            return {"enabled": True}
+        return {"enabled": False, "reason": unavailable_reason or "disabled"}
+
+    @router.post("/api/research/sessions", status_code=202)
+    async def create_session(request: Request) -> dict[str, str]:
+        service = guard_post(request)
+        data = await _read_body(request)
+        question = _validated_question(data["question"])
+        level_value = data["level"]
+        level = next(
+            (item for item in REQUESTABLE_LEVELS if item.value == level_value), None
+        ) if isinstance(level_value, str) else None
+        if level is None:
+            raise HTTPException(status_code=422, detail=ERROR_INVALID_LEVEL)
+        try:
+            session_id = await run_in_threadpool(service.submit, question, level)
+        except RunRefused as refusal:
+            raise HTTPException(status_code=refusal.status_code, detail=refusal.code) from None
+        except ResearchRepositoryError as exc:
+            raise storage_unavailable(exc) from exc
+        return {"id": str(session_id)}
+
+    @router.post("/api/research/sessions/{session_id}/cancel")
+    def cancel_session(session_id: str, request: Request) -> dict[str, str]:
+        service = guard_post(request)
+        parsed_id = _parse_session_id(session_id)
+        try:
+            outcome = service.cancel(parsed_id)
+        except RunRefused as refusal:
+            raise HTTPException(status_code=refusal.status_code, detail=refusal.code) from None
+        except ResearchRepositoryError as exc:
+            raise storage_unavailable(exc) from exc
+        return {"id": str(parsed_id), "status": outcome}
 
     @router.get("/api/research/sessions")
     def list_sessions(
@@ -206,6 +315,7 @@ def create_research_router(repository: ResearchRepository) -> APIRouter:
             conflicts = repository.list_conflicts(parsed_id)
         except ResearchRepositoryError as exc:
             raise storage_unavailable(exc) from exc
-        return session_detail(session, queries, sources, claims, conflicts)
+        progress = runs.progress(parsed_id) if runs is not None else None
+        return session_detail(session, queries, sources, claims, conflicts, progress)
 
     return router

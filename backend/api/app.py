@@ -1,8 +1,10 @@
 """FastAPI application factory and health endpoints."""
 
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -33,8 +35,18 @@ from backend.personality.settings import PersonalityError, load_personality
 from backend.providers.base import LLMProvider
 from backend.providers.factory import create_provider
 from backend.research.repository import ResearchRepository
+from backend.research.run_control import (
+    REASON_DISABLED,
+    REASON_NO_CHAT_PROVIDER,
+    REASON_NO_SEARCH_PROVIDER,
+)
+from backend.research.search import SearchProvider
+from backend.research.search_factory import create_search_provider
 from backend.router import AuditedRouter, InMemoryAuditSink, LLMRouter, Router, RuleRouter
 from backend.tasks.repository import TaskRepository
+
+if TYPE_CHECKING:
+    from backend.research.standard import PageFetcher
 
 
 def _build_router(settings: Settings, provider: LLMProvider | None) -> Router:
@@ -61,6 +73,8 @@ def create_app(
     embedding_provider: EmbeddingProvider | None = None,
     memory_index: VectorIndex | None = None,
     auth: AuthService | None = None,
+    search_provider: SearchProvider | None = None,
+    page_reader: "PageFetcher | None" = None,
     router: Router | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
@@ -89,6 +103,10 @@ def create_app(
         )
     if provider is None:
         provider = create_provider(settings)
+    research_repository = ResearchRepository(database)
+    run_service, research_reason = _build_research(
+        settings, database, research_repository, provider, search_provider, page_reader
+    )
     if router is None and settings.router != "off":
         router = _build_router(settings, provider)
     chat_service = (
@@ -106,10 +124,16 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         configure_logging(settings.log_level)
+        worker: asyncio.Task[None] | None = None
         try:
             database.initialize()
             logging.getLogger(__name__).info("JARVIS backend started")
             auth.log_startup()
+            if run_service is not None:
+                # Settle what a previous process left behind (nothing is re-run), then work.
+                run_service.recover()
+                worker = asyncio.create_task(run_service.run_worker(), name="research-worker")
+                logging.getLogger(__name__).info("Web research is enabled")
             logging.getLogger(__name__).info(
                 "Personality (%s): %s",
                 "file" if settings.personality_path is not None else "default",
@@ -117,6 +141,10 @@ def create_app(
             )
             yield
         finally:
+            if worker is not None:
+                worker.cancel()
+                with suppress(asyncio.CancelledError):
+                    await worker
             close = getattr(provider, "aclose", None)
             if close is not None:
                 await close()
@@ -146,7 +174,14 @@ def create_app(
 
     app.include_router(build_chat_router(chat_service))
     app.include_router(create_memory_router(MemoryRepository(database)))
-    app.include_router(create_research_router(ResearchRepository(database)))
+    app.include_router(
+        create_research_router(
+            research_repository,
+            run_service,
+            unavailable_reason=research_reason,
+            trusted_proxy=settings.trusted_proxy,
+        )
+    )
     app.include_router(create_tasks_router(TaskRepository(database)))
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
@@ -190,6 +225,45 @@ def create_app(
             )
 
     return app
+
+
+def _build_research(
+    settings: Settings,
+    database: Database,
+    repository: ResearchRepository,
+    chat_provider: LLMProvider | None,
+    search_provider: SearchProvider | None,
+    page_reader: "PageFetcher | None",
+):
+    """The research run service and, when there is none, the fixed reason why not.
+
+    Research needs all of: the switch, a search provider, and a chat provider. The pipeline
+    (and the HTTP client it needs) is imported only when all three are present.
+    """
+    if not settings.research_enabled:
+        return None, REASON_DISABLED
+    search = search_provider or create_search_provider(settings, repository=repository)
+    if search is None:
+        return None, REASON_NO_SEARCH_PROVIDER
+    if chat_provider is None:
+        return None, REASON_NO_CHAT_PROVIDER
+    try:
+        from backend.research.reader import PageReader
+        from backend.research.runner import TASK_TIMEOUT_SECONDS, ResearchRunService
+    except ImportError as exc:
+        raise ConfigError("Install httpx to use web research") from exc
+    from backend.tasks.queue import TaskQueue
+
+    exhausted = getattr(search, "is_exhausted", None)
+    service = ResearchRunService(
+        repository,
+        TaskQueue(TaskRepository(database), timeout_seconds=TASK_TIMEOUT_SECONDS),
+        search=search,
+        reader=page_reader or PageReader(),
+        llm=chat_provider,
+        is_budget_exhausted=exhausted if callable(exhausted) else None,
+    )
+    return service, None
 
 
 app = create_app()

@@ -1,6 +1,7 @@
 """Shared test isolation."""
 
 import logging
+import socket
 from collections.abc import Iterator
 
 import pytest
@@ -29,3 +30,16 @@ def restore_logging_state() -> Iterator[None]:
         logger.handlers[:] = kept
         logger.propagate, logger.disabled = propagate, disabled
         logger.setLevel(saved_level)
+
+
+@pytest.fixture
+def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail any test that opens a connection or resolves a name (opt in per module)."""
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("network access attempted")
+
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    monkeypatch.setattr(socket.socket, "connect_ex", refuse)
+    monkeypatch.setattr(socket, "getaddrinfo", refuse)
+    monkeypatch.setattr(socket, "create_connection", refuse)
