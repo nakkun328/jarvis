@@ -6,6 +6,7 @@ coordinates vault creation and then records its revision here.
 
 import json
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -172,6 +173,46 @@ class MemoryRepository:
                 rows = connection.execute(
                     f"SELECT * FROM memory_records WHERE status = ? ORDER BY {order} LIMIT ?",
                     (status.value, limit),
+                ).fetchall()
+        except (OSError, sqlite3.Error) as exc:
+            raise MemoryRepositoryError("Memory storage unavailable") from exc
+        return [_stored(row) for row in rows]
+
+    def search_by_status(
+        self, statuses: Sequence[MemoryStatus], terms: Sequence[str], *, limit: int = 50
+    ) -> list[StoredMemory]:
+        """Newest-first records in `statuses` where every term appears in the text.
+
+        A term matches when it is a substring of the content, project, category or any tag. The
+        matching is `instr` over lowercased values with the term bound as a parameter, so it is
+        a plain substring test: no wildcard, escape or SQL syntax in a term has any meaning.
+        SQLite's `lower` folds ASCII only; other scripts match exactly.
+        """
+        if not statuses or not all(isinstance(status, MemoryStatus) for status in statuses):
+            raise ValueError("statuses must be MemoryStatus values")
+        if not terms or not all(isinstance(term, str) and term for term in terms):
+            raise ValueError("terms must be nonempty strings")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("limit must be a positive integer")
+        match_one = (
+            "(instr(lower(content), lower(?)) > 0 "
+            "OR instr(lower(coalesce(project, '')), lower(?)) > 0 "
+            "OR instr(lower(category), lower(?)) > 0 "
+            "OR EXISTS (SELECT 1 FROM json_each(memory_records.tags) "
+            "WHERE instr(lower(json_each.value), lower(?)) > 0))"
+        )
+        placeholders = ", ".join("?" for _ in statuses)
+        where = " AND ".join([f"status IN ({placeholders})", *[match_one] * len(terms)])
+        parameters: list[object] = [status.value for status in statuses]
+        for term in terms:
+            parameters.extend([term] * 4)
+        parameters.append(limit)
+        try:
+            with self.database.connect(read_only=True) as connection:
+                rows = connection.execute(
+                    f"SELECT * FROM memory_records WHERE {where} "
+                    "ORDER BY created_at DESC, id DESC LIMIT ?",
+                    parameters,
                 ).fetchall()
         except (OSError, sqlite3.Error) as exc:
             raise MemoryRepositoryError("Memory storage unavailable") from exc
