@@ -19,7 +19,9 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 
 from backend.research.models import (
+    RatingName,
     ResearchClaim,
+    ResearchConflict,
     ResearchQueryRecord,
     ResearchSession,
     ResearchSource,
@@ -72,12 +74,21 @@ def _source_dto(source: ResearchSource) -> dict[str, Any]:
         "published_at": _iso(source.published_at),
         "retrieved_at": _iso(source.retrieved_at),
         "source_type": source.source_type.value,
+        # How the type was decided; null for sources stored before this was recorded.
+        "classification": {
+            "rule": source.classification_rule,
+            "basis": source.classification_basis.value if source.classification_basis else None,
+        },
         "evaluation": {
             "authority": evaluation.authority,
             "freshness": evaluation.freshness,
             "primary": evaluation.primary,
             "relevance": evaluation.relevance,
             "agreement": evaluation.agreement,
+        },
+        # Fixed reason codes per rating (empty list: none recorded).
+        "reasons": {
+            name.value: [code.value for code in source.reasons.get(name)] for name in RatingName
         },
     }
 
@@ -93,17 +104,35 @@ def _claim_dto(claim: ResearchClaim) -> dict[str, Any]:
     }
 
 
+def _conflict_dto(conflict: ResearchConflict) -> dict[str, Any]:
+    # Ids and fixed codes only: a conflict is a flag for a reader, it carries no text.
+    return {
+        "id": str(conflict.id),
+        "kind": conflict.kind.value,
+        "status": conflict.status.value,
+        "resolution": conflict.resolution.value if conflict.resolution else None,
+        "claim_a_id": str(conflict.claim_a_id),
+        "source_a_id": str(conflict.source_a_id),
+        "claim_b_id": str(conflict.claim_b_id) if conflict.claim_b_id else None,
+        "source_b_id": str(conflict.source_b_id),
+        "detected_at": _iso(conflict.detected_at),
+        "resolved_at": _iso(conflict.resolved_at),
+    }
+
+
 def session_detail(
     session: ResearchSession,
     queries: list[ResearchQueryRecord],
     sources: list[ResearchSource],
     claims: list[ResearchClaim],
+    conflicts: list[ResearchConflict] | None = None,
 ) -> dict[str, Any]:
     detail = session_summary(session)
     detail["result_text"] = session.result_text
     detail["queries"] = [_query_dto(query) for query in queries]
     detail["sources"] = [_source_dto(source) for source in sources]
     detail["claims"] = [_claim_dto(claim) for claim in claims]
+    detail["conflicts"] = [_conflict_dto(conflict) for conflict in conflicts or []]
     return detail
 
 
@@ -174,8 +203,9 @@ def create_research_router(repository: ResearchRepository) -> APIRouter:
             queries = repository.list_queries(parsed_id)
             sources = repository.list_sources(parsed_id)
             claims = repository.list_claims(parsed_id)
+            conflicts = repository.list_conflicts(parsed_id)
         except ResearchRepositoryError as exc:
             raise storage_unavailable(exc) from exc
-        return session_detail(session, queries, sources, claims)
+        return session_detail(session, queries, sources, claims, conflicts)
 
     return router

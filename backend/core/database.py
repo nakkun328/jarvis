@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 _HISTORY_MISMATCH = "SQLite schema version and migration history disagree"
 
 
@@ -196,6 +196,10 @@ class Database:
                         self._create_task_tables(connection)
                         self._record_migration(connection, 7)
                         connection.execute("PRAGMA user_version = 7")
+                    if version < 8:
+                        self._extend_research_tables(connection)
+                        self._record_migration(connection, 8)
+                        connection.execute("PRAGMA user_version = 8")
                     if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
                         raise DatabaseError("SQLite foreign key check failed during migration")
         except (OSError, sqlite3.Error) as exc:
@@ -267,6 +271,69 @@ class Database:
         )
         connection.execute("CREATE INDEX research_claims_by_session ON research_claims(session_id)")
         connection.execute("CREATE INDEX research_claims_by_source ON research_claims(source_id)")
+
+    @staticmethod
+    def _extend_research_tables(connection: sqlite3.Connection) -> None:
+        """v8 (additive): how a source type was decided, rating reason codes, conflicts.
+
+        Existing rows stay valid: the new source columns are nullable and a v7 source simply
+        has no recorded rule or reasons.
+        """
+        connection.execute(
+            "ALTER TABLE research_sources ADD COLUMN classification_rule TEXT "
+            "CHECK(classification_rule IS NULL OR length(classification_rule) BETWEEN 1 AND 64)"
+        )
+        connection.execute(
+            "ALTER TABLE research_sources ADD COLUMN classification_basis TEXT "
+            "CHECK(classification_basis IS NULL OR classification_basis IN "
+            "('host', 'path', 'title', 'default', 'provided'))"
+        )
+        connection.execute(
+            "CREATE TABLE research_source_reasons ("
+            "source_id TEXT NOT NULL REFERENCES research_sources(id) ON DELETE CASCADE, "
+            "rating TEXT NOT NULL CHECK(rating IN "
+            "('authority', 'freshness', 'relevance', 'agreement')), "
+            "position INTEGER NOT NULL CHECK(position BETWEEN 0 AND 3), "
+            "reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 64 "
+            "AND reason NOT GLOB '*[^a-z_]*'), "
+            "PRIMARY KEY (source_id, rating, position))"
+        )
+        # A unique index on (session_id, id) lets conflicts reference claims of the same session.
+        connection.execute(
+            "CREATE UNIQUE INDEX research_claims_by_session_id ON research_claims(session_id, id)"
+        )
+        connection.execute(
+            "CREATE TABLE research_conflicts ("
+            "id TEXT PRIMARY KEY, "
+            "session_id TEXT NOT NULL REFERENCES research_sessions(id) ON DELETE CASCADE, "
+            "kind TEXT NOT NULL CHECK(kind IN "
+            "('number_mismatch', 'date_mismatch', 'negation_mismatch')), "
+            "claim_a_id TEXT NOT NULL, source_a_id TEXT NOT NULL, "
+            "claim_b_id TEXT, source_b_id TEXT NOT NULL, "
+            "status TEXT NOT NULL CHECK(status IN ('open', 'resolved')), "
+            "resolution TEXT CHECK(resolution IS NULL OR resolution IN "
+            "('both_reported', 'first_preferred', 'second_preferred', 'not_a_conflict')), "
+            "detected_at TEXT NOT NULL, resolved_at TEXT, "
+            "CHECK ((status = 'resolved') = (resolution IS NOT NULL)), "
+            "CHECK ((status = 'resolved') = (resolved_at IS NOT NULL)), "
+            "CHECK (claim_b_id IS NULL OR claim_b_id <> claim_a_id), "
+            "CHECK (source_a_id <> source_b_id), "
+            "FOREIGN KEY (session_id, claim_a_id) "
+            "REFERENCES research_claims(session_id, id) ON DELETE CASCADE, "
+            "FOREIGN KEY (session_id, claim_b_id) "
+            "REFERENCES research_claims(session_id, id) ON DELETE CASCADE, "
+            "FOREIGN KEY (session_id, source_a_id) "
+            "REFERENCES research_sources(session_id, id) ON DELETE CASCADE, "
+            "FOREIGN KEY (session_id, source_b_id) "
+            "REFERENCES research_sources(session_id, id) ON DELETE CASCADE)"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX research_conflicts_unique ON research_conflicts("
+            "claim_a_id, COALESCE(claim_b_id, ''), source_b_id, kind)"
+        )
+        connection.execute(
+            "CREATE INDEX research_conflicts_by_session ON research_conflicts(session_id, status)"
+        )
 
     @staticmethod
     def _create_task_tables(connection: sqlite3.Connection) -> None:

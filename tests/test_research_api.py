@@ -33,7 +33,7 @@ INJECTION = (
 )
 SOURCE_KEYS = {
     "id", "url", "final_url", "title", "publisher", "published_at", "retrieved_at",
-    "source_type", "evaluation",
+    "source_type", "classification", "evaluation", "reasons",
 }
 SUMMARY_KEYS = {
     "id", "question", "level", "status", "failure_reason", "has_result", "created_at",
@@ -225,7 +225,7 @@ def test_detail_returns_session_queries_sources_and_claims(
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
     body = response.json()
-    assert set(body) == SUMMARY_KEYS | {"result_text", "queries", "sources", "claims"}
+    assert set(body) == SUMMARY_KEYS | {"result_text", "queries", "sources", "claims", "conflicts"}
     assert body["id"] == str(session.id)
     assert body["status"] == "completed"
     assert body["level"] == "standard"
@@ -371,7 +371,7 @@ def test_injection_like_stored_text_is_only_ever_json_strings(
     assert body["queries"][0]["text"] == INJECTION[:400]
     assert body["sources"][0]["title"] == INJECTION[:400]
     assert body["claims"][0]["quote"] == INJECTION[:400]
-    assert set(body) == SUMMARY_KEYS | {"result_text", "queries", "sources", "claims"}
+    assert set(body) == SUMMARY_KEYS | {"result_text", "queries", "sources", "claims", "conflicts"}
     # The hostile text did not become structure: the id fields are still plain UUIDs.
     assert re.fullmatch(r"[0-9a-f-]{36}", body["id"])
     assert listing.json()["sessions"][0]["question"] == INJECTION[:1900]

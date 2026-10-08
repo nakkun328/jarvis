@@ -20,22 +20,12 @@ the caller as ``rules=`` without touching this module.
 
 import re
 from dataclasses import dataclass
-from enum import StrEnum
 from urllib.parse import urlsplit
 
-from backend.research.models import MAX_TITLE_CHARS, SourceType
+from backend.research.models import MAX_TITLE_CHARS, Basis, SourceType
 
 _MAX_URL_CHARS = 2048
 _IPV4 = re.compile(r"[0-9]{1,3}(?:\.[0-9]{1,3}){3}")
-
-
-class Basis(StrEnum):
-    """What the decision rested on, strongest first."""
-
-    HOST = "host"
-    PATH = "path"
-    TITLE = "title"
-    DEFAULT = "default"
 
 
 @dataclass(frozen=True)
