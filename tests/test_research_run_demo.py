@@ -83,3 +83,29 @@ def test_nothing_scenario_completes_with_the_no_claim_notice(client: TestClient)
     detail = run(client, "How long does the Foo widget cache keep entries? #nothing", "quick")
     assert detail["status"] == "completed" and detail["claims"] == []
     assert "No claim could be verified" in detail["result_text"]
+
+
+def test_chat_mode_routes_by_marker_and_starts_a_research_for_research_turns(
+    demo, tmp_path: Path
+) -> None:
+    search, transport, resolver, model = demo.build_fakes(True, tmp_path / "chat.sqlite3")
+    app = create_app(
+        Settings(db_path=tmp_path / "chat.sqlite3", research_enabled=True),
+        model,
+        search_provider=search,
+        page_reader=PageReader(transport, resolver),
+        router=demo.build_router(),
+    )
+    question = "How long does the Foo widget cache keep entries? #research"
+    with TestClient(app) as chat:
+        research = chat.post("/api/chat", json={"message": question}).json()
+        assert research["provider"] == "system" and "/research#" in research["reply"]
+        session_id = research["reply"].split("/research#", 1)[1][:36]
+        deadline = time.monotonic() + 10
+        while chat.get(f"/api/research/sessions/{session_id}").json()["status"] != "completed":
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
+        assert chat.get(f"/api/research/sessions/{session_id}").json()["question"] == question
+        for message in ("Hello there", "Good morning #casual", "Anything #lowconf #research"):
+            plain = chat.post("/api/chat", json={"message": message}).json()
+            assert plain["reply"] == demo.CHAT_REPLY and plain["provider"] == "demo"

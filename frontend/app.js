@@ -1,5 +1,6 @@
 import { sendChat } from "./chat-api.js";
 import { createActivityView } from "./activity.js";
+import { renderReply } from "./chat-links.js";
 import { ChatSession, MAX_MESSAGE_LENGTH, messageLength } from "./chat-session.js";
 
 const conversation = document.querySelector("#conversation");
@@ -67,7 +68,7 @@ function beginTurn(text, onRetry) {
   return {
     showText(full) {
       assistant.item.classList.remove("message-pending");
-      assistant.content.textContent = full;
+      renderReply(document, assistant.content, full);
       scrollToLatest();
     },
     complete({ provider, model }) {

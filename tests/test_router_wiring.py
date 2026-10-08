@@ -537,5 +537,6 @@ def test_router_setting_validation(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_vocabulary_still_lists_the_unwired_stages() -> None:
-    # researching and speaking stay reserved; routing/route_selected are emitted only with a router.
+    # speaking stays reserved; routing/route_selected are emitted only with a router, and
+    # researching only for a research the chat really started (tests/test_chat_research_route.py).
     assert {ActivityStage.RESEARCHING, ActivityStage.SPEAKING} <= set(ActivityStage)

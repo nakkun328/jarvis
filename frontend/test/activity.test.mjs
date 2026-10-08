@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  ERROR_CODES, FALLBACK_TEXT, NOT_CONNECTED_TITLE, NOT_WIRED_TEXT, begin, initialState, parseActivity, reduce, reset, settle, viewModel,
+  ERROR_CODES, FALLBACK_TEXT, NOT_CONNECTED_TITLE, NOT_WIRED_TEXT, RESEARCH_STARTED_TEXT, SKIPS, SKIP_TEXT, begin, initialState, parseActivity, reduce, reset, settle, viewModel,
 } from "../activity-view.js";
 import { createActivityView } from "../activity.js";
 import { sendChat } from "../chat-api.js";
@@ -248,6 +248,96 @@ test("routing fields are validated and unknown ones dropped", () => {
   const legacy = viewModel(feed(begin(), { stage: "routing" }, { stage: "route_selected", route: "main" }));
   assert.equal(legacy.routeNote, null);
   assert.equal(legacy.caption, "ROUTE SELECTED · MAIN AGENT");
+});
+
+// ---- a research started from the chat ----
+
+const researchTurn = [
+  { stage: "received" },
+  { stage: "routing" },
+  { stage: "route_selected", route: "research", decided: "research", fallback: false },
+  { stage: "researching", step: "started" },
+];
+
+test("a started research lights the researcher and says it runs in the background", () => {
+  const selected = viewModel(feed(begin(), ...researchTurn.slice(0, 3)));
+  assert.equal(selected.caption, "ROUTED: RESEARCH");
+  assert.equal(selected.explain, RESEARCH_STARTED_TEXT);
+  assert.match(selected.explain, /バックグラウンド/);
+  assert.match(selected.explain, /リサーチ/);
+  assert.equal(node(selected, "researcher").connected, true);
+  assert.equal(node(selected, "researcher").active, true);
+  assert.equal(edge(selected, "router-researcher").active, true);
+  assert.equal(edge(selected, "router-researcher").connected, true);
+  assert.equal(node(selected, "main").active, false);
+  assert.equal(edge(selected, "router-main").active, false);
+  // REALTIME stays dimmed.
+  assert.equal(node(selected, "realtime").connected, false);
+  assert.match(node(selected, "realtime").title, /not connected/);
+
+  const started = viewModel(feed(begin(), ...researchTurn));
+  assert.equal(started.caption, "ROUTED: RESEARCH");
+  assert.equal(started.explain, RESEARCH_STARTED_TEXT);
+  assert.equal(started.mode, "research");
+  assert.equal(node(started, "researcher").active, true);
+  assert.equal(started.live, started.explain);
+  assert.deepEqual(started.routeNote, { decided: "research", caption: "ROUTED: RESEARCH", text: RESEARCH_STARTED_TEXT });
+  assert.match(started.diagramLabel, /RESEARCHER/);
+
+  // The turn ends with the Researcher, not the Main Agent, as its result node.
+  const done = viewModel(feed(begin(), ...researchTurn, { stage: "done" }));
+  assert.equal(done.phase, "done");
+  assert.equal(done.routeNote.caption, "ROUTED: RESEARCH");
+  assert.equal(node(done, "researcher").connected, true);
+  assert.equal(node(done, "researcher").status, "done");
+  assert.equal(node(done, "main").status, "idle");
+  assert.equal(node(done, "realtime").connected, false);
+  assert.ok(done.edges.every((e) => !e.active));
+  // ...and the next turn forgets it.
+  assert.equal(viewModel(begin()).routeNote, null);
+  assert.equal(node(viewModel(begin()), "researcher").connected, false);
+});
+
+test("a research that was not started says why and runs on the main agent", () => {
+  assert.deepEqual([...SKIPS].sort(), Object.keys(SKIP_TEXT).sort());
+  for (const skip of SKIPS) {
+    const turn = [
+      { stage: "received" },
+      { stage: "routing" },
+      { stage: "route_selected", route: "main", decided: "research", fallback: false, research_skip: skip },
+    ];
+    const selected = viewModel(feed(begin(), ...turn));
+    assert.equal(selected.caption, "RESEARCH NOT STARTED");
+    assert.equal(selected.explain, SKIP_TEXT[skip]);
+    assert.notEqual(selected.explain, NOT_WIRED_TEXT);
+    assert.equal(node(selected, "main").active, true);
+    assert.equal(node(selected, "researcher").connected, false);
+    assert.equal(node(selected, "researcher").active, false);
+    assert.equal(edge(selected, "router-researcher").active, false);
+    const later = viewModel(feed(begin(), ...turn, { stage: "generating" }));
+    assert.equal(later.live, `回答を生成しています。${SKIP_TEXT[skip]}。`);
+    assert.equal(later.routeNote.text, SKIP_TEXT[skip]);
+  }
+});
+
+test("research fields are validated and the legacy shapes are unchanged", () => {
+  assert.deepEqual(
+    parseActivity({ stage: "route_selected", route: "main", decided: "research", fallback: false, research_skip: "busy", x: 1 }),
+    { stage: "route_selected", route: "main", decided: "research", fallback: false, research_skip: "busy" },
+  );
+  assert.deepEqual(
+    parseActivity({ stage: "route_selected", route: "main", decided: "research", fallback: false, research_skip: "<b>" }),
+    { stage: "route_selected", route: "main", decided: "research", fallback: false },
+  );
+  assert.deepEqual(parseActivity({ stage: "researching", step: "started" }), { stage: "researching", step: "started" });
+  // research without a "research" decision (an older server) is not read as a started research
+  const legacy = viewModel(feed(begin(), { stage: "routing" }, { stage: "route_selected", route: "research" }));
+  assert.equal(legacy.caption, "ROUTE SELECTED · RESEARCHER");
+  assert.equal(legacy.routeNote, null);
+  // a hostile skip value never changes the wording of a non-research route
+  const memory = viewModel(feed(begin(), { stage: "routing" },
+    { stage: "route_selected", route: "main", decided: "memory", fallback: false, research_skip: "busy" }));
+  assert.equal(memory.caption, "ROUTE SELECTED · MAIN AGENT");
 });
 
 // ---- DOM adapter, with a tiny stand-in DOM ----

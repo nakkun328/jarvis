@@ -1,6 +1,6 @@
 # Router contract and evaluation
 
-Status: **library, plus an opt-in first wiring slice (off by default).** With the router on, each chat turn asks it for a decision and shows it in the Activity View, but every turn still runs on the Main Agent path: the casual and research paths are not wired. Nothing here calls a live model; all tests use fakes. See [conversation-routing-plan.md](conversation-routing-plan.md) for the plan this implements (components 3 and 4) and [Wiring](#wiring-opt-in-first-slice) below.
+Status: **library, plus an opt-in first wiring slice (off by default).** With the router on, each chat turn asks it for a decision and shows it in the Activity View, and every turn runs on the Main Agent path, with one opt-in exception: a real `research` decision starts a web research when research is enabled and fully configured (see [Research from chat](#research-from-chat-opt-in)). The casual path is not wired. Nothing here calls a live model; all tests use fakes. See [conversation-routing-plan.md](conversation-routing-plan.md) for the plan this implements (components 3 and 4) and [Wiring](#wiring-opt-in-first-slice) below.
 
 ## What it is
 
@@ -18,7 +18,7 @@ A router returns a frozen `RouteDecision(route, confidence, reason, used_fallbac
 
 ## What it is not
 
-- Not an executor: it only chooses. In the wired slice a `casual` or `research` decision is shown and then the Main Agent answers anyway (see below).
+- Not an executor: it only chooses. In the wired slice a `casual` decision is shown and then the Main Agent answers anyway; a `research` decision is acted on by the chat service, not by the router, and only with research configured (see below).
 - `RuleRouter` is a transparent keyword **baseline** for tests and an offline fallback. It is not the intended method: the real router reads paraphrases and context with a model. The evaluation set contains paraphrases on purpose so the gap stays visible.
 - A fake or contract-only run says nothing about routing quality.
 
@@ -38,20 +38,26 @@ Any other value (including an empty one) is a startup `ConfigError`. `create_app
 
 **Privacy and cost of `llm`.** Every turn makes one extra, short model call, and **the user's message is sent to that provider** (the same provider the chat already uses). That is added latency (up to the router timeout, 8 s, before the turn continues on the safe path) and added provider cost on every turn. The router never sees memory notes or conversation history: its request is the fixed system prompt plus the one JSON-quoted message. `rule` sends nothing anywhere.
 
-**Behaviour per turn.** The service calls `router.decide(message)` once the conversation is open and **before** the memory lookup, on every chat path (the streaming and regular endpoints, with or without the activity header), so the audit and the log event are the same everywhere. It then emits the activity events `routing` and `route_selected` (`route`, `decided`, `fallback`: see [chat.md](chat.md#activity-events)). `route` is the path that actually runs and is always `main` today; `decided` is the router's choice.
+**Behaviour per turn.** The service calls `router.decide(message)` once the conversation is open and **before** the memory lookup, on every chat path (the streaming and regular endpoints, with or without the activity header), so the audit and the log event are the same everywhere. It then emits the activity events `routing` and `route_selected` (`route`, `decided`, `fallback`: see [chat.md](chat.md#activity-events)). `route` is the path that actually runs (`main`, or `research` when a research was really started); `decided` is the router's choice.
 
 | Router decided | Executed today |
 | --- | --- |
 | `memory` | The existing Main Agent path, unchanged. |
 | `casual` | The same Main Agent path. The casual path is not wired; the view says `ROUTED: CASUAL` and why. |
-| `research` | The same Main Agent path. The Researcher path is not wired; the view says `ROUTED: RESEARCH` and why. |
+| `research` | Without research configured (the default): the same Main Agent path; the view says `ROUTED: RESEARCH` and that the route is not connected. With `JARVIS_RESEARCH_ENABLED=1` and a search and a chat provider: a research is started and the chat replies with a fixed message (below). If it cannot be started, the Main Agent path with the reason in `research_skip`. |
 | any failure | Fallback (`decided: memory`, `fallback: true`), Main Agent path. |
 
 A router that raises, returns something that is not a `RouteDecision`, or does not answer within a 15 s service-level guard is treated as a fallback; the turn is never blocked or failed by routing. Cancellation (the client going away) propagates and nothing is saved, as for any cancelled turn. A failure writes only the fixed log event `chat.router_failed` with the exception type.
 
 **What is stored.** Nothing persistent. The decision is not written to the conversation, the database or the vault. The only records are the in-memory `RouteAuditRecord`s (route, reason, confidence tenths, length bucket, SHA-256 of the input; never the text) and the fixed `router.decision` log event. The hash is pseudonymous (see Audit). The activity events carry enum values and one bool only.
 
-**Not wired.** The Realtime (casual) path, the Researcher path as a chat route, any routing by conversation history or user settings, a per-route model or budget, a UI switch, and live-model quality, latency and cost measurements. The 0.6 confidence threshold and the timeouts remain maintainer proposals. Do not read the events as proof that a casual or research path exists.
+### Research from chat (opt-in)
+
+When the router decides `research` **for real** (not a fallback, confidence at least 0.6), `JARVIS_RESEARCH_ENABLED=1`, a search provider and a chat provider are configured, the chat service starts a research through the existing run service (`JARVIS_CHAT_RESEARCH_LEVEL=quick|standard`, default `quick`) instead of answering from memory. The question is the user's message only (no memory, no history), the reply is a fixed Japanese message with the link `/research#<id>` and no model call, and the events are `route_selected` (`route: research`) then `researching` (`step: started`). The same one-at-a-time and search-budget rules apply; when the run service refuses (busy, budget used up, not available, invalid question) the Main Agent answers and `route_selected` carries `research_skip`. A router fallback or a low-confidence decision never starts a research. Details: [chat.md](chat.md#research-from-chat) and [research.md](research.md#research-from-chat-off-by-default).
+
+**Cost and privacy.** Each such turn can spend search credits and sends the user's whole message to the search service (and the configured chat model during the research), which a chat turn without research does not. That is why it needs the explicit switch and why the fixed reply says so.
+
+**Not wired.** The Realtime (casual) path, any routing by conversation history or user settings, a per-route model or budget, a UI switch for the chat-research behaviour, following a research's progress inside the chat, and live-model quality, latency and cost measurements. The 0.6 confidence threshold and the timeouts remain maintainer proposals. Do not read the events as proof that a casual or research path exists.
 
 ## Fallback policy
 

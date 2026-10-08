@@ -19,6 +19,8 @@ _MAX_SEARCH_MONTHLY_LIMIT = 1_000_000
 # off: no router (default). rule: the offline keyword baseline. llm: one extra short call to
 # the configured chat provider per turn (docs/router.md "Wiring").
 _ROUTER_MODES = frozenset({"off", "rule", "llm"})
+# The research level a routed chat turn starts. Quick is the cheaper one (and the default).
+_CHAT_RESEARCH_LEVELS = frozenset({"quick", "standard"})
 _MIN_SIGNING_KEY_CHARS = 32
 _MAX_SESSION_HOURS = 24 * 365
 _TRUE = frozenset({"1", "true", "yes", "on"})
@@ -69,6 +71,9 @@ class Settings:
     # Starting a web research from the Research screen is off by default. It also needs a
     # search provider and a chat provider; with any of the three missing it stays unavailable.
     research_enabled: bool = False
+    # Which research a chat turn starts when the router chooses research (and a router, research,
+    # a search provider and a chat provider are all configured). A fixed enum, not a free value.
+    chat_research_level: str = "quick"
 
     @property
     def auth_enabled(self) -> bool:
@@ -99,6 +104,11 @@ class Settings:
             )
         if not isinstance(self.research_enabled, bool):
             raise ConfigError("JARVIS_RESEARCH_ENABLED must be true or false")
+        if self.chat_research_level not in _CHAT_RESEARCH_LEVELS:
+            raise ConfigError(
+                "JARVIS_CHAT_RESEARCH_LEVEL must be one of: "
+                f"{', '.join(sorted(_CHAT_RESEARCH_LEVELS))}"
+            )
         if self.router not in _ROUTER_MODES:
             raise ConfigError(f"JARVIS_ROUTER must be one of: {', '.join(sorted(_ROUTER_MODES))}")
         if self.memory_vault_path is not None and not str(self.memory_vault_path).strip():
@@ -166,4 +176,7 @@ class Settings:
                 "JARVIS_SEARCH_MONTHLY_LIMIT", _DEFAULT_SEARCH_MONTHLY_LIMIT
             ),
             research_enabled=_env_bool("JARVIS_RESEARCH_ENABLED", False),
+            chat_research_level=(
+                os.environ.get("JARVIS_CHAT_RESEARCH_LEVEL", "quick").strip().lower()
+            ),
         )

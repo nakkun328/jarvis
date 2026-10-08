@@ -24,7 +24,21 @@ export const DECIDED = ["casual", "memory", "research"];
 // Shown while the router chose a path that is not wired yet and the Main Agent answers instead.
 export const NOT_WIRED_TEXT = "この経路はまだ接続されていないため、メインのエージェントで処理します";
 export const FALLBACK_TEXT = "ルーターが経路を確定できなかったため、既定のメインのエージェントで処理します";
-export const STEPS = ["planning", "searching", "reading", "verifying", "writing"];
+// The chat emits only `started` (a research was handed to the run service); the other steps are
+// part of the vocabulary but the chat does not follow the run.
+export const STEPS = ["started", "planning", "searching", "reading", "verifying", "writing"];
+// Why a research the router asked for was not started (the Main Agent answers instead).
+export const SKIPS = ["busy", "not_configured", "budget_exhausted", "refused", "low_confidence"];
+// Shown for a turn in which a research really was started: it runs in the background.
+export const RESEARCH_STARTED_TEXT =
+  "調査をバックグラウンドで開始しました。進み具合と結果は「リサーチ」画面で見られます";
+export const SKIP_TEXT = {
+  busy: "別の調査が実行中のため調査を開始できず、メインのエージェントで処理します",
+  not_configured: "調査を利用できないため、メインのエージェントで処理します",
+  budget_exhausted: "検索の上限に達しているため調査を開始できず、メインのエージェントで処理します",
+  refused: "調査を開始できなかったため、メインのエージェントで処理します",
+  low_confidence: "経路の確信度が足りないため調査を開始せず、メインのエージェントで処理します",
+};
 export const ERROR_CODES = [
   "conversation_not_found",
   "capacity",
@@ -50,6 +64,7 @@ const ROUTE_LABELS = {
 };
 const ROUTE_NODE = { casual: "realtime", memory: "main", research: "researcher", main: "main" };
 const STEP_TEXT = {
+  started: RESEARCH_STARTED_TEXT,
   planning: "調べ方を計画しています。",
   searching: "情報源を検索しています。",
   reading: "取得したページを読んでいます。",
@@ -71,7 +86,7 @@ const ERROR_TEXT = {
 export function initialState() {
   return {
     phase: "idle", stage: null, route: null, decided: null, fallback: false, routed: false,
-    count: null, step: null, code: null,
+    skip: null, count: null, step: null, code: null,
   };
 }
 
@@ -100,6 +115,7 @@ export function parseActivity(data) {
     // Optional: a server without a router sends only `route`.
     if (isOneOf(DECIDED, payload.decided)) clean.decided = payload.decided;
     if (typeof payload.fallback === "boolean") clean.fallback = payload.fallback;
+    if (isOneOf(SKIPS, payload.research_skip)) clean.research_skip = payload.research_skip;
   } else if (stage === "memory_lookup") {
     const { count } = payload;
     if (!Number.isInteger(count) || count < 0 || count > MAX_COUNT) return null;
@@ -141,6 +157,7 @@ export function reduce(state, rawEvent) {
     routed: state.routed || event.stage === "routing" || event.stage === "route_selected",
     decided: event.stage === "route_selected" ? (event.decided ?? null) : state.decided,
     fallback: event.stage === "route_selected" ? event.fallback === true : state.fallback,
+    skip: event.stage === "route_selected" ? (event.research_skip ?? null) : state.skip,
     count: event.count ?? state.count,
     step: event.stage === "researching" ? (event.step ?? null) : state.step,
   };
@@ -183,9 +200,22 @@ function orbMode(state) {
 // The router's choice when it is a path that is not wired (casual, research) and the Main Agent
 // runs the turn instead; otherwise null. Never claims a route ran that did not.
 function unwiredChoice(state) {
-  if (state.route !== "main" || !state.routed) return null;
+  if (state.route !== "main" || !state.routed || state.skip) return null;
   return state.decided === "casual" || state.decided === "research" ? state.decided : null;
 }
+
+// A research was really started for this turn (the server said the research path ran).
+function researchStarted(state) {
+  return state.route === "research" && state.decided === "research" && state.routed;
+}
+
+// The router chose research, none was started, and the server said why.
+function researchSkipped(state) {
+  return state.route === "main" && state.decided === "research" && state.routed && Boolean(state.skip);
+}
+
+// The caption and line shared by the "started" turn and its `researching{started}` moment.
+const STARTED_VIEW = { caption: "ROUTED: RESEARCH", explain: RESEARCH_STARTED_TEXT };
 
 function describe(state) {
   switch (state.phase) {
@@ -210,6 +240,10 @@ function describe(state) {
     case "routing":
       return { caption: "ROUTING", explain: "どの経路で答えるかを判断しています。" };
     case "route_selected": {
+      if (researchStarted(state)) return STARTED_VIEW;
+      if (researchSkipped(state)) {
+        return { caption: "RESEARCH NOT STARTED", explain: SKIP_TEXT[state.skip] };
+      }
       const unwired = unwiredChoice(state);
       if (unwired) {
         return { caption: `ROUTED: ${unwired.toUpperCase()}`, explain: NOT_WIRED_TEXT };
@@ -229,6 +263,7 @@ function describe(state) {
             : "参照できる承認済みの記憶はありませんでした。",
       };
     case "researching":
+      if (state.step === "started" && researchStarted(state)) return STARTED_VIEW;
       return {
         caption: state.step ? `RESEARCHING · ${state.step.toUpperCase()}` : "RESEARCHING",
         explain: STEP_TEXT[state.step] ?? "調査を進めています。",
@@ -240,6 +275,12 @@ function describe(state) {
     default:
       return { caption: "WORKING", explain: "処理中です。" };
   }
+}
+
+// The node that shows the turn's end: the Researcher when a research was started (the Main Agent
+// did not run), otherwise the Main Agent.
+function resultNode(state) {
+  return researchStarted(state) ? "researcher" : "main";
 }
 
 // The nodes the server's own events prove are in use right now.
@@ -315,11 +356,14 @@ export function viewModel(state, { reducedMotion = false } = {}) {
     const isActive = active.has(def.id);
     // The router counts as connected only for a turn the server actually routed.
     const connected =
-      CONNECTED_TODAY.has(def.id) || isActive || (def.id === "router" && state.routed);
+      CONNECTED_TODAY.has(def.id) ||
+      isActive ||
+      (def.id === "router" && state.routed) ||
+      (def.id === "researcher" && researchStarted(state));
     let status = "idle";
     if (isActive) status = "active";
-    else if (def.id === "main" && state.phase === "done") status = "done";
-    else if (def.id === "main" && state.phase === "error") status = "error";
+    else if (def.id === resultNode(state) && state.phase === "done") status = "done";
+    else if (def.id === resultNode(state) && state.phase === "error") status = "error";
     nodes.set(def.id, {
       id: def.id,
       label: def.label,
@@ -336,22 +380,30 @@ export function viewModel(state, { reducedMotion = false } = {}) {
   });
   const connectedNames = [...nodes.values()].filter((node) => node.connected).map((node) => node.label);
   const unwired = unwiredChoice(state);
+  const routeNote = researchStarted(state)
+    ? { decided: "research", caption: STARTED_VIEW.caption, text: STARTED_VIEW.explain }
+    : researchSkipped(state)
+      ? { decided: "research", caption: "RESEARCH NOT STARTED", text: SKIP_TEXT[state.skip] }
+      : unwired
+        ? { decided: unwired, caption: `ROUTED: ${unwired.toUpperCase()}`, text: NOT_WIRED_TEXT }
+        : null;
   return {
     phase: state.phase,
     stage: state.stage,
     mode: orbMode(state),
     // A note that outlasts the single route_selected moment, for the rest of the turn.
-    routeNote: unwired
-      ? { decided: unwired, caption: `ROUTED: ${unwired.toUpperCase()}`, text: NOT_WIRED_TEXT }
-      : null,
+    routeNote,
     caption,
     explain,
     // The accessible equivalent of the whole display: one polite sentence per change.
     // While the turn is still running the unwired-route reason is part of the spoken line too:
     // route_selected is usually followed by the next stage within milliseconds.
     live:
-      unwired && state.phase === "active" && state.stage !== "route_selected"
-        ? `${explain}${NOT_WIRED_TEXT}。`
+      routeNote &&
+      state.phase === "active" &&
+      state.stage !== "route_selected" &&
+      explain !== routeNote.text
+        ? `${explain}${routeNote.text}。`
         : explain,
     final: FINAL.has(state.phase),
     reducedMotion: Boolean(reducedMotion),

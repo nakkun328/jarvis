@@ -127,3 +127,54 @@ def test_routing_note_has_a_style_and_the_wording_is_documented() -> None:
 def test_routing_note_is_a_text_node_only() -> None:
     source = (FRONTEND / "activity.js").read_text()
     assert "activity-route" in source and "textContent" in source
+
+
+# --- a research started from the chat -----------------------------------------------------
+
+
+def test_the_reply_link_is_built_with_the_dom_api_for_the_research_path_only() -> None:
+    source = (FRONTEND / "chat-links.js").read_text()
+    links = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("//"))
+    forbidden = re.compile(
+        r"innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function|"
+        r"createContextualFragment|fetch\(|localStorage|sessionStorage|\.style\b"
+    )
+    assert not forbidden.search(links)
+    assert "createTextNode" in links and 'createElement("a")' in links
+    # One pattern, anchored to the Research screen's own path.
+    assert links.count("/research#") == 1
+    assert "http" not in links
+    app = (FRONTEND / "app.js").read_text()
+    assert 'from "./chat-links.js"' in app and "renderReply(" in app
+    assert "innerHTML" not in app
+    assert ".reply-link" in (FRONTEND / "style.css").read_text()
+
+
+def test_the_screen_selects_a_session_from_the_hash_the_reply_links_to() -> None:
+    source = (FRONTEND / "research.js").read_text()
+    assert "location.hash" in source and "hashchange" in source
+    assert "applySelection(idFromHash())" in source
+
+
+def test_the_started_wording_and_the_new_vocabulary_are_documented() -> None:
+    root = Path(__file__).resolve().parents[1]
+    view = (FRONTEND / "activity-view.js").read_text()
+    assert "調査をバックグラウンドで開始しました" in view
+    assert "ROUTED: RESEARCH" in view and "RESEARCH NOT STARTED" in view
+    chat_doc = (root / "docs" / "chat.md").read_text().split("## Activity events", 1)[1]
+    for term in (
+        "research_skip",
+        "started",
+        "JARVIS_CHAT_RESEARCH_LEVEL",
+        "busy",
+        "budget_exhausted",
+        "fixed-reply",
+        "/research#",
+    ):
+        assert term in chat_doc, term
+    research_doc = (root / "docs" / "research.md").read_text()
+    assert "Research from chat" in research_doc
+    assert "whole message" in research_doc
+    router_doc = (root / "docs" / "router.md").read_text()
+    assert "JARVIS_RESEARCH_ENABLED" in router_doc and "research_skip" in router_doc
+    assert "JARVIS_CHAT_RESEARCH_LEVEL" in (root / "README.md").read_text()

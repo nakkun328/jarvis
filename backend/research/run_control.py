@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from typing import Protocol
 from uuid import UUID
 
-from backend.research.models import ResearchLevel
+from backend.research.models import MAX_QUESTION_CHARS, ResearchLevel
 
 #: Levels a person may request. Deep and extensive research are not available.
 REQUESTABLE_LEVELS: tuple[ResearchLevel, ...] = (ResearchLevel.QUICK, ResearchLevel.STANDARD)
@@ -19,6 +19,13 @@ REASON_DISABLED = "disabled"
 REASON_NO_SEARCH_PROVIDER = "no_search_provider"
 REASON_NO_CHAT_PROVIDER = "no_chat_provider"
 REASONS = frozenset({REASON_DISABLED, REASON_NO_SEARCH_PROVIDER, REASON_NO_CHAT_PROVIDER})
+
+
+def question_is_valid(value: object) -> bool:
+    """True when ``value`` is a question the run service accepts (the HTTP endpoint's rules)."""
+    if not isinstance(value, str) or not value.strip() or len(value) > MAX_QUESTION_CHARS:
+        return False
+    return not any(ord(c) < 32 and c not in "\n\t" or ord(c) == 127 for c in value)
 
 
 class RunRefused(Exception):
