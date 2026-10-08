@@ -45,6 +45,29 @@ python scripts/dev_fake_provider_server.py --db /absolute/temp/j.sqlite3 --port 
 
 Type `/slow`, `/fail-now`, `/fail-after N`, `/flaky` (fails once, then succeeds), `/empty` or `/history` as the message to select a behaviour; anything else gets a short streamed reply. Restarting it on a new database while a page is open reproduces an expired conversation id. Frontend logic is covered by `node --test frontend/test/*.test.mjs` (use the glob form on Node 24); `chat-api.test.mjs` also loads `chat-session.test.mjs` so the single-file gate in `scripts/verify.py` and CI runs both. These checks do not make the whole web milestone complete: login, remote access control, and history browsing are out of scope here.
 
+## Activity events
+
+The chat page shows which stage JARVIS is in (a status orb, a small route diagram, an English caption and a one-line Japanese explanation). It is driven only by `activity` SSE events from `POST /api/chat/stream`.
+
+**Opt-in and compatibility.** The events are sent only when the request carries the header `X-Jarvis-Activity: 1`. Without it the stream is exactly the `delta` / `done` / `error` stream it has always been; `POST /api/chat` never carries activity. With the header, whole `activity` events are added between the existing ones; the other events are unchanged, and a client that ignores unknown event names keeps working. (Opt-in rather than default so existing clients and byte-exact tests are untouched.) `frontend/chat-api.js` sends the header only when an `onActivity` handler is given.
+
+**Wire format.** `event: activity` with a JSON object `{"stage": ...}` plus at most one more field:
+
+| stage | extra field | emitted today |
+| --- | --- | --- |
+| `received` | none | yes, first |
+| `memory_lookup` | `count` (0 to 99 notes used) | yes, only when memory context is configured and was consulted (0 means consulted, nothing matched) |
+| `generating` | none | yes, just before the provider is called |
+| `done` | none | yes, after the turn was saved, just before the `done` event |
+| `error` | `code`: `conversation_not_found`, `capacity`, `storage`, `memory`, `provider`, `internal` (`cancelled` is reserved) | yes, just before the `error` event |
+| `routing`, `route_selected` (`route`: `casual`, `memory`, `research`, `main`), `researching` (`step`: `planning`, `searching`, `reading`, `verifying`, `writing`), `speaking` | | **not emitted**: the router, Researcher path and realtime voice do not exist yet. They are in the vocabulary so later work reuses it; nothing may fake them. |
+
+Typical turn: `received`, [`memory_lookup`], `generating`, deltas, `done`. A failure ends with `error{code}` and never with `done`. If the client disconnects (Stop), the server stops without emitting anything more; the page shows its own "stopped" final state. The service also reports the same stages to an optional `on_activity` callback of `ChatService.complete`, but the regular endpoint does not use it.
+
+**Privacy rules.** Events are built only through the constructors in `backend/chat/activity.py` and carry enum values, a small count or a fixed code. Never message text, replies, memory content, paths, IDs or upstream error text; unexpected exceptions become `internal`. Tests with hostile message, memory and provider-error text pin this (`tests/test_activity.py`).
+
+**Page behaviour.** `frontend/activity-view.js` is a pure state machine (`begin`, `reduce`, `settle`, `reset`, `viewModel`); `frontend/activity.js` builds the panel with text nodes only. Unknown stages and fields are ignored. Only the INPUT and MAIN AGENT nodes are connected today; ROUTER, REALTIME and RESEARCHER are dimmed with the title "not connected" and light up only if the server reports them. Every turn ends in a visible final state: done (returns to standby after about 6 s), stopped, or error (both stay until the next message), including network failures and a server that sends no activity events. The status line is `aria-live="polite"` text and is the accessible equivalent of the animation. Animation is off under `prefers-reduced-motion`, or when `<html>` has the class `reduce-motion` (a manual override for tools that cannot emulate the media feature). On screens up to 600px the panel starts collapsed (status text stays visible) and has a toggle.
+
 ## Explicit semantic memory opt-in
 
 The default application still uses lexical memory when

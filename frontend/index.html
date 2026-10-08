@@ -10,6 +10,7 @@
     <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
     <link rel="stylesheet" href="/static/shell.css" />
     <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/activity.css" />
     <script type="module" src="/static/shell.js"></script>
     <script type="module" src="/static/app.js"></script>
   </head>
@@ -22,6 +23,7 @@
       </header>
 
       <main class="chat" aria-label="JARVIS との会話">
+        <div class="activity-mount" id="activity"></div>
         <div class="conversation" id="conversation" role="log" aria-label="会話履歴" aria-live="polite" aria-relevant="additions text">
           <section class="welcome" id="welcome">
             <span class="welcome-mark" aria-hidden="true">J</span>

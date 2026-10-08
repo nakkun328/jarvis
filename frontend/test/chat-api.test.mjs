@@ -7,6 +7,7 @@ import "./tasks.test.mjs";
 import "./research.test.mjs";
 import "./memory.test.mjs";
 import "./shell.test.mjs";
+import "./activity.test.mjs";
 
 const encode = (text) => new TextEncoder().encode(text);
 
