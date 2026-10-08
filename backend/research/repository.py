@@ -123,17 +123,32 @@ class ResearchRepository:
         return _session(row) if row is not None else None
 
     def list_sessions(
-        self, status: ResearchStatus | None = None, *, limit: int = 100
+        self,
+        status: ResearchStatus | None = None,
+        *,
+        limit: int = 100,
+        newest_first: bool = False,
     ) -> list[ResearchSession]:
+        """List sessions ordered by creation time, with the id as a stable tie-break.
+
+        Oldest first by default; `newest_first` reverses both keys so LIMIT keeps the
+        most recent sessions.
+        """
         if status is not None and not isinstance(status, ResearchStatus):
             raise ValueError("status must be a ResearchStatus")
         _require_limit(limit)
+        if not isinstance(newest_first, bool):
+            raise ValueError("newest_first must be a bool")
         query = "SELECT * FROM research_sessions"
         params: list[object] = []
         if status is not None:
             query += " WHERE status = ?"
             params.append(status.value)
-        query += " ORDER BY created_at, id LIMIT ?"
+        query += (
+            " ORDER BY created_at DESC, id DESC LIMIT ?"
+            if newest_first
+            else " ORDER BY created_at, id LIMIT ?"
+        )
         params.append(limit)
         with self._read() as connection:
             rows = connection.execute(query, params).fetchall()

@@ -184,8 +184,8 @@ function renderList() {
     }
   }
   listNote.textContent = state.truncated
-    ? `サーバーが返した古い順の先頭 ${state.all.length} 件から集計しています。状態を選ぶと、その状態の調査をサーバーから取得します。`
-    : "取得できた調査だけを新しい順に表示しています。";
+    ? `新しい順の最新 ${state.all.length} 件から集計しています。状態を選ぶと、その状態の最新の調査をサーバーから取得します。`
+    : "調査を新しい順に表示しています。";
   renderListStatus();
 }
 

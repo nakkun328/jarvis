@@ -204,11 +204,6 @@ export function filterSessions(sessions, filter) {
     : sessions;
 }
 
-// The API returns oldest first. The screen shows the newest first within the returned range.
-export function newestFirst(sessions) {
-  return [...sessions].reverse();
-}
-
 export function listItemModel(session, { selectedId = null, timeZone } = {}) {
   return {
     id: session.id,
@@ -228,7 +223,7 @@ export function listViewModel(
   shown,
   { filter = "all", selectedId = null, truncated = false, timeZone } = {},
 ) {
-  const rows = newestFirst(filterSessions(shown, filter));
+  const rows = filterSessions(shown, filter);
   return {
     counts: countByStatus(all),
     items: rows.map((session) => listItemModel(session, { selectedId, timeZone })),

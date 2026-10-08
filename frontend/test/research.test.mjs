@@ -203,8 +203,8 @@ test("countByStatus counts every status and groups unknown ones", () => {
   );
 });
 
-test("listViewModel shows newest first, marks selection and reports emptiness", () => {
-  const all = [summary({ id: ID, question: "old" }), summary({ id: ID2, question: "new", status: "failed" })];
+test("listViewModel keeps the API's newest-first order, marks selection and reports emptiness", () => {
+  const all = [summary({ id: ID2, question: "new", status: "failed" }), summary({ id: ID, question: "old" })];
   const model = listViewModel(all, all, { selectedId: ID2, timeZone: "UTC" });
   assert.deepEqual(model.items.map((item) => item.question), ["new", "old"]);
   assert.equal(model.items[0].selected, true);

@@ -54,10 +54,10 @@ async function fetchSessions(options) {
   return sessions;
 }
 
-// Loads the list for the screen. `all` (up to LIST_LIMIT oldest sessions) feeds the counts. The
-// API returns the oldest sessions first without pagination, so when `all` hit the limit the
-// chosen filter is also asked of the server, otherwise recent sessions of that status could be
-// missing from the page. `truncated` says the counts cover only part of the stored sessions.
+// Loads the list for the screen. `all` (up to LIST_LIMIT newest sessions, newest first as the API
+// returns them) feeds the counts. There is no pagination, so when `all` hit the limit the chosen
+// filter is also asked of the server, otherwise older sessions of that status could be missing
+// from the page. `truncated` says the counts cover only the newest part of the stored sessions.
 export async function loadSessionList({ filter = "all", limit = LIST_LIMIT, fetchImpl, signal } = {}) {
   const all = await fetchSessions({ limit, fetchImpl, signal });
   const truncated = all.length >= limit;
