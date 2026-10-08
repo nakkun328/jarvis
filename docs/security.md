@@ -6,7 +6,7 @@ Phase 1 exposes health checks, a local chat API, and a web client. The chat API 
 - Never return secrets to frontend code or include them in logs.
 - Validate external inputs at API and tool boundaries.
 - Give tools the smallest needed privileges and require confirmation for red-level operations.
-- Record execution and verification without logging sensitive request bodies.
+- Record execution and verification without logging sensitive request bodies. Application logs are structured and redacted; see [logging](logging.md) for what is and is not recorded.
 - Review new dependencies and protect database and vault files with appropriate local permissions.
 
 When `JARVIS_MEMORY_VAULT_PATH` is set, matching approved note excerpts are included in requests to the configured LLM provider. Keep this opt-in disabled for vaults that must remain local, and treat editable note text as untrusted reference data.
