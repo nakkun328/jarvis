@@ -485,3 +485,10 @@ def _parse_response(raw: str) -> tuple[str, bool, list[ProposedClaim]]:
         else:
             proposed.append(ProposedClaim("", -1, ""))  # counted as a malformed, dropped claim
     return answer, insufficient, proposed
+
+
+# Names the Standard pipeline (standard.py) shares with Quick Research. One implementation of
+# the prompt, the strict reply parser and the title cleaner keeps the citation rules in one place.
+ResearchFailed = _Failed
+parse_response = _parse_response
+clean_title = _clean_title

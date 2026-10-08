@@ -1,3 +1,4 @@
+import { SESSION_ENDED_MESSAGE, sessionEnded } from "./session.js";
 import { readEventStream } from "./sse.js";
 
 // kind: why the request failed. retryable: whether sending the same text again can help.
@@ -56,6 +57,9 @@ const SERVER_MESSAGES = {
 function serverError(text, status) {
   const known = SERVER_MESSAGES[text];
   if (known) return new ChatError(known.message, known);
+  if (status === 401) {
+    return new ChatError(SESSION_ENDED_MESSAGE, { kind: "unauthorized", retryable: false });
+  }
   if (status === 422) {
     return new ChatError("メッセージを受け付けられませんでした（空、または 4,000 文字を超えています）。", {
       kind: "invalid",
@@ -72,6 +76,8 @@ function serverError(text, status) {
 }
 
 async function httpError(response) {
+  // A refused session sends the browser to the login page once, instead of a generic error.
+  if (response.status === 401) sessionEnded();
   let detail;
   try {
     detail = (await response.json())?.detail;
@@ -128,11 +134,19 @@ async function sendNonStreaming(body, onDelta, fetchImpl, signal) {
 // Resolves only after the server's `done` event. Anything else (error event, stream ending
 // early, network failure, abort via `signal`) rejects, and the caller must treat any text
 // already delivered through onDelta as an unsaved partial reply.
-export async function sendChat({ message, conversationId, onDelta, signal, fetchImpl = fetch }) {
+//
+// `onActivity(data)` is optional. When given, the request asks for the server's additive
+// `activity` events and each one's raw JSON text is passed on (parsing and validation belong to
+// activity-view.js). Anything wrong with an activity event is ignored: it can never fail a chat.
+export async function sendChat({ message, conversationId, onDelta, onActivity, signal, fetchImpl = fetch }) {
   const body = requestBody(message, conversationId);
   const response = await fetchImpl("/api/chat/stream", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      ...(onActivity ? { "X-Jarvis-Activity": "1" } : {}),
+    },
     body,
     signal,
   });
@@ -146,6 +160,12 @@ export async function sendChat({ message, conversationId, onDelta, signal, fetch
   await readEventStream(response.body, ({ event, data }) => {
     if (event === "delta") {
       onDelta(requireText(parseEventData(data)?.text));
+    } else if (event === "activity") {
+      try {
+        onActivity?.(data);
+      } catch {
+        // A display problem must not break the reply.
+      }
     } else if (event === "done") {
       completion = parseEventData(data);
     } else if (event === "error") {

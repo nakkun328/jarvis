@@ -89,7 +89,7 @@ evaluation = evaluate_source(...)            # the SourceEvaluation only
 stored = evaluate_and_store(repository, source, question, text=...)
 ```
 
-Each rating is computed on its own, is `None` when it cannot be determined, and is rounded to four decimals. `primary` and `agreement` (JAR-46) are left `None` (or unchanged by `evaluate_and_store`). These are heuristic inputs, not truth values and not probabilities; two sources with the same numbers are not equally correct, and a high authority rating never means a claim is right. Authority is about the kind of site, not its popularity, ranking or accuracy.
+Each rating is computed on its own, is `None` when it cannot be determined, and is rounded to four decimals. `primary` is left `None`; `agreement` is produced by the cross-check (see [research.md](research.md)) and left unchanged by `evaluate_and_store`. These are heuristic inputs, not truth values and not probabilities; two sources with the same numbers are not equally correct, and a high authority rating never means a claim is right. Authority is about the kind of site, not its popularity, ranking or accuracy.
 
 **Authority** is a prior by `SourceType`, following the design's source priority: official 0.9, docs 0.85, academic 0.75, news 0.6, community 0.4, forum 0.35, blog 0.3, unknown 0.25. A type found from a path is capped at 0.6 and from a title at 0.35. A non-`unknown` `source_type` supplied by the caller is trusted as given. Codes: `authority_by_type`, `authority_capped_weak_basis`, `authority_unclassified`. Page text and title wording never change it (tests include self-praising and injection-like text).
 
@@ -97,11 +97,10 @@ Each rating is computed on its own, is `None` when it cannot be determined, and 
 
 **Relevance** is lexical overlap: `0.75 * (share of question terms found in title or text) + 0.25 * (share found in the title)`, with at most 64 question terms, a 500-character title and the first 20,000 characters of text. English is lower-cased words without stop words and with a trailing plural `s` dropped; Japanese is split at common hiragana particles and cut into character bigrams (all-hiragana bigrams are skipped), and a lone kanji or katakana character is matched as a substring. Codes: `relevance_overlap`, `relevance_title_only`, `relevance_no_terms` (the question has only stop words), `relevance_no_text`. This is a cheap baseline and not semantic: it misses synonyms, cannot see negation, and keyword stuffing raises it (the score of a text that merely repeats the terms is bounded by 0.75 without a title match). A later step may replace it with an embedding or model-based score; the field stays 0..1.
 
-`evaluate_and_store` rates a stored source and writes the three ratings with `ResearchRepository.set_evaluation`, which refuses a finished session. Page text is not stored, so the caller that read the page passes `text`. The classified source type is not stored: the repository has no setter for `source_type` yet.
+`evaluate_and_store` rates a stored source and writes the type, the rule and basis that decided it, the three ratings and their reason codes in one atomic write (`ResearchRepository.set_source_assessment`, schema v8), which refuses a finished session. A source that already has a recorded rule and basis is not reclassified, and its basis still caps the authority. A type supplied by the caller is recorded as rule `provided`, basis `provided`. Page text is not stored, so the caller that read the page passes `text`.
 
 ## Not done in this step
 
 - Wiring into Quick Research or an API route; sessions still always use `quick` and the v1 planner stays the default.
-- Persisting `source_type` (needs a repository method) and recording the rating reasons.
-- The `primary` rating and `agreement`/cross-checking (JAR-46), Standard research, conflict handling, extra search rounds.
+- The `primary` rating and Standard research. (Persisting the type and reasons, cross-checking, conflict records and the additional-search decision exist as libraries; see [research.md](research.md). Nothing runs them in a pipeline yet.)
 - An LLM planner, semantic relevance, and any live search.

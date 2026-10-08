@@ -9,7 +9,7 @@ There is deliberately no physical deletion API.
 import logging
 import re
 import sqlite3
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
@@ -23,12 +23,23 @@ from backend.research.models import (
     MAX_QUERY_CHARS,
     MAX_QUESTION_CHARS,
     MAX_QUOTE_CHARS,
+    MAX_REASONS_PER_RATING,
     MAX_RESULT_CHARS,
+    MAX_RULE_ID_CHARS,
     MAX_TITLE_CHARS,
     MAX_URL_CHARS,
+    RATING_REASONS,
     TERMINAL_STATUSES,
+    Basis,
+    ConflictKind,
+    ConflictResolution,
+    ConflictStatus,
     FailureReason,
+    RatingName,
+    RatingReason,
+    RatingReasons,
     ResearchClaim,
+    ResearchConflict,
     ResearchLevel,
     ResearchQueryRecord,
     ResearchSession,
@@ -42,6 +53,7 @@ logger = logging.getLogger(__name__)
 
 MAX_QUOTE_OFFSET = 10_000_000
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+_RULE_ID = re.compile(r"[a-z][a-z0-9_]*")
 _EVALUATION_COLUMNS = (
     ("authority", "authority"),
     ("freshness", "freshness"),
@@ -233,6 +245,27 @@ class ResearchRepository:
             )
         return ResearchQueryRecord(record_id, session_id, text, position, now)
 
+    def count_queries_in_month(self, moment: datetime) -> int:
+        """Search queries recorded during the UTC calendar month containing ``moment``.
+
+        Read-only. This counts what JARVIS recorded, not what a vendor billed.
+        """
+        if not isinstance(moment, datetime) or moment.tzinfo is None:
+            raise ValueError("moment must be a timezone-aware datetime")
+        moment = moment.astimezone(UTC)
+        start = datetime(moment.year, moment.month, 1, tzinfo=UTC)
+        end = (
+            datetime(moment.year + 1, 1, 1, tzinfo=UTC)
+            if moment.month == 12
+            else datetime(moment.year, moment.month + 1, 1, tzinfo=UTC)
+        )
+        with self._read() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM research_queries WHERE created_at >= ? AND created_at < ?",
+                (_ts(start), _ts(end)),
+            ).fetchone()
+        return int(row[0])
+
     def list_queries(self, session_id: UUID) -> list[ResearchQueryRecord]:
         _require_uuid(session_id, "session_id")
         with self._read() as connection:
@@ -315,9 +348,10 @@ class ResearchRepository:
                 "WHERE session_id = ? AND final_url = ? AND content_digest = ?",
                 (str(session_id), final_url, content_digest),
             ).fetchone()
+            reasons = _load_reasons(connection, [row["id"]])
         if inserted.rowcount == 0:
             logger.debug("research source already stored for session")
-        return _source(row)
+        return _source(row, reasons)
 
     def get_source(self, source_id: UUID) -> ResearchSource | None:
         _require_uuid(source_id, "source_id")
@@ -325,7 +359,8 @@ class ResearchRepository:
             row = connection.execute(
                 "SELECT * FROM research_sources WHERE id = ?", (str(source_id),)
             ).fetchone()
-        return _source(row) if row is not None else None
+            reasons = _load_reasons(connection, [str(source_id)]) if row is not None else {}
+        return _source(row, reasons) if row is not None else None
 
     def list_sources(self, session_id: UUID) -> list[ResearchSource]:
         _require_uuid(session_id, "session_id")
@@ -334,13 +369,81 @@ class ResearchRepository:
                 "SELECT * FROM research_sources WHERE session_id = ? ORDER BY retrieved_at, id",
                 (str(session_id),),
             ).fetchall()
-        return [_source(row) for row in rows]
+            reasons = _load_reasons(connection, [row["id"] for row in rows])
+        return [_source(row, reasons) for row in rows]
 
-    def set_evaluation(self, source_id: UUID, evaluation: SourceEvaluation) -> ResearchSource:
-        """Replace a source's ratings (each 0..1 or None) while its session is open."""
+    def set_evaluation(
+        self,
+        source_id: UUID,
+        evaluation: SourceEvaluation,
+        *,
+        reasons: Mapping[RatingName, Sequence[RatingReason]] | None = None,
+    ) -> ResearchSource:
+        """Replace a source's ratings (each 0..1 or None) while its session is open.
+
+        ``reasons`` optionally records the fixed reason codes of ratings: for every rating
+        named in the mapping the stored codes are replaced (an empty sequence clears them);
+        ratings not named keep their codes. Each code must belong to its rating.
+        """
+        return self._update_source(source_id, evaluation=evaluation, reasons=reasons)
+
+    def set_source_classification(
+        self,
+        source_id: UUID,
+        source_type: SourceType,
+        *,
+        rule_id: str,
+        basis: Basis,
+    ) -> ResearchSource:
+        """Record a source type with the rule id and basis that decided it (session open).
+
+        ``rule_id`` is a short identifier from a rule table (``official_host``, ``no_rule``,
+        ``provided``), never page text. Calling it again with the same values changes nothing.
+        """
+        return self._update_source(source_id, classification=(source_type, rule_id, basis))
+
+    def set_source_assessment(
+        self,
+        source_id: UUID,
+        *,
+        source_type: SourceType,
+        rule_id: str,
+        basis: Basis,
+        evaluation: SourceEvaluation,
+        reasons: Mapping[RatingName, Sequence[RatingReason]] | None = None,
+    ) -> ResearchSource:
+        """``set_source_classification`` and ``set_evaluation`` in one atomic write."""
+        return self._update_source(
+            source_id,
+            classification=(source_type, rule_id, basis),
+            evaluation=evaluation,
+            reasons=reasons,
+        )
+
+    def _update_source(
+        self,
+        source_id: UUID,
+        *,
+        classification: tuple[SourceType, str, Basis] | None = None,
+        evaluation: SourceEvaluation | None = None,
+        reasons: Mapping[RatingName, Sequence[RatingReason]] | None = None,
+    ) -> ResearchSource:
         _require_uuid(source_id, "source_id")
-        if not isinstance(evaluation, SourceEvaluation):
+        if classification is not None:
+            source_type, rule_id, basis = classification
+            if not isinstance(source_type, SourceType):
+                raise ValueError("source_type must be a SourceType")
+            if not isinstance(basis, Basis):
+                raise ValueError("basis must be a Basis")
+            if (
+                not isinstance(rule_id, str)
+                or len(rule_id) > MAX_RULE_ID_CHARS
+                or not _RULE_ID.fullmatch(rule_id)
+            ):
+                raise ValueError("rule_id must be a short lowercase identifier")
+        if evaluation is not None and not isinstance(evaluation, SourceEvaluation):
             raise ValueError("evaluation must be a SourceEvaluation")
+        checked = _check_reasons(reasons)
         with self._write() as connection:
             owner = connection.execute(
                 "SELECT session_id FROM research_sources WHERE id = ?", (str(source_id),)
@@ -348,22 +451,43 @@ class ResearchRepository:
             if owner is None:
                 raise ResearchIntegrityError("Source does not exist")
             self._require_open_session(connection, UUID(owner["session_id"]))
-            connection.execute(
-                "UPDATE research_sources SET authority = ?, freshness = ?, is_primary = ?, "
-                "relevance = ?, agreement = ? WHERE id = ?",
-                (
-                    evaluation.authority,
-                    evaluation.freshness,
-                    evaluation.primary,
-                    evaluation.relevance,
-                    evaluation.agreement,
-                    str(source_id),
-                ),
-            )
+            if classification is not None:
+                connection.execute(
+                    "UPDATE research_sources SET source_type = ?, classification_rule = ?, "
+                    "classification_basis = ? WHERE id = ?",
+                    (source_type.value, rule_id, basis.value, str(source_id)),
+                )
+            if evaluation is not None:
+                connection.execute(
+                    "UPDATE research_sources SET authority = ?, freshness = ?, is_primary = ?, "
+                    "relevance = ?, agreement = ? WHERE id = ?",
+                    (
+                        evaluation.authority,
+                        evaluation.freshness,
+                        evaluation.primary,
+                        evaluation.relevance,
+                        evaluation.agreement,
+                        str(source_id),
+                    ),
+                )
+            for rating, codes in checked.items():
+                connection.execute(
+                    "DELETE FROM research_source_reasons WHERE source_id = ? AND rating = ?",
+                    (str(source_id), rating.value),
+                )
+                connection.executemany(
+                    "INSERT INTO research_source_reasons (source_id, rating, position, reason) "
+                    "VALUES (?, ?, ?, ?)",
+                    [
+                        (str(source_id), rating.value, position, code.value)
+                        for position, code in enumerate(codes)
+                    ],
+                )
             row = connection.execute(
                 "SELECT * FROM research_sources WHERE id = ?", (str(source_id),)
             ).fetchone()
-        return _source(row)
+            loaded = _load_reasons(connection, [str(source_id)])
+        return _source(row, loaded)
 
     # ----- claims / citations -----
 
@@ -433,6 +557,129 @@ class ResearchRepository:
                 (str(source_id),),
             ).fetchall()
         return [_claim(row) for row in rows]
+
+    # ----- conflicts -----
+
+    def add_conflict(
+        self,
+        session_id: UUID,
+        kind: ConflictKind,
+        claim_id: UUID,
+        *,
+        other_claim_id: UUID | None = None,
+        other_source_id: UUID | None = None,
+    ) -> ResearchConflict:
+        """Record a disagreement; it stays open until ``resolve_conflict`` is called.
+
+        Side A is ``claim_id`` and the source it cites. Side B is exactly one of
+        ``other_claim_id`` (a second claim, its cited source becomes side B's source) or
+        ``other_source_id`` (a source whose text disagrees with claim A). The two sides must
+        cite different sources. Between two claims the pair is stored in a canonical order,
+        so recording it again in either order returns the existing record.
+        """
+        _require_uuid(session_id, "session_id")
+        _require_uuid(claim_id, "claim_id")
+        if not isinstance(kind, ConflictKind):
+            raise ValueError("kind must be a ConflictKind")
+        if (other_claim_id is None) == (other_source_id is None):
+            raise ValueError("give exactly one of other_claim_id and other_source_id")
+        if other_claim_id is not None:
+            _require_uuid(other_claim_id, "other_claim_id")
+        if other_source_id is not None:
+            _require_uuid(other_source_id, "other_source_id")
+        with self._write() as connection:
+            self._require_open_session(connection, session_id)
+            first = _claim_side(connection, session_id, claim_id)
+            if other_claim_id is not None:
+                second = _claim_side(connection, session_id, other_claim_id)
+                if first[0] == second[0]:
+                    raise ValueError("a conflict needs two different claims")
+                if str(first[0]) > str(second[0]):
+                    first, second = second, first
+                claim_a, source_a = first
+                claim_b, source_b = second
+            else:
+                claim_a, source_a = first
+                claim_b = None
+                owner = connection.execute(
+                    "SELECT 1 FROM research_sources WHERE id = ? AND session_id = ?",
+                    (str(other_source_id), str(session_id)),
+                ).fetchone()
+                if owner is None:
+                    raise ResearchIntegrityError("Source does not belong to this research session")
+                source_b = other_source_id
+            if source_a == source_b:
+                raise ValueError("a conflict needs two different sources")
+            connection.execute(
+                "INSERT INTO research_conflicts (id, session_id, kind, claim_a_id, source_a_id, "
+                "claim_b_id, source_b_id, status, resolution, detected_at, resolved_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', NULL, ?, NULL) "
+                "ON CONFLICT DO NOTHING",
+                (
+                    str(uuid4()),
+                    str(session_id),
+                    kind.value,
+                    str(claim_a),
+                    str(source_a),
+                    str(claim_b) if claim_b is not None else None,
+                    str(source_b),
+                    _ts(self._now()),
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM research_conflicts WHERE claim_a_id = ? "
+                "AND COALESCE(claim_b_id, '') = ? AND source_b_id = ? AND kind = ?",
+                (
+                    str(claim_a),
+                    str(claim_b) if claim_b is not None else "",
+                    str(source_b),
+                    kind.value,
+                ),
+            ).fetchone()
+        return _conflict(row)
+
+    def list_conflicts(
+        self, session_id: UUID, *, status: ConflictStatus | None = None
+    ) -> list[ResearchConflict]:
+        _require_uuid(session_id, "session_id")
+        if status is not None and not isinstance(status, ConflictStatus):
+            raise ValueError("status must be a ConflictStatus")
+        query = "SELECT * FROM research_conflicts WHERE session_id = ?"
+        params: list[object] = [str(session_id)]
+        if status is not None:
+            query += " AND status = ?"
+            params.append(status.value)
+        query += " ORDER BY detected_at, id"
+        with self._read() as connection:
+            rows = connection.execute(query, params).fetchall()
+        return [_conflict(row) for row in rows]
+
+    def resolve_conflict(
+        self, conflict_id: UUID, resolution: ConflictResolution
+    ) -> ResearchConflict:
+        """Close an open conflict with a fixed resolution code (explicit, never automatic)."""
+        _require_uuid(conflict_id, "conflict_id")
+        if not isinstance(resolution, ConflictResolution):
+            raise ValueError("resolution must be a ConflictResolution")
+        with self._write() as connection:
+            owner = connection.execute(
+                "SELECT session_id, status FROM research_conflicts WHERE id = ?",
+                (str(conflict_id),),
+            ).fetchone()
+            if owner is None:
+                raise ResearchIntegrityError("Conflict does not exist")
+            self._require_open_session(connection, UUID(owner["session_id"]))
+            if owner["status"] != ConflictStatus.OPEN.value:
+                raise ResearchStateChanged("Conflict is already resolved")
+            connection.execute(
+                "UPDATE research_conflicts SET status = 'resolved', resolution = ?, "
+                "resolved_at = ? WHERE id = ?",
+                (resolution.value, _ts(self._now()), str(conflict_id)),
+            )
+            row = connection.execute(
+                "SELECT * FROM research_conflicts WHERE id = ?", (str(conflict_id),)
+            ).fetchone()
+        return _conflict(row)
 
     # ----- internals -----
 
@@ -569,7 +816,85 @@ def _session(row: sqlite3.Row) -> ResearchSession:
         raise ResearchRepositoryError("Stored research session is invalid") from exc
 
 
-def _source(row: sqlite3.Row) -> ResearchSource:
+def _check_reasons(
+    reasons: Mapping[RatingName, Sequence[RatingReason]] | None,
+) -> dict[RatingName, tuple[RatingReason, ...]]:
+    if reasons is None:
+        return {}
+    if not isinstance(reasons, Mapping):
+        raise ValueError("reasons must be a mapping of rating to reason codes")
+    checked: dict[RatingName, tuple[RatingReason, ...]] = {}
+    for rating, codes in reasons.items():
+        if not isinstance(rating, RatingName):
+            raise ValueError("reasons keys must be RatingName values")
+        if isinstance(codes, str) or not isinstance(codes, Sequence):
+            raise ValueError("reason codes must be a sequence")
+        if len(codes) > MAX_REASONS_PER_RATING:
+            raise ValueError(f"at most {MAX_REASONS_PER_RATING} reason codes per rating")
+        if not all(isinstance(code, RatingReason) for code in codes):
+            raise ValueError("reason codes must be RatingReason values")
+        if len(set(codes)) != len(codes):
+            raise ValueError("reason codes must not repeat")
+        if not set(codes) <= RATING_REASONS[rating]:
+            raise ValueError("a reason code does not belong to its rating")
+        checked[rating] = tuple(codes)
+    return checked
+
+
+def _load_reasons(
+    connection: sqlite3.Connection, source_ids: Iterable[str]
+) -> dict[str, dict[str, list[str]]]:
+    """Reason codes by source id then rating, in recorded order."""
+    ids = list(source_ids)
+    found: dict[str, dict[str, list[str]]] = {}
+    # Chunked so a long list never exceeds SQLite's variable limit.
+    for start in range(0, len(ids), 500):
+        chunk = ids[start : start + 500]
+        marks = ",".join("?" * len(chunk))
+        rows = connection.execute(
+            "SELECT source_id, rating, reason FROM research_source_reasons "
+            f"WHERE source_id IN ({marks}) ORDER BY source_id, rating, position",
+            chunk,
+        ).fetchall()
+        for row in rows:
+            found.setdefault(row["source_id"], {}).setdefault(row["rating"], []).append(
+                row["reason"]
+            )
+    return found
+
+
+def _claim_side(
+    connection: sqlite3.Connection, session_id: UUID, claim_id: UUID
+) -> tuple[UUID, UUID]:
+    row = connection.execute(
+        "SELECT source_id FROM research_claims WHERE id = ? AND session_id = ?",
+        (str(claim_id), str(session_id)),
+    ).fetchone()
+    if row is None:
+        raise ResearchIntegrityError("Claim does not belong to this research session")
+    return claim_id, UUID(row["source_id"])
+
+
+def _conflict(row: sqlite3.Row) -> ResearchConflict:
+    try:
+        return ResearchConflict(
+            id=UUID(row["id"]),
+            session_id=UUID(row["session_id"]),
+            kind=ConflictKind(row["kind"]),
+            claim_a_id=UUID(row["claim_a_id"]),
+            source_a_id=UUID(row["source_a_id"]),
+            source_b_id=UUID(row["source_b_id"]),
+            detected_at=_parse_ts(row["detected_at"]),
+            claim_b_id=UUID(row["claim_b_id"]) if row["claim_b_id"] else None,
+            status=ConflictStatus(row["status"]),
+            resolution=ConflictResolution(row["resolution"]) if row["resolution"] else None,
+            resolved_at=_parse_ts(row["resolved_at"]) if row["resolved_at"] else None,
+        )
+    except ValueError as exc:
+        raise ResearchRepositoryError("Stored research conflict is invalid") from exc
+
+
+def _source(row: sqlite3.Row, reasons: Mapping[str, Mapping[str, list[str]]]) -> ResearchSource:
     try:
         return ResearchSource(
             id=UUID(row["id"]),
@@ -584,6 +909,19 @@ def _source(row: sqlite3.Row) -> ResearchSource:
             source_type=SourceType(row["source_type"]),
             evaluation=SourceEvaluation(
                 **{field: row[column] for field, column in _EVALUATION_COLUMNS}
+            ),
+            classification_rule=row["classification_rule"],
+            classification_basis=Basis(row["classification_basis"])
+            if row["classification_basis"] is not None
+            else None,
+            reasons=RatingReasons(
+                **{
+                    name.value: tuple(
+                        RatingReason(code)
+                        for code in reasons.get(row["id"], {}).get(name.value, ())
+                    )
+                    for name in RatingName
+                }
             ),
         )
     except ValueError as exc:

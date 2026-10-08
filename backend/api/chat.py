@@ -2,14 +2,16 @@
 
 import json
 from contextlib import aclosing
+from typing import Annotated
 from uuid import UUID
 
 from anyio import CancelScope
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.types import Receive, Scope, Send
 
+from backend.chat.activity import ActivityEvent
 from backend.chat.context import ConversationCapacityError, ConversationNotFound
 from backend.chat.memory_context import MemoryContextError
 from backend.chat.persistence import ConversationStorageError
@@ -39,7 +41,12 @@ class ChatResponse(BaseModel):
     model: str
 
 
-def _sse(event: str, data: dict[str, str]) -> str:
+# A client opts in to `activity` SSE events by sending this header with the value "1". Without
+# it the stream is exactly the delta/done/error stream it always was.
+ACTIVITY_HEADER = "X-Jarvis-Activity"
+
+
+def _sse(event: str, data: dict[str, str | int | bool]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
@@ -79,17 +86,26 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
         )
 
     @router.post("/api/chat/stream")
-    async def stream_chat(request: ChatRequest) -> StreamingResponse:
+    async def stream_chat(
+        request: ChatRequest,
+        x_jarvis_activity: Annotated[str | None, Header(alias=ACTIVITY_HEADER)] = None,
+    ) -> StreamingResponse:
         validate_message(request)
         chat_service = require_service()
+        with_activity = x_jarvis_activity == "1"
 
         async def events():
             try:
-                async with aclosing(
-                    chat_service.stream(request.message, request.conversation_id)
-                ) as items:
+                turn = (
+                    chat_service.stream_with_activity
+                    if with_activity
+                    else chat_service.stream
+                )
+                async with aclosing(turn(request.message, request.conversation_id)) as items:
                     async for item in items:
-                        if isinstance(item, ChatDelta):
+                        if isinstance(item, ActivityEvent):
+                            yield _sse("activity", item.to_payload())
+                        elif isinstance(item, ChatDelta):
                             yield _sse("delta", {"text": item.text})
                         else:
                             yield _sse(

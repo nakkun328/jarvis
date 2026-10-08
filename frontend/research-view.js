@@ -315,6 +315,7 @@ export function statusChangeMessage(previous, next) {
 // ----- error messages -----
 
 const API_ERROR_MESSAGES = {
+  unauthorized: "ログインの有効期限が切れました。ログイン画面に移動します。",
   network: "サーバーに接続できません。JARVIS が起動しているか確認してください。",
   offline: "オフラインです。ネットワーク接続を確認してください。",
   unavailable: "調査データの保存先を読み取れません。しばらくしてからもう一度お試しください。",

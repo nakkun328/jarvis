@@ -359,6 +359,7 @@ function startFollow() {
   }).then((reason) => {
     if (!current()) return;
     if (reason === "done") setConnection({ phase: "done" });
+    else if (reason === "unauthorized") setConnection({ phase: "unauthorized" });
     else if (reason === "not_found") {
       state.detailError = "not_found";
       setConnection({ phase: "not_found" });

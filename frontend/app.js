@@ -1,4 +1,5 @@
 import { sendChat } from "./chat-api.js";
+import { createActivityView } from "./activity.js";
 import { ChatSession, MAX_MESSAGE_LENGTH, messageLength } from "./chat-session.js";
 
 const conversation = document.querySelector("#conversation");
@@ -10,6 +11,8 @@ const stopButton = document.querySelector("#stop");
 const newChatButton = document.querySelector("#new-chat");
 const status = document.querySelector("#status");
 const counter = document.querySelector("#counter");
+
+const activity = createActivityView(document, document.querySelector("#activity"), window);
 
 const PENDING_TEXT = "考えています…";
 const COUNTER_FROM = 3600;
@@ -68,6 +71,7 @@ function beginTurn(text, onRetry) {
       scrollToLatest();
     },
     complete({ provider, model }) {
+      activity.settle("done");
       assistant.item.classList.remove("message-pending");
       if (typeof provider === "string" && typeof model === "string") {
         const meta = document.createElement("div");
@@ -80,6 +84,7 @@ function beginTurn(text, onRetry) {
     },
     // Text received before a failure is shown as an unsaved partial, never as the reply.
     fail({ message, partial, kind, retryable }) {
+      activity.settle(kind === "aborted" ? "cancelled" : "error");
       assistant.item.classList.remove("message-pending");
       assistant.item.classList.add(kind === "aborted" ? "message-aborted" : "message-error");
       if (partial) {
@@ -111,6 +116,7 @@ function beginTurn(text, onRetry) {
       scrollToLatest();
     },
     reset() {
+      activity.begin();
       clearExtras();
       assistant.content.classList.remove("message-partial");
       assistant.content.textContent = PENDING_TEXT;
@@ -125,14 +131,17 @@ function beginTurn(text, onRetry) {
 }
 
 const session = new ChatSession({
-  send: sendChat,
+  send: (options) => sendChat({ ...options, onActivity: (data) => activity.handle(data) }),
   view: {
     setStatus,
     clearInput() {
       input.value = "";
       resizeInput();
     },
-    beginTurn: (text) => beginTurn(text, () => session.retry()),
+    beginTurn: (text) => {
+      activity.begin();
+      return beginTurn(text, () => session.retry());
+    },
     setBusy(value) {
       sendButton.disabled = value;
       newChatButton.disabled = value;
@@ -185,6 +194,7 @@ stopButton.addEventListener("click", () => session.stop());
 newChatButton.addEventListener("click", () => {
   if (!session.reset()) return;
   conversation.replaceChildren(welcome);
+  activity.reset();
   setStatus("");
   input.focus();
 });

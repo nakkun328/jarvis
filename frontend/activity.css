@@ -1,0 +1,95 @@
+/* Activity View: a status orb and a small route diagram on the chat page. Colours come from the
+   shared shell tokens where one exists. Every state is keyed on data-* attributes written by
+   activity.js, so no inline style is needed. Motion is decorative: the caption and the
+   aria-live line carry the same information. */
+.activity-mount { position: sticky; top: 3.8rem; z-index: 1; width: min(100%, 800px); margin: 0 auto; padding: .6rem 1rem 0; }
+.activity {
+  --act: var(--accent);
+  --act-glow: #75d4ea55;
+  border: 1px solid var(--border); border-left: 3px solid var(--act); border-radius: .7rem;
+  background: var(--surface); padding: .45rem .8rem .55rem;
+}
+.activity-bar { display: flex; align-items: center; gap: .6rem; min-height: 2rem; }
+.activity-dot { flex: none; width: .7rem; height: .7rem; border-radius: 50%; background: var(--act); box-shadow: 0 0 8px var(--act-glow); }
+.activity-caption { flex: 1; min-width: 0; font-size: .74rem; font-weight: 700; letter-spacing: .14em; color: var(--act); overflow-wrap: anywhere; }
+.activity-toggle {
+  flex: none; border: 1px solid var(--border-strong); border-radius: .5rem; background: var(--surface-raised);
+  color: var(--text-soft); padding: .25rem .6rem; font-size: .74rem; min-height: 2rem;
+}
+.activity-toggle:hover { background: var(--surface-hover); }
+.activity-live { margin: .15rem 0 0; color: var(--text-soft); font-size: .8rem; line-height: 1.5; overflow-wrap: anywhere; }
+.activity-route { margin: .3rem 0 0; padding-left: .6rem; border-left: 2px solid var(--act); color: var(--text-soft); font-size: .76rem; line-height: 1.5; overflow-wrap: anywhere; }
+.activity-route[hidden] { display: none; }
+.activity-body { margin-top: .5rem; }
+.activity-stage { display: flex; align-items: center; justify-content: center; gap: 1rem; }
+
+/* Mode colours. idle/done/error/stopped have no ring motion. */
+.activity[data-mode="listen"] { --act: #75d4ea; --act-glow: #75d4ea66; }
+.activity[data-mode="recall"] { --act: #b9a8e8; --act-glow: #b9a8e866; }
+.activity[data-mode="research"] { --act: #f2c46d; --act-glow: #f2c46d66; }
+.activity[data-mode="synth"] { --act: #8fe8f0; --act-glow: #8fe8f099; }
+.activity[data-mode="speak"] { --act: #8fe0a8; --act-glow: #8fe0a866; }
+.activity[data-mode="done"] { --act: #8fe0a8; --act-glow: #8fe0a844; }
+.activity[data-mode="error"] { --act: #ff9b8f; --act-glow: #ff9b8f66; }
+.activity[data-mode="stopped"] { --act: #aab0c2; --act-glow: #aab0c233; }
+.activity[data-mode="idle"] { --act: #6f8ea3; --act-glow: #6f8ea322; }
+
+/* Orb */
+.orb { flex: none; width: 7.5rem; height: 7.5rem; overflow: visible; }
+.orb-glow { fill: var(--act-glow); opacity: .55; }
+.orb-core { fill: #0b1c2a; stroke: var(--act); stroke-width: 2; }
+.orb-letter { fill: var(--act); font-size: 30px; font-weight: 800; font-family: inherit; }
+.orb-ring { fill: none; stroke: var(--act); stroke-linecap: round; transform-box: fill-box; transform-origin: center; }
+.orb-ring-outer { stroke-width: 1.5; stroke-dasharray: 3 7; opacity: .8; }
+.orb-ring-inner { stroke-width: 2.5; stroke-dasharray: 40 24 12 24; opacity: .9; }
+.activity[data-mode="idle"] .orb-glow { animation: breathe 4s ease-in-out infinite; }
+.activity[data-mode="listen"] .orb-ring-outer { animation: spin 9s linear infinite; }
+.activity[data-mode="listen"] .orb-glow { animation: breathe 1.6s ease-in-out infinite; }
+.activity[data-mode="recall"] .orb-ring-outer { animation: spin 6s linear infinite reverse; }
+.activity[data-mode="recall"] .orb-ring-inner { animation: spin 3s linear infinite; }
+.activity[data-mode="research"] .orb-ring-outer { animation: spin 5s linear infinite; }
+.activity[data-mode="research"] .orb-ring-inner { animation: spin 2.4s linear infinite reverse; }
+.activity[data-mode="synth"] .orb-ring-outer { animation: spin 3s linear infinite; }
+.activity[data-mode="synth"] .orb-ring-inner { animation: spin 1.4s linear infinite reverse; }
+.activity[data-mode="synth"] .orb-glow { animation: breathe 1s ease-in-out infinite; }
+.activity[data-mode="speak"] .orb-glow { animation: breathe .7s ease-in-out infinite; }
+.activity[data-mode="speak"] .orb-ring-inner { animation: spin 4s linear infinite; }
+.activity[data-mode="done"] .orb-ring-inner, .activity[data-mode="stopped"] .orb-ring-inner { stroke-dasharray: none; }
+.activity[data-mode="error"] .orb-ring-outer, .activity[data-mode="error"] .orb-ring-inner { stroke-dasharray: 2 6; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes breathe { 50% { opacity: .2; } }
+
+/* Diagram */
+.diagram { flex: 1 1 auto; min-width: 0; max-width: 21rem; height: auto; }
+.edge { fill: none; stroke: #4a6478; stroke-width: 1.5; }
+.edge[data-connected="false"] { stroke: #2f4252; stroke-dasharray: 2 5; opacity: .75; }
+.edge[data-active="true"] { stroke: var(--act); stroke-width: 2.5; stroke-dasharray: 6 8; filter: drop-shadow(0 0 3px var(--act-glow)); animation: flow .7s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -14; } }
+.node rect { fill: #0f1b29; stroke: #4a6478; stroke-width: 1.5; }
+.node text { fill: var(--text-soft); font-size: 9.5px; font-weight: 700; letter-spacing: .08em; font-family: inherit; }
+.node[data-connected="false"] { opacity: .45; }
+.node[data-connected="false"] rect { stroke-dasharray: 3 3; }
+.node[data-status="active"] rect { stroke: var(--act); stroke-width: 2.5; fill: #12303d; }
+.node[data-status="active"] text { fill: #fff; }
+.node[data-status="done"] rect { stroke: #8fe0a8; }
+.node[data-status="error"] rect { stroke: #ff9b8f; stroke-width: 2.5; }
+
+/* Reduced motion: no animation anywhere; active edges stay bright and solid. The attribute is
+   set by activity.js (media query or the `reduce-motion` class on <html>); the media query
+   alone is enough if the script cannot run. */
+.activity[data-reduced-motion="true"] *,
+:root.reduce-motion .activity * { animation: none !important; }
+.activity[data-reduced-motion="true"] .edge[data-active="true"],
+:root.reduce-motion .activity .edge[data-active="true"] { stroke-dasharray: none; }
+@media (prefers-reduced-motion: reduce) {
+  .activity * { animation: none !important; }
+  .activity .edge[data-active="true"] { stroke-dasharray: none; }
+}
+
+@media (max-width: 600px) {
+  .activity-mount { position: static; padding: .4rem .65rem 0; }
+  .activity-stage { flex-direction: column; gap: .5rem; }
+  .orb { width: 5.5rem; height: 5.5rem; }
+  .diagram { width: 100%; max-width: 100%; }
+  .activity-toggle { min-height: var(--tap); }
+}

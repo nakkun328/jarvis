@@ -3,6 +3,7 @@
 // Events: snapshot -> progress* -> done, or error {code}. The stream is read with fetch and the
 // shared sse.js reader. Reconnects are bounded: see followTask.
 import { eventsUrl, classifyStatus } from "./tasks-api.js";
+import { sessionEnded } from "./session.js";
 import { readEventStream } from "./sse.js";
 import { normalizeTask } from "./tasks-view.js";
 
@@ -101,6 +102,11 @@ async function connectOnce(taskId, state, { fetchImpl, signal, onState, maxDelay
   } catch (error) {
     return { kind: error?.name === "AbortError" || signal?.aborted ? "aborted" : "network", state };
   }
+  if (response.status === 401) {
+    // The session ended: go to the login page once and do not reconnect.
+    sessionEnded();
+    return { kind: "unauthorized", state };
+  }
   if (!response.ok) {
     const kind = classifyStatus(response.status);
     const map = { not_found: "not_found", busy: "busy", unavailable: "storage", server: "network" };
@@ -142,7 +148,7 @@ async function connectOnce(taskId, state, { fetchImpl, signal, onState, maxDelay
 }
 
 // Follows one task until it ends. Resolves to why it stopped:
-//   done | not_found | gave_up | aborted
+//   done | not_found | unauthorized | gave_up | aborted
 // Bounded behaviour:
 //   - stream_time_limit (server hard cap, 300 s) reconnects after `timeLimitDelayMs` and gets a
 //     fresh snapshot; at most `maxTimeLimitReconnects` in a row without any progress event.
@@ -181,6 +187,7 @@ export async function followTask(taskId, {
     if (result.kind === "aborted") return "aborted";
     if (result.kind === "done") return "done";
     if (result.kind === "not_found") return "not_found";
+    if (result.kind === "unauthorized") return "unauthorized";
     if (result.progressed) {
       failures = 0;
       timeLimits = 0;

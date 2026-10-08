@@ -33,6 +33,8 @@ class SearchFailure(StrEnum):
     NETWORK_ERROR = "network_error"
     BAD_RESPONSE = "bad_response"
     UNAVAILABLE = "unavailable"
+    QUOTA_EXHAUSTED = "quota_exhausted"  # the vendor says the plan's quota is used up
+    QUOTA_EXHAUSTED_LOCAL = "quota_exhausted_local"  # our own monthly budget guard; no request
 
 
 class SearchError(RuntimeError):

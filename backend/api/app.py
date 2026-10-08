@@ -9,9 +9,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.chat import build_chat_router
+from backend.api.memory import create_memory_router
 from backend.api.request_logging import RequestLoggingMiddleware
 from backend.api.research import create_research_router
 from backend.api.tasks import create_tasks_router
+from backend.auth.middleware import AuthMiddleware
+from backend.auth.routes import create_auth_router
+from backend.auth.service import AuthService
 from backend.chat.memory_context import MemoryContext
 from backend.chat.persistence import SQLiteConversationStore
 from backend.chat.semantic_context import SemanticMemoryContext
@@ -29,7 +33,25 @@ from backend.personality.settings import PersonalityError, load_personality
 from backend.providers.base import LLMProvider
 from backend.providers.factory import create_provider
 from backend.research.repository import ResearchRepository
+from backend.router import AuditedRouter, InMemoryAuditSink, LLMRouter, Router, RuleRouter
 from backend.tasks.repository import TaskRepository
+
+
+def _build_router(settings: Settings, provider: LLMProvider | None) -> Router:
+    """The router chosen by ``JARVIS_ROUTER``, with an in-memory audit (no text, not persisted).
+
+    ``llm`` reuses the already configured chat provider: no new key, model or endpoint. An
+    injected ``router=`` is used as given and is not wrapped.
+    """
+    if settings.router == "rule":
+        inner: Router = RuleRouter()
+    elif settings.router == "llm":
+        if provider is None:
+            raise ConfigError("JARVIS_ROUTER=llm requires a configured chat provider")
+        inner = LLMRouter(provider)
+    else:  # pragma: no cover - Settings validates the value
+        raise ConfigError("JARVIS_ROUTER is invalid")
+    return AuditedRouter(inner, InMemoryAuditSink())
 
 
 def create_app(
@@ -38,8 +60,11 @@ def create_app(
     *,
     embedding_provider: EmbeddingProvider | None = None,
     memory_index: VectorIndex | None = None,
+    auth: AuthService | None = None,
+    router: Router | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
+    auth = auth or AuthService.from_settings(settings)
     try:
         personality = load_personality(settings.personality_path)
     except PersonalityError as error:
@@ -64,12 +89,15 @@ def create_app(
         )
     if provider is None:
         provider = create_provider(settings)
+    if router is None and settings.router != "off":
+        router = _build_router(settings, provider)
     chat_service = (
         ChatService(
             provider,
             SQLiteConversationStore(database),
             memory_context=memory_context,
             personality=personality,
+            router=router,
         )
         if provider is not None
         else None
@@ -81,6 +109,7 @@ def create_app(
         try:
             database.initialize()
             logging.getLogger(__name__).info("JARVIS backend started")
+            auth.log_startup()
             logging.getLogger(__name__).info(
                 "Personality (%s): %s",
                 "file" if settings.personality_path is not None else "default",
@@ -100,6 +129,9 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
+    if auth.enabled:
+        # Added before the request logger so the logger is outermost and records refusals too.
+        app.add_middleware(AuthMiddleware, auth=auth)
     app.add_middleware(RequestLoggingMiddleware)
 
     @app.get("/health/live")
@@ -113,10 +145,13 @@ def create_app(
         return {"status": "ok"}
 
     app.include_router(build_chat_router(chat_service))
+    app.include_router(create_memory_router(MemoryRepository(database)))
     app.include_router(create_research_router(ResearchRepository(database)))
     app.include_router(create_tasks_router(TaskRepository(database)))
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
+    if auth.enabled:
+        app.include_router(create_auth_router(auth, frontend_dir))
     if (frontend_dir / "index.html").is_file():
         app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
 
@@ -131,6 +166,28 @@ def create_app(
         @app.get("/research", include_in_schema=False)
         def research_client() -> FileResponse:
             return FileResponse(frontend_dir / "research.html")
+
+        @app.get("/memory", include_in_schema=False)
+        def memory_client() -> FileResponse:
+            return FileResponse(frontend_dir / "memory.html")
+
+        @app.get("/manifest.webmanifest", include_in_schema=False)
+        def web_manifest() -> FileResponse:
+            return FileResponse(
+                frontend_dir / "manifest.webmanifest",
+                media_type="application/manifest+json",
+                headers={"Cache-Control": "no-cache"},
+            )
+
+        @app.get("/sw.js", include_in_schema=False)
+        def service_worker() -> FileResponse:
+            # Served from the root so its scope can be "/". It must never be cached
+            # by the browser's HTTP cache, or a fixed worker could not reach users.
+            return FileResponse(
+                frontend_dir / "sw.js",
+                media_type="text/javascript",
+                headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+            )
 
     return app
 

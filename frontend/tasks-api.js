@@ -1,9 +1,10 @@
 // Read-only client for the task state API. Only GET requests are made here.
 import { TASK_STATUSES, filterTasks, normalizeTask } from "./tasks-view.js";
+import { sessionEnded } from "./session.js";
 
 export const LIST_LIMIT = 100;
 
-// kind: network | offline | unavailable | busy | not_found | server | format
+// kind: unauthorized | network | offline | unavailable | busy | not_found | server | format
 export class TasksApiError extends Error {
   constructor(kind, status = null) {
     super(kind);
@@ -13,6 +14,7 @@ export class TasksApiError extends Error {
 }
 
 export function classifyStatus(status) {
+  if (status === 401) return "unauthorized";
   if (status === 404 || status === 422) return "not_found";
   if (status === 429) return "busy";
   if (status === 503) return "unavailable";
@@ -27,6 +29,7 @@ async function getJson(url, { fetchImpl = fetch, signal } = {}) {
     if (error?.name === "AbortError") throw error;
     throw new TasksApiError("network");
   }
+  if (response.status === 401) sessionEnded();
   if (!response.ok) throw new TasksApiError(classifyStatus(response.status), response.status);
   try {
     return await response.json();

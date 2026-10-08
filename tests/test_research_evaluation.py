@@ -373,6 +373,14 @@ def test_reasons_are_fixed_codes() -> None:
         "relevance_title_only",
         "relevance_no_terms",
         "relevance_no_text",
+        "agreement_corroborated",
+        "agreement_mixed",
+        "agreement_contradicted",
+        "agreement_no_comparison",
+        "agreement_verbatim_support",
+        "agreement_number_mismatch",
+        "agreement_date_mismatch",
+        "agreement_negation_mismatch",
     }
 
 
