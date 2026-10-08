@@ -13,12 +13,44 @@ If SQLite becomes unavailable while serving chat, the regular endpoint returns H
 `POST /api/chat` accepts `{ "message": "...", "conversation_id": "optional UUID" }` and returns `conversation_id`, `reply`, `provider`, and `model`. `POST /api/chat/stream` accepts the same request and emits SSE `delta`, `done`, or `error` events. A successful `done` event contains the conversation ID and provider metadata. A missing or expired conversation ID returns HTTP 404 for the regular endpoint and an SSE `error` for streaming. Input is limited to 4,000 characters; blank messages are rejected.
 
 Set `JARVIS_LLM_PROVIDER=openai` plus the adapter's server-side key and model variables to enable live chat. With the default `none`, chat returns 503 while health checks and the web client remain available. The UI is served from `/` when `frontend/index.html` is present. This release has no login or remote access control; bind the server to `127.0.0.1`.
-# Explicit semantic memory opt-in (Draft)
+
+## Web UI behaviour
+
+The plain HTML/JS client (`frontend/`) shows text as it streams, but only a stream that ends with a `done` event is a saved reply. The server stores a turn only after `done`, so a failed or stopped turn is never in later context and retrying it is safe. Text received before a failure stays visible, but it is labelled "incomplete, not saved" and styled differently from a reply.
+
+| Situation | What the user sees | Conversation id | Input / actions |
+| --- | --- | --- | --- |
+| Normal reply | Deltas appear incrementally; provider and model shown after `done` | Stored from `done`, reused on the next turn | Input focused again |
+| Provider failure before the first delta (`error` event or HTTP 502) | Japanese error under the user message, no reply text | Unchanged | Input usable, **再試行** resends the same text |
+| Provider failure after some deltas | Partial text in an "incomplete, not saved" box plus the error | Unchanged | **再試行** resends the same text and replaces the partial |
+| Stop button while streaming | Partial text (if any) plus "stopped, not saved" | Unchanged | **再試行** available; the server drops the stream without saving |
+| Network failure / stream ends without `done` | "Could not connect" or "ended early" error; partial marked unsaved | Unchanged | **再試行** |
+| Second send while a request is in flight | Status "応答中です…"; nothing is sent, the draft stays in the box | Unchanged | Send and New conversation are disabled; Stop is shown |
+| Missing or expired `conversation_id` (SSE `error` or HTTP 404) | Explains the conversation is gone and nothing was carried over | Kept as is; never silently replaced | No retry button. Only **新しい会話** starts a new one |
+| Empty or whitespace-only message | Status "メッセージを入力してください。" | Unchanged | Nothing is sent |
+| 4,000-character limit | Counter from 3,600 characters; notice at the limit (browsers truncate pastes silently); over-limit text is refused | Unchanged | Draft is kept |
+| HTTP 503 with provider `none` | Explains that no LLM provider is configured on the server | Unchanged | No retry button (retrying cannot help) |
+| HTTP 503 capacity/storage/memory, other 5xx | Japanese explanation of the cause | Unchanged | **再試行** |
+
+Server error strings are English and are mapped to Japanese in `frontend/chat-api.js`; unknown text is never shown verbatim. `tests/test_chat_ui_contract.py` fails if the backend and that table drift apart. One request runs at a time per browser tab. Two tabs can still target one conversation; the server serializes them but the UI does not reconcile the transcripts.
+
+## Testing the UI without a provider
+
+`scripts/dev_fake_provider_server.py` is a dev/test-only harness. It starts the real app with a scripted provider on a temporary SQLite file, binds only to loopback, and is never imported by production code:
+
+```
+python scripts/dev_fake_provider_server.py --db "$(mktemp -d)/jarvis.sqlite3" --port 8765
+python scripts/dev_fake_provider_server.py --db /absolute/temp/j.sqlite3 --port 8765 --no-provider
+```
+
+Type `/slow`, `/fail-now`, `/fail-after N`, `/flaky` (fails once, then succeeds), `/empty` or `/history` as the message to select a behaviour; anything else gets a short streamed reply. Restarting it on a new database while a page is open reproduces an expired conversation id. Frontend logic is covered by `node --test frontend/test/*.test.mjs` (use the glob form on Node 24); `chat-api.test.mjs` also loads `chat-session.test.mjs` so the single-file gate in `scripts/verify.py` and CI runs both. These checks do not make the whole web milestone complete: login, remote access control, and history browsing are out of scope here.
+
+## Explicit semantic memory opt-in
 
 The default application still uses lexical memory when
 `JARVIS_MEMORY_VAULT_PATH` is configured, and no memory when it is unset.
 The versioned index stack through #29 is now on main (3030299, 2026-10-04).
-This explicit semantic chat path remains Draft #36; it selects no deployment encoder.
+This explicit semantic chat path is on main (#36); it selects no deployment encoder.
 An application factory caller can opt in by supplying both dependencies:
 
 ```python
@@ -59,4 +91,4 @@ Fake embeddings/chat plus real Chroma test routing and integrity, not semantic
 quality. Production embedding provider/model selection and quality evaluation,
 browser UI and live API checks remain separate. OpenAI live validation is pending;
 necessary live checks use Gemini/gemini-2.5-flash in the separate artificial
-connection trial. This Draft is not merge permission for itself.
+connection trial.
