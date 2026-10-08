@@ -8,16 +8,20 @@ stage.
 
 Emitted today by ``ChatService``: ``received``, ``routing`` and ``route_selected`` (only when a
 router was explicitly configured), ``memory_lookup`` (only when memory context is configured and
-was consulted), ``generating``, ``done`` and ``error``.
+was consulted), ``researching`` (once, with step ``started``, only when the router chose research
+and a research really was started), ``generating``, ``done`` and ``error``.
 
 ``route_selected`` says two different things and never mixes them up: ``route`` is the path that
-actually runs (always ``main`` today, because the casual and research paths are not wired) and
-``decided`` is what the router chose. ``fallback`` says the router could not decide and the safe
-default was used.
+actually runs and ``decided`` is what the router chose. ``route`` is ``main`` unless a research was
+really started for the turn (then ``research``); the casual path is not wired. ``fallback`` says the
+router could not decide and the safe default was used. When the router chose research but none was
+started, the optional ``research_skip`` carries the fixed reason (research busy, not available, over
+budget, refused, or too uncertain) and the turn runs on ``main``.
 
-In the vocabulary but NOT emitted yet, because the features do not exist: ``researching`` and
-``speaking``. They are reserved so the later Researcher and realtime work can reuse one
-vocabulary. Nothing may fake them.
+In the vocabulary but NOT emitted yet, because the feature does not exist: ``speaking``, and the
+``researching`` steps after ``started`` (the chat does not follow a research run; the Research
+screen does). They are reserved so the later realtime work can reuse one vocabulary. Nothing may
+fake them.
 """
 
 from dataclasses import dataclass
@@ -47,11 +51,23 @@ class ActivityRoute(StrEnum):
 
 
 class ResearchStep(StrEnum):
+    # The only step the chat emits: a research was handed to the research run service.
+    STARTED = "started"
     PLANNING = "planning"
     SEARCHING = "searching"
     READING = "reading"
     VERIFYING = "verifying"
     WRITING = "writing"
+
+
+class ResearchSkip(StrEnum):
+    """Why a research the router asked for was not started. Fixed codes; never a message."""
+
+    BUSY = "busy"
+    NOT_CONFIGURED = "not_configured"
+    BUDGET_EXHAUSTED = "budget_exhausted"
+    REFUSED = "refused"
+    LOW_CONFIDENCE = "low_confidence"
 
 
 class ActivityErrorCode(StrEnum):
@@ -81,10 +97,15 @@ _FIELDS_BY_STAGE: dict[ActivityStage, tuple[str, ...]] = {
     ActivityStage.DONE: (),
     ActivityStage.ERROR: ("code",),
 }
+# Fields a stage may carry but need not. ``to_payload`` leaves them out when unset.
+_OPTIONAL_FIELDS_BY_STAGE: dict[ActivityStage, tuple[str, ...]] = {
+    ActivityStage.ROUTE_SELECTED: ("research_skip",),
+}
 _FIELD_TYPES: dict[str, type] = {
     "route": ActivityRoute,
     "decided": ActivityRoute,
     "fallback": bool,
+    "research_skip": ResearchSkip,
     "count": int,
     "step": ResearchStep,
     "code": ActivityErrorCode,
@@ -97,6 +118,7 @@ class ActivityEvent:
     route: ActivityRoute | None = None
     decided: ActivityRoute | None = None
     fallback: bool | None = None
+    research_skip: ResearchSkip | None = None
     count: int | None = None
     step: ResearchStep | None = None
     code: ActivityErrorCode | None = None
@@ -105,8 +127,13 @@ class ActivityEvent:
         if not isinstance(self.stage, ActivityStage):
             raise ValueError("unknown activity stage")
         allowed = _FIELDS_BY_STAGE[self.stage]
+        optional = _OPTIONAL_FIELDS_BY_STAGE.get(self.stage, ())
         for name in _FIELD_TYPES:
             value = getattr(self, name)
+            if name in optional:
+                if value is not None and type(value) is not _FIELD_TYPES[name]:
+                    raise ValueError(f"{self.stage.value} requires a valid {name}")
+                continue
             if name not in allowed:
                 if value is not None:
                     raise ValueError(f"{self.stage.value} takes no {name}")
@@ -117,6 +144,19 @@ class ActivityEvent:
             raise ValueError("count out of range")
         if self.decided is not None and self.decided not in DECIDED_ROUTES:
             raise ValueError("decided must be a router choice")
+        if self.stage is ActivityStage.ROUTE_SELECTED:
+            # The path that ran must be one the router could have asked for: a research ran only
+            # because the router decided it, and a skipped research is a turn that ran on main.
+            if self.route is ActivityRoute.RESEARCH and (
+                self.decided is not ActivityRoute.RESEARCH or self.fallback
+            ):
+                raise ValueError("research ran without a research decision")
+            if self.research_skip is not None and (
+                self.route is not ActivityRoute.MAIN
+                or self.decided is not ActivityRoute.RESEARCH
+                or self.fallback
+            ):
+                raise ValueError("research_skip needs a research decision that ran on main")
 
     @classmethod
     def received(cls) -> "ActivityEvent":
@@ -128,10 +168,24 @@ class ActivityEvent:
 
     @classmethod
     def route_selected(
-        cls, route: ActivityRoute, decided: ActivityRoute, fallback: bool
+        cls,
+        route: ActivityRoute,
+        decided: ActivityRoute,
+        fallback: bool,
+        research_skip: ResearchSkip | None = None,
     ) -> "ActivityEvent":
-        """``route``: the path that actually runs. ``decided``: what the router chose."""
-        return cls(ActivityStage.ROUTE_SELECTED, route=route, decided=decided, fallback=fallback)
+        """``route``: the path that actually runs. ``decided``: what the router chose.
+
+        ``research_skip``: why a research the router asked for was not started (the turn ran
+        on ``main``).
+        """
+        return cls(
+            ActivityStage.ROUTE_SELECTED,
+            route=route,
+            decided=decided,
+            fallback=fallback,
+            research_skip=research_skip,
+        )
 
     @classmethod
     def memory_lookup(cls, count: int) -> "ActivityEvent":
@@ -160,7 +214,10 @@ class ActivityEvent:
     def to_payload(self) -> dict[str, str | int | bool]:
         """The SSE/JSON form: ``stage`` plus the stage's allowlisted fields, if any."""
         payload: dict[str, str | int | bool] = {"stage": self.stage.value}
-        for field in _FIELDS_BY_STAGE[self.stage]:
+        optional = _OPTIONAL_FIELDS_BY_STAGE.get(self.stage, ())
+        for field in (*_FIELDS_BY_STAGE[self.stage], *optional):
             value = getattr(self, field)
+            if value is None and field in optional:
+                continue
             payload[field] = value.value if isinstance(value, StrEnum) else value
         return payload

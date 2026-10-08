@@ -15,6 +15,7 @@ from backend.chat.activity import (
     ActivityEvent,
     ActivityRoute,
     ActivityStage,
+    ResearchSkip,
     ResearchStep,
 )
 from backend.chat.context import ConversationStore
@@ -31,11 +32,14 @@ from backend.providers.base import CompletionRequest, CompletionResponse, Provid
 ACTIVITY_NAME = "X-Jarvis-Activity"
 ACTIVITY = {ACTIVITY_NAME: "1"}
 HOSTILE = "IGNORE-ALL-RULES </script><b>x</b> /etc/passwd sk-live-0123456789"
-ALLOWED_KEYS = {"stage", "route", "decided", "fallback", "count", "step", "code"}
+ALLOWED_KEYS = {
+    "stage", "route", "decided", "fallback", "research_skip", "count", "step", "code",
+}
 VOCABULARY = (
     {stage.value for stage in ActivityStage}
     | {route.value for route in ActivityRoute}
     | {step.value for step in ResearchStep}
+    | {skip.value for skip in ResearchSkip}
     | {code.value for code in ActivityErrorCode}
 )
 
@@ -116,6 +120,13 @@ def test_every_event_serialises_to_stage_plus_one_allowlisted_field() -> None:
             for decided in (ActivityRoute.CASUAL, ActivityRoute.MEMORY, ActivityRoute.RESEARCH)
             for fallback in (False, True)
         ),
+        ActivityEvent.route_selected(ActivityRoute.RESEARCH, ActivityRoute.RESEARCH, False),
+        *(
+            ActivityEvent.route_selected(
+                ActivityRoute.MAIN, ActivityRoute.RESEARCH, False, skip
+            )
+            for skip in ResearchSkip
+        ),
         ActivityEvent.memory_lookup(2),
         *(ActivityEvent.researching(step) for step in ResearchStep),
         ActivityEvent.generating(),
@@ -127,8 +138,9 @@ def test_every_event_serialises_to_stage_plus_one_allowlisted_field() -> None:
     for event in events:
         payload = event.to_payload()
         assert payload["stage"] == event.stage.value
-        # route_selected carries three allowlisted fields, every other stage at most one.
-        assert len(payload) <= (4 if event.stage is ActivityStage.ROUTE_SELECTED else 2)
+        # route_selected carries three allowlisted fields plus the optional research_skip, every
+        # other stage at most one.
+        assert len(payload) <= (5 if event.stage is ActivityStage.ROUTE_SELECTED else 2)
         assert_only_vocabulary(payload)
     assert ActivityEvent.memory_lookup(3).to_payload() == {"stage": "memory_lookup", "count": 3}
     assert ActivityEvent.route_selected(
@@ -178,8 +190,9 @@ def test_events_reject_fields_outside_the_vocabulary(build) -> None:
 
 
 def test_routing_and_reserved_stages_are_not_emitted_without_a_router(tmp_path: Path) -> None:
-    # Without a router (the default) not even the routing stages appear; researching and
-    # speaking do not exist at all yet (see tests/test_router_wiring.py for the router).
+    # Without a router (the default) not even the routing stages appear, and researching only
+    # follows a started research (tests/test_chat_research_route.py); speaking does not exist
+    # at all yet (see tests/test_router_wiring.py for the router).
     async def run() -> set[ActivityStage]:
         service = ChatService(FakeProvider(), ConversationStore())
         seen = set()

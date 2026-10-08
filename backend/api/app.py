@@ -20,6 +20,7 @@ from backend.auth.routes import create_auth_router
 from backend.auth.service import AuthService
 from backend.chat.memory_context import MemoryContext
 from backend.chat.persistence import SQLiteConversationStore
+from backend.chat.research_start import RunServiceStarter
 from backend.chat.semantic_context import SemanticMemoryContext
 from backend.chat.service import ChatService
 from backend.core.config import ConfigError, Settings
@@ -34,6 +35,7 @@ from backend.memory.vector import VectorIndex
 from backend.personality.settings import PersonalityError, load_personality
 from backend.providers.base import LLMProvider
 from backend.providers.factory import create_provider
+from backend.research.models import ResearchLevel
 from backend.research.repository import ResearchRepository
 from backend.research.run_control import (
     REASON_DISABLED,
@@ -116,6 +118,13 @@ def create_app(
             memory_context=memory_context,
             personality=personality,
             router=router,
+            # A routed research decision starts a research only when there is a router AND the
+            # research run service exists (switch, search provider and chat provider all set).
+            research_starter=(
+                RunServiceStarter(run_service, ResearchLevel(settings.chat_research_level))
+                if router is not None and run_service is not None
+                else None
+            ),
         )
         if provider is not None
         else None
