@@ -91,7 +91,8 @@ def test_every_orb_mode_the_view_can_produce_has_a_style() -> None:
     source = (FRONTEND / "activity-view.js").read_text()
     block = source.split("function orbMode", 1)[1].split("function describe", 1)[0]
     modes = set(re.findall(r'return "([a-z]+)"', block))
-    expected = {"idle", "listen", "recall", "research", "synth", "speak", "done", "error", "stopped"}
+    expected = {"idle", "listen", "recall", "research", "synth", "speak"}
+    expected |= {"done", "error", "stopped"}
     assert modes >= expected
     css = (FRONTEND / "activity.css").read_text()
     for mode in modes:
