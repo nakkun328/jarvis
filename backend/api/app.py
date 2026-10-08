@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.chat import build_chat_router
+from backend.api.memory import create_memory_router
 from backend.api.request_logging import RequestLoggingMiddleware
 from backend.api.research import create_research_router
 from backend.api.tasks import create_tasks_router
@@ -113,6 +114,7 @@ def create_app(
         return {"status": "ok"}
 
     app.include_router(build_chat_router(chat_service))
+    app.include_router(create_memory_router(MemoryRepository(database)))
     app.include_router(create_research_router(ResearchRepository(database)))
     app.include_router(create_tasks_router(TaskRepository(database)))
 
@@ -131,6 +133,28 @@ def create_app(
         @app.get("/research", include_in_schema=False)
         def research_client() -> FileResponse:
             return FileResponse(frontend_dir / "research.html")
+
+        @app.get("/memory", include_in_schema=False)
+        def memory_client() -> FileResponse:
+            return FileResponse(frontend_dir / "memory.html")
+
+        @app.get("/manifest.webmanifest", include_in_schema=False)
+        def web_manifest() -> FileResponse:
+            return FileResponse(
+                frontend_dir / "manifest.webmanifest",
+                media_type="application/manifest+json",
+                headers={"Cache-Control": "no-cache"},
+            )
+
+        @app.get("/sw.js", include_in_schema=False)
+        def service_worker() -> FileResponse:
+            # Served from the root so its scope can be "/". It must never be cached
+            # by the browser's HTTP cache, or a fixed worker could not reach users.
+            return FileResponse(
+                frontend_dir / "sw.js",
+                media_type="text/javascript",
+                headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+            )
 
     return app
 

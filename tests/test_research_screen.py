@@ -98,9 +98,13 @@ def test_pages_have_no_inline_script_or_style(name: str) -> None:
     assert all(script.get("src", "").startswith("/static/") for script in inspector.scripts)
 
 
-def test_chat_and_research_pages_link_to_each_other() -> None:
-    assert "/research" in inspect((FRONTEND / "index.html").read_text()).links
-    assert "/" in inspect((FRONTEND / "research.html").read_text()).links
+def test_chat_and_research_pages_use_the_shared_shell() -> None:
+    # The header and navigation are built by nav.js from one page list (see test_web_shell.py).
+    for name in ("index.html", "research.html"):
+        page = (FRONTEND / name).read_text()
+        assert "data-app-header" in page
+        assert '<script type="module" src="/static/shell.js">' in page
+        assert "app-nav" not in page
 
 
 def test_research_scripts_never_render_markup_or_write() -> None:

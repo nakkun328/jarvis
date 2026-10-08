@@ -1,0 +1,125 @@
+/* Shared app shell: colour tokens, base rules, the common header and navigation, and the
+   components every read-only screen shares. Loaded by every page before its own CSS.
+   No inline styles are used anywhere; a strict Content-Security-Policy stays possible. */
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  --bg: #0b1420;
+  --surface: #0f1b29;
+  --surface-card: #111f2e;
+  --surface-raised: #152738;
+  --surface-hover: #20394d;
+  --surface-current: #1a3347;
+  --border: #263a4c;
+  --border-strong: #385165;
+  --text: #e7eff7;
+  --text-soft: #c9d9e6;
+  --text-muted: #9fb2c2;
+  --text-dim: #8298a9;
+  --accent: #75d4ea;
+  --danger: #ffc6be;
+  --shell-width: 1100px;
+  --tap: 44px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 280px; }
+button, textarea { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: wait; opacity: .55; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+[hidden] { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+.app-shell { min-height: 100dvh; display: flex; flex-direction: column; }
+
+/* Header. The brand and navigation are built by nav.js; a page may add its own actions as
+   further children of the header. The header reserves its height so building it moves nothing. */
+.app-header {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; gap: .5rem 1rem;
+  min-height: 3.8rem; padding: .4rem max(1rem, calc((100vw - var(--shell-width)) / 2));
+  border-bottom: 1px solid var(--border); background: #0b1420ed;
+  backdrop-filter: blur(12px);
+}
+.brand { display: flex; align-items: center; gap: .7rem; }
+.brand-mark, .welcome-mark {
+  display: grid; place-items: center; color: #091620; font-weight: 800;
+  background: linear-gradient(145deg, #74e0ea, #a8a5ff);
+  box-shadow: 0 0 24px #65d7e83d;
+}
+.brand-mark { width: 2rem; height: 2rem; border-radius: .55rem; }
+.brand strong { display: block; font-size: .86rem; letter-spacing: .18em; }
+.brand span:not(.brand-mark) { display: block; color: var(--text-muted); font-size: .72rem; }
+.app-nav { display: flex; gap: .25rem; margin-right: auto; }
+.nav-link {
+  display: inline-flex; align-items: center; justify-content: center; white-space: nowrap;
+  min-height: var(--tap); min-width: var(--tap); padding: .45rem .8rem; border-radius: .6rem;
+  color: #b9cddd; font-size: .88rem; text-decoration: none;
+}
+.nav-link:hover { background: var(--surface-raised); color: var(--text); }
+.nav-link[aria-current="page"] { background: var(--surface-hover); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+
+/* Shared building blocks of the read-only screens. */
+.readonly-note {
+  margin: 0 0 1rem; padding: .6rem .8rem; border: 1px solid var(--border-strong); border-left: 4px solid var(--accent);
+  border-radius: .5rem; background: #12212f; color: var(--text-soft); font-size: .82rem; line-height: 1.55;
+}
+.readonly-note strong { display: block; color: var(--text); }
+
+/* Status: a text label, a glyph shape, and a colour. Colour is never the only cue. */
+.badge {
+  display: inline-flex; align-items: center; gap: .3rem; padding: .12rem .55rem;
+  border: 1px solid currentColor; border-radius: 999px; font-size: .74rem; font-weight: 650; white-space: nowrap;
+}
+.badge-glyph { font-size: .8em; line-height: 1; }
+.tone-pending { color: #a9bccb; }
+.tone-pending.badge { border-style: dashed; }
+.tone-running { color: var(--accent); }
+.tone-waiting { color: #f2c46d; }
+.tone-failed { color: #ff9b8f; }
+.tone-completed { color: #8fe0a8; }
+.tone-cancelled { color: #aab0c2; }
+.tone-cancelled.badge { text-decoration: line-through; }
+.tone-skipped { color: #b9a8e8; }
+.tone-other { color: #c7b3ff; }
+
+.filters { display: flex; flex-wrap: wrap; gap: .4rem; margin: .75rem 0; }
+.filter {
+  display: inline-flex; align-items: center; gap: .3rem; padding: .35rem .65rem;
+  border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface-raised); color: var(--text-soft); font-size: .78rem;
+}
+.filter .filter-count { font-variant-numeric: tabular-nums; color: var(--text); }
+.filter[aria-pressed="true"] { background: #274a60; border-color: var(--accent); color: #fff; font-weight: 700; }
+.filter:hover { background: var(--surface-hover); }
+
+.list-status { min-height: 1.2rem; margin: 0 0 .5rem; color: #a9c1d1; font-size: .76rem; }
+.list-status.error, .error-text { color: var(--danger); }
+.list-note { margin: .6rem 0 0; color: var(--text-dim); font-size: .7rem; line-height: 1.5; }
+.empty { padding: 1rem .5rem; color: #a9c1d1; font-size: .85rem; line-height: 1.6; }
+.placeholder { color: #8fa4b5; font-size: .86rem; line-height: 1.6; }
+
+/* Phones. Controls reach the 44px minimum touch target and small print grows to a readable size. */
+@media (max-width: 600px) {
+  .app-header { position: static; flex-wrap: wrap; padding: .5rem 1rem; }
+  .app-nav { order: 3; flex: 1 1 100%; margin-right: 0; gap: .25rem; }
+  .app-nav .nav-link { flex: 1 1 0; padding-inline: .3rem; }
+  .app-header > :not(.brand):not(.app-nav) { order: 2; margin-left: auto; }
+  .brand { gap: .5rem; }
+  .brand span:not(.brand-mark) { display: none; }
+  button, .filter, .back-button, textarea { min-height: var(--tap); }
+  .filter { padding-inline: .8rem; font-size: .85rem; }
+  .badge { font-size: .78rem; }
+  .badge-glyph { font-size: 1em; }
+  .list-note, .list-status, .hint, .counter { font-size: .78rem; }
+}
+
+.skip-link {
+  position: absolute; left: .5rem; top: -4rem; z-index: 2; padding: .6rem .9rem;
+  border-radius: .5rem; background: var(--accent); color: #07202a; font-weight: 700; text-decoration: none;
+}
+.skip-link:focus { top: .5rem; }
+main:focus { outline: none; }

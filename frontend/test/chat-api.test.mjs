@@ -5,6 +5,8 @@ import { readEventStream } from "../sse.js";
 // The gate runs only this file, so the Tasks screen tests are pulled in from here.
 import "./tasks.test.mjs";
 import "./research.test.mjs";
+import "./memory.test.mjs";
+import "./shell.test.mjs";
 
 const encode = (text) => new TextEncoder().encode(text);
 

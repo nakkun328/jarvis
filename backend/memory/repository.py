@@ -159,15 +159,18 @@ class MemoryRepository:
             raise MemoryRepositoryError("Memory storage unavailable") from exc
         return _stored(row) if row is not None else None
 
-    def list_by_status(self, status: MemoryStatus, *, limit: int = 100) -> list[StoredMemory]:
+    def list_by_status(
+        self, status: MemoryStatus, *, limit: int = 100, newest_first: bool = False
+    ) -> list[StoredMemory]:
         if not isinstance(status, MemoryStatus):
             raise ValueError("status must be a MemoryStatus")
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise ValueError("limit must be a positive integer")
+        order = "created_at DESC, id DESC" if newest_first else "created_at, id"
         try:
             with self.database.connect(read_only=True) as connection:
                 rows = connection.execute(
-                    "SELECT * FROM memory_records WHERE status = ? ORDER BY created_at, id LIMIT ?",
+                    f"SELECT * FROM memory_records WHERE status = ? ORDER BY {order} LIMIT ?",
                     (status.value, limit),
                 ).fetchall()
         except (OSError, sqlite3.Error) as exc:

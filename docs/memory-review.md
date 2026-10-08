@@ -57,3 +57,7 @@ Run this command only on the local machine with access to the database and vault
 It provides no network endpoint or authentication and must not be exposed as a
 remote service. The database and vault may contain private information; avoid
 redirecting `show` output to a shared log.
+
+A read-only browser view of approved notes and pending candidates is served at `/memory`
+(see [Web shell](web-shell.md)). It cannot approve, reject, edit or retire anything; those
+actions stay in this CLI.
