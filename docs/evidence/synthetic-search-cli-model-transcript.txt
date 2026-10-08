@@ -1,0 +1,89 @@
+人工データ専用・検索候補の表示です。候補が返っても回答根拠がある保証はありません。
+関連性と回答の支持根拠は別です。LLM回答生成なし、品質基準は未確立。
+質問を入力してください。/quit または /exit で終了、EOF/Ctrl-C で取消・終了。
+人工記憶と一時indexを準備しています。
+準備完了。訂正・編集後の現在正本を検索します。
+質問> あの星を観測する試作機、制御用のチップを何に替えたっけ？
+星を見る架空の集まりは何曜日の何時から？
+カナダの首都はどこ？
+星を観測する試作機のバッテリーは何時間持つ？
+
+/quit
+[1] robot-current (現在 approved)
+本文: 訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。
+出典: synthetic-evaluation:jarvis-synthetic-ja-v1/robot-current; origin: user_explicit
+revision: 88696a4da3ec9fd3f5c0e92f7d84c8297fd3045ea0c9af60cc92444b19a54152
+confidence: 0.8; importance: 0.7; score: -0.2777720093727112 (確率・confidenceではありません)
+承認後の編集: False; stale: False; 訂正元: robot-old
+[2] design-paper (現在 approved)
+本文: 架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。
+出典: synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper; origin: user_explicit
+revision: 710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8
+confidence: 0.8; importance: 0.7; score: -0.33791109919548035 (確率・confidenceではありません)
+承認後の編集: False; stale: False; 訂正元: なし
+[3] lens-storage (現在 approved)
+本文: 架空の光学実験に使う予備レンズは銀色の棚の右端の箱に収納する。
+出典: synthetic-evaluation:jarvis-synthetic-ja-v1/lens-storage; origin: user_explicit
+revision: 0701aa236d88c3c60acf66684191452ec4c2fc301b4c1d7890b224c17d907e64
+confidence: 0.8; importance: 0.7; score: -0.39449119567871094 (確率・confidenceではありません)
+承認後の編集: False; stale: False; 訂正元: なし
+検索候補は回答ではありません。質問への支持根拠を本文で確認してください。
+質問> [1] observing-time (現在 approved)
+本文: 架空の星見会は水曜日の19時に始まる。
+出典: synthetic-evaluation:jarvis-synthetic-ja-v1/observing-time; origin: user_explicit
+revision: 24a6d67d0853361d0c008f46888c346bcc59d294e37a25aa9fe37abcca5b3d4e
+confidence: 0.8; importance: 0.7; score: -0.21473702788352966 (確率・confidenceではありません)
+承認後の編集: True; stale: False; 訂正元: なし
+[2] garden-water (現在 approved)
+本文: 架空の菜園の給水タイマーは毎朝7時に10分間作動する。
+出典: synthetic-evaluation:jarvis-synthetic-ja-v1/garden-water; origin: user_explicit
+revision: 29222c9cc1b589a36a57dac568469467707f11773d3c8a73a84f9dcfd64fd680
+confidence: 0.8; importance: 0.7; score: -0.4089890122413635 (確率・confidenceではありません)
+承認後の編集: False; stale: False; 訂正元: なし
+[3] design-paper (現在 approved)
+本文: 架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。
+出典: synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper; origin: user_explicit
+revision: 710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8
+confidence: 0.8; importance: 0.7; score: -0.4536324739456177 (確率・confidenceではありません)
+承認後の編集: False; stale: False; 訂正元: なし
+検索候補は回答ではありません。質問への支持根拠を本文で確認してください。
+質問> [1] design-paper (現在 approved)
+本文: 架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。
+出典: synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper; origin: user_explicit
+revision: 710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8
+confidence: 0.8; importance: 0.7; score: -0.5586141347885132 (確率・confidenceではありません)
+承認後の編集: False; stale: False; 訂正元: なし
+[2] data-format (現在 approved)
+本文: 架空の温度実験の記録はCSV形式にして、測定時刻と摂氏温度を列に記入する。
+出典: synthetic-evaluation:jarvis-synthetic-ja-v1/data-format; origin: user_explicit
+revision: 0be652c9683622464fe76d8294ce20fa71957e47bd5a29eb3414d30afd6df5d2
+confidence: 0.8; importance: 0.7; score: -0.5704554319381714 (確率・confidenceではありません)
+承認後の編集: False; stale: False; 訂正元: なし
+[3] observing-time (現在 approved)
+本文: 架空の星見会は水曜日の19時に始まる。
+出典: synthetic-evaluation:jarvis-synthetic-ja-v1/observing-time; origin: user_explicit
+revision: 24a6d67d0853361d0c008f46888c346bcc59d294e37a25aa9fe37abcca5b3d4e
+confidence: 0.8; importance: 0.7; score: -0.5825453996658325 (確率・confidenceではありません)
+承認後の編集: True; stale: False; 訂正元: なし
+検索候補は回答ではありません。質問への支持根拠を本文で確認してください。
+質問> [1] garden-water (現在 approved)
+本文: 架空の菜園の給水タイマーは毎朝7時に10分間作動する。
+出典: synthetic-evaluation:jarvis-synthetic-ja-v1/garden-water; origin: user_explicit
+revision: 29222c9cc1b589a36a57dac568469467707f11773d3c8a73a84f9dcfd64fd680
+confidence: 0.8; importance: 0.7; score: -0.37849748134613037 (確率・confidenceではありません)
+承認後の編集: False; stale: False; 訂正元: なし
+[2] robot-current (現在 approved)
+本文: 訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。
+出典: synthetic-evaluation:jarvis-synthetic-ja-v1/robot-current; origin: user_explicit
+revision: 88696a4da3ec9fd3f5c0e92f7d84c8297fd3045ea0c9af60cc92444b19a54152
+confidence: 0.8; importance: 0.7; score: -0.4084444046020508 (確率・confidenceではありません)
+承認後の編集: False; stale: False; 訂正元: robot-old
+[3] design-paper (現在 approved)
+本文: 架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。
+出典: synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper; origin: user_explicit
+revision: 710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8
+confidence: 0.8; importance: 0.7; score: -0.40872126817703247 (確率・confidenceではありません)
+承認後の編集: False; stale: False; 訂正元: なし
+検索候補は回答ではありません。質問への支持根拠を本文で確認してください。
+質問> 空入力です。質問を入力してください。
+質問> 人工検索を終了しました。

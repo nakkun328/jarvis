@@ -1,0 +1,12 @@
+{
+  "reviewed_at": "2026-10-04T07:01:42.978533+00:00",
+  "source_commit": "6221fe3cc5e22e67c5b3389333427c93d2b496e7",
+  "canonical_sha256": "015533847686661625ddd52bbf7375a4a70fa58a28dcc0296af16d7fd1fb15b5",
+  "fixture_file_sha256": "5ee1f477bd9ce2b22f488eabfe5293a86e2a1f0cb18ad9ed29778693e08fb06a",
+  "reviewer": "/root",
+  "model_results_seen": false,
+  "notes_reviewed": 16,
+  "queries_reviewed": 25,
+  "decision": "approved before inference",
+  "findings": "All gold IDs reference approved current bodies; separate similar names; 3 compound questions require both supporting notes; 5 relevant/unsupported do not infer requested values; retired/pending/conflict excluded from approved facts. Original fixture untouched."
+}
