@@ -266,3 +266,16 @@ answers (see [provider selection](research-provider-selection.md#verify-before-a
 - Is the free allowance still 1,000 credits per month, is there a hard cap or a way to
   prevent pay-as-you-go charges, and how are credits counted?
 - Result quality for Japanese queries (the trial in step 4 is the first evidence).
+
+### What was found on 2026-10-08 (not legal advice; re-read the pages before relying on this)
+
+First live trial (the owner's own key, three Japanese queries: a weather forecast, Python 3.13 features, Mount Fuji routes): each returned three relevant Japanese results with title, URL and a snippet capped at about 500 characters. `published_date` was absent for these general-topic results, and the vendor did not report `usage.credits` for the basic call, so the local budget guard (which counts queries JARVIS recorded) is the only counter. Time-sensitive pages such as a forecast return a current page, not today's content: the Reader must fetch the page and the claim must come from its text.
+
+Reading the vendor's terms and privacy policy:
+
+- **Storing results**: not addressed explicitly. The terms grant a revocable right to use the API for internal business purposes and forbid redistribution and sublicensing. Storing titles, URLs and snippets as private research records for one owner looks consistent with that, but it is not confirmed in writing.
+- **Use with an LLM**: allowed for the owner's own application; the user must verify outputs, and the AI features must not be used for safety-critical, medical, legal or financial decisions.
+- **Queries**: the privacy policy says data is kept for the period needed to provide and improve the service and that query data may be used to improve future responses; the terms say that, for the AI functionality, input may be used for training. No retention period is stated and **no zero-retention option** is offered. Processing is in the United States.
+- **Free plan**: no personal/commercial distinction is stated.
+
+Consequence for JARVIS: **a search query leaves the machine and may be kept and used by the vendor.** Queries are built from the user's question only (never from memory notes), but a question can contain personal details. Until the owner decides otherwise: do not put memory content in queries, keep the Research screen and chat copy honest that web research sends the question text to a third party, and prefer a self-hosted SearXNG (queries still reach upstream engines, but no single vendor account holds them) or another provider if that is not acceptable.
