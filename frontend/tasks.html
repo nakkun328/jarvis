@@ -5,26 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0b1420" />
     <title>JARVIS · タスク</title>
-    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+    <link rel="stylesheet" href="/static/shell.css" />
     <link rel="stylesheet" href="/static/tasks.css" />
+    <script type="module" src="/static/shell.js"></script>
     <script type="module" src="/static/tasks.js"></script>
   </head>
   <body class="tasks-page">
     <div class="app-shell">
-      <header class="app-header">
-        <div class="brand" aria-label="JARVIS">
-          <span class="brand-mark" aria-hidden="true">J</span>
-          <div>
-            <strong>JARVIS</strong>
-            <span>Personal assistant</span>
-          </div>
-        </div>
-        <nav class="app-nav" aria-label="画面の切り替え">
-          <a class="nav-link" href="/">チャット</a>
-          <a class="nav-link" href="/tasks" aria-current="page">タスク</a>
-          <a class="nav-link" href="/research">リサーチ</a>
-        </nav>
-      </header>
+      <header class="app-header" data-app-header></header>
 
       <main class="tasks-main">
         <p class="readonly-note" id="readonly-note">

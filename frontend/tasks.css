@@ -1,17 +1,10 @@
-/* Tasks screen. Builds on style.css (palette, header, focus ring). No inline styles are used. */
-.tasks-page .app-header { padding-inline: max(1rem, calc((100vw - 1100px) / 2)); }
+/* Tasks screen. Builds on shell.css (palette, header, shared components). No inline styles are used. */
 .tasks-main { width: min(100%, 1100px); margin: 0 auto; padding: 1rem 1rem 3rem; flex: 1; }
 .tasks-main h1, .tasks-main h2, .tasks-main h3 { margin: 0; font-weight: 650; }
 .tasks-main h1 { font-size: 1.25rem; }
 .tasks-main h2 { font-size: 1.05rem; }
 .tasks-main h3 { font-size: .8rem; color: #aabed0; margin-bottom: .35rem; }
 .tasks-main h2:focus-visible { outline-offset: 4px; }
-
-.readonly-note {
-  margin: 0 0 1rem; padding: .6rem .8rem; border: 1px solid #385165; border-left: 4px solid #75d4ea;
-  border-radius: .5rem; background: #12212f; color: #c9d9e6; font-size: .82rem; line-height: 1.55;
-}
-.readonly-note strong { display: block; color: #e7eff7; }
 
 .tasks-layout { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
 .list-pane, .detail-pane { min-width: 0; }
@@ -21,36 +14,6 @@
 }
 .detail-head { display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; }
 .back-button { display: none; }
-
-/* Status: a text label, a glyph shape, and a colour. Colour is never the only cue. */
-.badge {
-  display: inline-flex; align-items: center; gap: .3rem; padding: .12rem .55rem;
-  border: 1px solid currentColor; border-radius: 999px; font-size: .74rem; font-weight: 650; white-space: nowrap;
-}
-.badge-glyph { font-size: .8em; line-height: 1; }
-.tone-pending { color: #a9bccb; }
-.tone-pending.badge { border-style: dashed; }
-.tone-running { color: #75d4ea; }
-.tone-waiting { color: #f2c46d; }
-.tone-failed { color: #ff9b8f; }
-.tone-completed { color: #8fe0a8; }
-.tone-cancelled { color: #aab0c2; }
-.tone-cancelled.badge { text-decoration: line-through; }
-.tone-skipped { color: #b9a8e8; }
-.tone-other { color: #c7b3ff; }
-
-.filters { display: flex; flex-wrap: wrap; gap: .4rem; margin: .75rem 0; }
-.filter {
-  display: inline-flex; align-items: center; gap: .3rem; padding: .35rem .65rem;
-  border: 1px solid #385165; border-radius: 999px; background: #152738; color: #c9d9e6; font-size: .78rem;
-}
-.filter .filter-count { font-variant-numeric: tabular-nums; color: #e7eff7; }
-.filter[aria-pressed="true"] { background: #274a60; border-color: #75d4ea; color: #fff; font-weight: 700; }
-.filter:hover { background: #20394d; }
-
-.list-status { min-height: 1.2rem; margin: 0 0 .5rem; color: #a9c1d1; font-size: .76rem; }
-.list-status.error, .error-text { color: #ffc6be; }
-.list-note { margin: .6rem 0 0; color: #8298a9; font-size: .7rem; line-height: 1.5; }
 
 .task-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
 .task-item {
@@ -66,14 +29,12 @@
   font-size: .86rem; line-height: 1.45; overflow-wrap: anywhere;
 }
 .task-time { color: #8298a9; font-size: .68rem; }
-.empty { padding: 1rem .5rem; color: #a9c1d1; font-size: .85rem; line-height: 1.6; }
 
 .connection { min-height: 1.1rem; margin: 0 0 .5rem; color: #a9c1d1; font-size: .74rem; }
 .reconnect {
   margin: 0 0 .6rem; padding: .35rem .7rem; border: 1px solid #385165; border-radius: .6rem;
   background: #152738; color: #e7eff7; font-size: .8rem;
 }
-.placeholder { color: #8fa4b5; font-size: .86rem; line-height: 1.6; }
 
 .detail-summary { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem .75rem; margin-bottom: 1rem; }
 .segments { display: flex; flex-wrap: wrap; gap: 3px; flex-basis: 100%; }
@@ -114,6 +75,9 @@
   }
 }
 @media (max-width: 480px) {
-  .app-header .brand span:not(.brand-mark) { display: none; }
   .tasks-main { padding-inline: .75rem; }
+}
+@media (max-width: 600px) {
+  /* Small print stays at least 12.8px on phones. */
+  .task-count, .task-time, .connection, .step-number, .step-time, .step-note, .meta dt, .meta dd { font-size: .8rem; }
 }

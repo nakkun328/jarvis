@@ -134,6 +134,28 @@ def create_app(
         def research_client() -> FileResponse:
             return FileResponse(frontend_dir / "research.html")
 
+        @app.get("/memory", include_in_schema=False)
+        def memory_client() -> FileResponse:
+            return FileResponse(frontend_dir / "memory.html")
+
+        @app.get("/manifest.webmanifest", include_in_schema=False)
+        def web_manifest() -> FileResponse:
+            return FileResponse(
+                frontend_dir / "manifest.webmanifest",
+                media_type="application/manifest+json",
+                headers={"Cache-Control": "no-cache"},
+            )
+
+        @app.get("/sw.js", include_in_schema=False)
+        def service_worker() -> FileResponse:
+            # Served from the root so its scope can be "/". It must never be cached
+            # by the browser's HTTP cache, or a fixed worker could not reach users.
+            return FileResponse(
+                frontend_dir / "sw.js",
+                media_type="text/javascript",
+                headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+            )
+
     return app
 
 

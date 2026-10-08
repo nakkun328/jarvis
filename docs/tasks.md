@@ -124,7 +124,7 @@ A task that is already terminal gets `snapshot` and `done` only. A `waiting` tas
 
 ## Tasks screen (read-only)
 
-`GET /tasks` serves `frontend/tasks.html` (plain HTML and JS, no build step, no inline script or style, so a strict Content-Security-Policy would work). The chat page and the tasks page link to each other. Code: `tasks.js` (DOM), `tasks-view.js` (labels, view models), `tasks-api.js` (GET calls), `tasks-stream.js` (SSE reducer, reconnect and backoff), `tasks.css`. The pure modules are tested by `frontend/test/tasks.test.mjs`, which `chat-api.test.mjs` imports because the gate runs only that one file.
+`GET /tasks` serves `frontend/tasks.html` (plain HTML and JS, no build step, no inline script or style, so a strict Content-Security-Policy would work). The header and navigation come from the shared shell (see [Web shell](web-shell.md)). Code: `tasks.js` (DOM), `tasks-view.js` (labels, view models), `tasks-api.js` (GET calls), `tasks-stream.js` (SSE reducer, reconnect and backoff), `tasks.css`. The pure modules are tested by `frontend/test/tasks.test.mjs`, which `chat-api.test.mjs` imports because the gate runs only that one file.
 
 What it shows, and only what the API returned:
 

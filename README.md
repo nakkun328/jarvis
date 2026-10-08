@@ -56,6 +56,7 @@ node --test frontend/test/*.test.mjs
 - [Memory](docs/memory.md)
 - [Vector index rebuild](docs/index-rebuild.md)
 - [Local memory review](docs/memory-review.md)
+- [Web shell, Memory screen and PWA](docs/web-shell.md)
 - [Research](docs/research.md)
 - [Quick Research](docs/research-quick.md)
 - [Tools](docs/tools.md)
