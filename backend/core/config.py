@@ -13,6 +13,9 @@ class ConfigError(ValueError):
 
 _LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 _LLM_PROVIDERS = frozenset({"none", "openai"})
+# off: no router (default). rule: the offline keyword baseline. llm: one extra short call to
+# the configured chat provider per turn (docs/router.md "Wiring").
+_ROUTER_MODES = frozenset({"off", "rule", "llm"})
 _MIN_SIGNING_KEY_CHARS = 32
 _MAX_SESSION_HOURS = 24 * 365
 _TRUE = frozenset({"1", "true", "yes", "on"})
@@ -48,6 +51,7 @@ class Settings:
     llm_provider: str = "none"
     memory_vault_path: Path | None = None
     personality_path: Path | None = None
+    router: str = "off"
     # Single-owner login. Setting the passphrase hash turns authentication on. The credentials
     # are excluded from repr so they cannot leak through logs or assertion messages.
     auth_passphrase_hash: str | None = field(default=None, repr=False)
@@ -69,6 +73,8 @@ class Settings:
             raise ConfigError(
                 f"JARVIS_LLM_PROVIDER must be one of: {', '.join(sorted(_LLM_PROVIDERS))}"
             )
+        if self.router not in _ROUTER_MODES:
+            raise ConfigError(f"JARVIS_ROUTER must be one of: {', '.join(sorted(_ROUTER_MODES))}")
         if self.memory_vault_path is not None and not str(self.memory_vault_path).strip():
             raise ConfigError("JARVIS_MEMORY_VAULT_PATH must not be empty")
         if self.personality_path is not None and not str(self.personality_path).strip():
@@ -115,6 +121,7 @@ class Settings:
             db_path=Path(raw_path).expanduser(),
             log_level=os.environ.get("JARVIS_LOG_LEVEL", "INFO").upper(),
             llm_provider=os.environ.get("JARVIS_LLM_PROVIDER", "none").lower(),
+            router=os.environ.get("JARVIS_ROUTER", "off").strip().lower(),
             memory_vault_path=Path(vault_path).expanduser() if vault_path is not None else None,
             personality_path=(
                 Path(personality_path).expanduser() if personality_path is not None else None

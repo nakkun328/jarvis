@@ -18,6 +18,8 @@
 }
 .activity-toggle:hover { background: var(--surface-hover); }
 .activity-live { margin: .15rem 0 0; color: var(--text-soft); font-size: .8rem; line-height: 1.5; overflow-wrap: anywhere; }
+.activity-route { margin: .3rem 0 0; padding-left: .6rem; border-left: 2px solid var(--act); color: var(--text-soft); font-size: .76rem; line-height: 1.5; overflow-wrap: anywhere; }
+.activity-route[hidden] { display: none; }
 .activity-body { margin-top: .5rem; }
 .activity-stage { display: flex; align-items: center; justify-content: center; gap: 1rem; }
 

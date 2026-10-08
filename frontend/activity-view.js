@@ -19,6 +19,11 @@ export const STAGES = [
   "error",
 ];
 export const ROUTES = ["casual", "memory", "research", "main"];
+// What the router can choose. `main` is where a turn runs, never a router choice.
+export const DECIDED = ["casual", "memory", "research"];
+// Shown while the router chose a path that is not wired yet and the Main Agent answers instead.
+export const NOT_WIRED_TEXT = "この経路はまだ接続されていないため、メインのエージェントで処理します";
+export const FALLBACK_TEXT = "ルーターが経路を確定できなかったため、既定のメインのエージェントで処理します";
 export const STEPS = ["planning", "searching", "reading", "verifying", "writing"];
 export const ERROR_CODES = [
   "conversation_not_found",
@@ -64,7 +69,10 @@ const ERROR_TEXT = {
 };
 
 export function initialState() {
-  return { phase: "idle", stage: null, route: null, count: null, step: null, code: null };
+  return {
+    phase: "idle", stage: null, route: null, decided: null, fallback: false, routed: false,
+    count: null, step: null, code: null,
+  };
 }
 
 function isOneOf(list, value) {
@@ -89,6 +97,9 @@ export function parseActivity(data) {
   if (stage === "route_selected") {
     if (!isOneOf(ROUTES, payload.route)) return null;
     clean.route = payload.route;
+    // Optional: a server without a router sends only `route`.
+    if (isOneOf(DECIDED, payload.decided)) clean.decided = payload.decided;
+    if (typeof payload.fallback === "boolean") clean.fallback = payload.fallback;
   } else if (stage === "memory_lookup") {
     const { count } = payload;
     if (!Number.isInteger(count) || count < 0 || count > MAX_COUNT) return null;
@@ -126,6 +137,10 @@ export function reduce(state, rawEvent) {
     phase: "active",
     stage: event.stage,
     route: event.route ?? (event.stage === "route_selected" ? null : state.route),
+    // A router took part in this turn from the first routing event on.
+    routed: state.routed || event.stage === "routing" || event.stage === "route_selected",
+    decided: event.stage === "route_selected" ? (event.decided ?? null) : state.decided,
+    fallback: event.stage === "route_selected" ? event.fallback === true : state.fallback,
     count: event.count ?? state.count,
     step: event.stage === "researching" ? (event.step ?? null) : state.step,
   };
@@ -165,6 +180,13 @@ function orbMode(state) {
   }
 }
 
+// The router's choice when it is a path that is not wired (casual, research) and the Main Agent
+// runs the turn instead; otherwise null. Never claims a route ran that did not.
+function unwiredChoice(state) {
+  if (state.route !== "main" || !state.routed) return null;
+  return state.decided === "casual" || state.decided === "research" ? state.decided : null;
+}
+
 function describe(state) {
   switch (state.phase) {
     case "idle":
@@ -188,7 +210,14 @@ function describe(state) {
     case "routing":
       return { caption: "ROUTING", explain: "どの経路で答えるかを判断しています。" };
     case "route_selected": {
+      const unwired = unwiredChoice(state);
+      if (unwired) {
+        return { caption: `ROUTED: ${unwired.toUpperCase()}`, explain: NOT_WIRED_TEXT };
+      }
       const label = ROUTE_LABELS[state.route] ?? "ROUTE";
+      if (state.fallback) {
+        return { caption: `ROUTE SELECTED · ${label} (FALLBACK)`, explain: FALLBACK_TEXT };
+      }
       return { caption: `ROUTE SELECTED · ${label}`, explain: `${label} の経路を選びました。` };
     }
     case "memory_lookup":
@@ -266,7 +295,8 @@ const EDGE_DEFS = [
 function activeEdges(state, nodes) {
   const lit = new Set();
   if (state.phase !== "active" && state.phase !== "connecting") return lit;
-  const routerInvolved = nodes.get("router").active;
+  // Once the server reported routing, the turn runs through the router for its whole length.
+  const routerInvolved = state.routed || nodes.get("router").active;
   if (routerInvolved) lit.add("input-router");
   for (const target of ["realtime", "main", "researcher"]) {
     if (routerInvolved && nodes.get(target).active) lit.add(`router-${target}`);
@@ -283,7 +313,9 @@ export function viewModel(state, { reducedMotion = false } = {}) {
   const nodes = new Map();
   for (const def of NODE_DEFS) {
     const isActive = active.has(def.id);
-    const connected = CONNECTED_TODAY.has(def.id) || isActive;
+    // The router counts as connected only for a turn the server actually routed.
+    const connected =
+      CONNECTED_TODAY.has(def.id) || isActive || (def.id === "router" && state.routed);
     let status = "idle";
     if (isActive) status = "active";
     else if (def.id === "main" && state.phase === "done") status = "done";
@@ -303,14 +335,24 @@ export function viewModel(state, { reducedMotion = false } = {}) {
     return { ...def, direct: Boolean(def.direct), connected, active: lit.has(def.id) };
   });
   const connectedNames = [...nodes.values()].filter((node) => node.connected).map((node) => node.label);
+  const unwired = unwiredChoice(state);
   return {
     phase: state.phase,
     stage: state.stage,
     mode: orbMode(state),
+    // A note that outlasts the single route_selected moment, for the rest of the turn.
+    routeNote: unwired
+      ? { decided: unwired, caption: `ROUTED: ${unwired.toUpperCase()}`, text: NOT_WIRED_TEXT }
+      : null,
     caption,
     explain,
     // The accessible equivalent of the whole display: one polite sentence per change.
-    live: explain,
+    // While the turn is still running the unwired-route reason is part of the spoken line too:
+    // route_selected is usually followed by the next stage within milliseconds.
+    live:
+      unwired && state.phase === "active" && state.stage !== "route_selected"
+        ? `${explain}${NOT_WIRED_TEXT}。`
+        : explain,
     final: FINAL.has(state.phase),
     reducedMotion: Boolean(reducedMotion),
     nodes: [...nodes.values()],
