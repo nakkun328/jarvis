@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.api.chat import build_chat_router
 from backend.api.request_logging import RequestLoggingMiddleware
+from backend.api.tasks import create_tasks_router
 from backend.chat.memory_context import MemoryContext
 from backend.chat.persistence import SQLiteConversationStore
 from backend.chat.semantic_context import SemanticMemoryContext
@@ -26,6 +27,7 @@ from backend.memory.vector import VectorIndex
 from backend.personality.settings import PersonalityError, load_personality
 from backend.providers.base import LLMProvider
 from backend.providers.factory import create_provider
+from backend.tasks.repository import TaskRepository
 
 
 def create_app(
@@ -109,6 +111,7 @@ def create_app(
         return {"status": "ok"}
 
     app.include_router(build_chat_router(chat_service))
+    app.include_router(create_tasks_router(TaskRepository(database)))
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
     if (frontend_dir / "index.html").is_file():
