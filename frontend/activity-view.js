@@ -59,6 +59,8 @@ const ERROR_TEXT = {
   provider: "LLM プロバイダーから応答を得られませんでした。",
   cancelled: "処理が取り消されました。",
   internal: "内部エラーが発生しました。",
+  // Client-side only: the connection failed or the stream ended without a final event.
+  interrupted: "サーバーとの通信が完了しませんでした。",
 };
 
 export function initialState() {
@@ -138,7 +140,7 @@ export function settle(state, outcome) {
   if (FINAL.has(state.phase)) return state;
   if (outcome === "done") return { ...state, phase: "done", stage: "done" };
   if (outcome === "cancelled") return { ...state, phase: "cancelled", stage: null };
-  return { ...state, phase: "error", stage: "error", code: "internal" };
+  return { ...state, phase: "error", stage: "error", code: "interrupted" };
 }
 
 // A stable machine-readable name of what the orb is doing. CSS keys its colour and ring motion

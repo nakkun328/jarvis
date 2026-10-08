@@ -116,6 +116,7 @@ test("settle covers stop, network failure and a server without activity events",
   assert.ok(stopped.edges.every((e) => !e.active));
   const failed = viewModel(settle(begin(), "error"));
   assert.equal(failed.phase, "error");
+  assert.match(failed.explain, /通信/);
   assert.ok(failed.final);
   assert.equal(viewModel(settle(begin(), "done")).phase, "done");
   // An error before any event (connect failure) is still a visible final state.

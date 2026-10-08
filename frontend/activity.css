@@ -7,7 +7,7 @@
   --act: var(--accent);
   --act-glow: #75d4ea55;
   border: 1px solid var(--border); border-left: 3px solid var(--act); border-radius: .7rem;
-  background: #0f1b29f2; padding: .45rem .8rem .55rem;
+  background: var(--surface); padding: .45rem .8rem .55rem;
 }
 .activity-bar { display: flex; align-items: center; gap: .6rem; min-height: 2rem; }
 .activity-dot { flex: none; width: .7rem; height: .7rem; border-radius: 50%; background: var(--act); box-shadow: 0 0 8px var(--act-glow); }
@@ -85,9 +85,9 @@
 }
 
 @media (max-width: 600px) {
-  .activity-mount { position: sticky; top: 0; padding: .4rem .65rem 0; }
+  .activity-mount { position: static; padding: .4rem .65rem 0; }
   .activity-stage { flex-direction: column; gap: .5rem; }
-  .orb { width: 6rem; height: 6rem; }
+  .orb { width: 5.5rem; height: 5.5rem; }
   .diagram { width: 100%; max-width: 100%; }
   .activity-toggle { min-height: var(--tap); }
 }
