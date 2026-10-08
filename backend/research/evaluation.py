@@ -34,39 +34,27 @@ from enum import StrEnum
 from types import MappingProxyType
 
 from backend.research.classification import (
-    Basis,
     SourceClassification,
     classify_source_detailed,
 )
 from backend.research.models import (
     MAX_QUESTION_CHARS,
     MAX_TITLE_CHARS,
+    Basis,
+    RatingName,
+    RatingReason,
     ResearchSource,
     SourceEvaluation,
     SourceType,
 )
-from backend.research.planner import EN_STOPWORDS, clean_text
+from backend.research.planner import clean_text
 from backend.research.repository import ResearchRepository
+from backend.research.terms import extract_terms
 
 MAX_TEXT_CHARS = 20_000  # the reader's own text cap
 MAX_QUESTION_TERMS = 64
 _FUTURE_SLACK = timedelta(days=1)
 _DIGITS = 4
-
-
-class RatingReason(StrEnum):
-    """Fixed codes explaining each rating."""
-
-    AUTHORITY_BY_TYPE = "authority_by_type"
-    AUTHORITY_CAPPED_WEAK_BASIS = "authority_capped_weak_basis"
-    AUTHORITY_UNCLASSIFIED = "authority_unclassified"
-    FRESHNESS_DECAY = "freshness_decay"
-    FRESHNESS_UNKNOWN_DATE = "freshness_unknown_date"
-    FRESHNESS_FUTURE_DATE = "freshness_future_date"
-    RELEVANCE_OVERLAP = "relevance_overlap"
-    RELEVANCE_TITLE_ONLY = "relevance_title_only"
-    RELEVANCE_NO_TERMS = "relevance_no_terms"
-    RELEVANCE_NO_TEXT = "relevance_no_text"
 
 
 class TopicClass(StrEnum):
@@ -188,35 +176,6 @@ def freshness_rating(
     return round(2.0 ** (-days / half_life), _DIGITS), RatingReason.FRESHNESS_DECAY
 
 
-_ASCII_TERM = re.compile(r"[a-z0-9][a-z0-9._+#\-]*")
-_CJK_RUN = re.compile(r"[ぁ-んァ-ヶー一-龥々]+")
-_PARTICLE_SPLIT = re.compile("[はがをにへでとのもやかねよ]+")
-_HIRAGANA = re.compile(r"[ぁ-ん]")
-
-
-def _terms(text: str) -> tuple[set[str], set[str]]:
-    """(matchable terms, single-character terms that are matched as substrings)."""
-    terms: set[str] = set()
-    singles: set[str] = set()
-    for match in _ASCII_TERM.finditer(text):
-        word = match.group().strip(".-_+#")
-        if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
-            word = word[:-1]
-        if (len(word) > 1 or word.isdigit()) and word not in EN_STOPWORDS:
-            terms.add(word)
-    for run in _CJK_RUN.findall(text):
-        for segment in _PARTICLE_SPLIT.split(run):
-            if len(segment) == 1:
-                if not _HIRAGANA.fullmatch(segment):
-                    singles.add(segment)
-                continue
-            for index in range(len(segment) - 1):
-                pair = segment[index : index + 2]
-                if not all(_HIRAGANA.fullmatch(ch) for ch in pair):
-                    terms.add(pair)
-    return terms, singles
-
-
 def relevance_rating(
     question: str, title: str | None, text: str | None
 ) -> tuple[float | None, RatingReason]:
@@ -226,7 +185,7 @@ def relevance_rating(
     """
     if not isinstance(question, str):
         raise ValueError("question must be a string")
-    q_terms, q_singles = _terms(_clean(question, MAX_QUESTION_CHARS))
+    q_terms, q_singles = extract_terms(_clean(question, MAX_QUESTION_CHARS))
     wanted = (sorted(q_terms) + sorted(q_singles))[:MAX_QUESTION_TERMS]
     if not wanted:
         return None, RatingReason.RELEVANCE_NO_TERMS
@@ -234,8 +193,8 @@ def relevance_rating(
     body_text = _clean(text, MAX_TEXT_CHARS) if isinstance(text, str) else ""
     if not title_text.strip() and not body_text.strip():
         return None, RatingReason.RELEVANCE_NO_TEXT
-    title_terms, _ = _terms(title_text)
-    body_terms, _ = _terms(body_text)
+    title_terms, _ = extract_terms(title_text)
+    body_terms, _ = extract_terms(body_text)
     both_terms = title_terms | body_terms
     both_raw = title_text + " " + body_text
 
@@ -261,6 +220,7 @@ class SourceAssessment:
     evaluation: SourceEvaluation
     source_type: SourceType
     classification_rule: str
+    classification_basis: Basis
     topic_class: TopicClass
     authority_reason: RatingReason
     freshness_reason: RatingReason
@@ -277,18 +237,32 @@ def assess_source(
     published_at: datetime | None = None,
     source_type: SourceType | None = None,
     topic_class: TopicClass | None = None,
+    classification_rule: str | None = None,
+    classification_basis: Basis | None = None,
 ) -> SourceAssessment:
     """Rate one source. A non-``unknown`` ``source_type`` is trusted; otherwise it is classified.
+
+    When a trusted ``source_type`` comes with the ``classification_rule`` and
+    ``classification_basis`` that decided it (as stored by ``set_source_classification``),
+    they are kept and the authority cap for weak bases still applies; without them the type
+    counts as ``provided`` and is not capped.
 
     ``text`` is an excerpt of the extracted page (page text is not stored, so the caller
     that read the page supplies it); only its first 20,000 characters are used.
     """
     if source_type is not None and SourceType(source_type) is not SourceType.UNKNOWN:
-        classification = SourceClassification(SourceType(source_type), "provided", Basis.HOST)
+        if classification_rule is not None and classification_basis is not None:
+            classification = SourceClassification(
+                SourceType(source_type), classification_rule, Basis(classification_basis)
+            )
+        else:
+            classification = SourceClassification(
+                SourceType(source_type), "provided", Basis.PROVIDED
+            )
     else:
         classification = classify_source_detailed(url, title)
     topic = TopicClass(topic_class) if topic_class is not None else infer_topic_class(question)
-    basis = None if classification.rule_id == "provided" else classification.basis
+    basis = None if classification.basis is Basis.PROVIDED else classification.basis
     authority, authority_reason = authority_rating(classification.source_type, basis)
     freshness, freshness_reason = freshness_rating(published_at, retrieved_at, topic)
     relevance, relevance_reason = relevance_rating(question, title, text)
@@ -296,6 +270,7 @@ def assess_source(
         evaluation=SourceEvaluation(authority=authority, freshness=freshness, relevance=relevance),
         source_type=classification.source_type,
         classification_rule=classification.rule_id,
+        classification_basis=classification.basis,
         topic_class=topic,
         authority_reason=authority_reason,
         freshness_reason=freshness_reason,
@@ -335,13 +310,15 @@ def evaluate_and_store(
     text: str | None = None,
     topic_class: TopicClass | None = None,
 ) -> ResearchSource:
-    """Rate a stored source and save authority, freshness and relevance.
+    """Rate a stored source and save its type, authority, freshness and relevance.
 
-    Existing ``primary`` and ``agreement`` ratings are kept. The classified type is not
-    stored (the repository has no setter for ``source_type`` yet). Raises what
-    ``set_evaluation`` raises, for example when the session is already final.
+    The classified source type, the rule and basis that decided it, and the reason code of
+    each of the three ratings are stored with the ratings. Existing ``primary`` and
+    ``agreement`` ratings (and the agreement reason codes) are kept. A type that was already
+    stored with its rule and basis is not reclassified. Raises what ``set_evaluation``
+    raises, for example when the session is already final.
     """
-    evaluation = evaluate_source(
+    assessment = assess_source(
         question=question,
         url=source.final_url,
         retrieved_at=source.retrieved_at,
@@ -350,11 +327,24 @@ def evaluate_and_store(
         published_at=source.published_at,
         source_type=source.source_type,
         topic_class=topic_class,
+        classification_rule=source.classification_rule,
+        classification_basis=source.classification_basis,
     )
     merged = replace(
         source.evaluation,
-        authority=evaluation.authority,
-        freshness=evaluation.freshness,
-        relevance=evaluation.relevance,
+        authority=assessment.evaluation.authority,
+        freshness=assessment.evaluation.freshness,
+        relevance=assessment.evaluation.relevance,
     )
-    return repository.set_evaluation(source.id, merged)
+    return repository.set_source_assessment(
+        source.id,
+        source_type=assessment.source_type,
+        rule_id=assessment.classification_rule,
+        basis=assessment.classification_basis,
+        evaluation=merged,
+        reasons={
+            RatingName.AUTHORITY: (assessment.authority_reason,),
+            RatingName.FRESHNESS: (assessment.freshness_reason,),
+            RatingName.RELEVANCE: (assessment.relevance_reason,),
+        },
+    )
