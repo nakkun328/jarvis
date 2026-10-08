@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  ERROR_CODES, NOT_CONNECTED_TITLE, begin, initialState, parseActivity, reduce, reset, settle, viewModel,
+  ERROR_CODES, FALLBACK_TEXT, NOT_CONNECTED_TITLE, NOT_WIRED_TEXT, begin, initialState, parseActivity, reduce, reset, settle, viewModel,
 } from "../activity-view.js";
 import { createActivityView } from "../activity.js";
 import { sendChat } from "../chat-api.js";
@@ -141,12 +141,122 @@ test("the diagram label names what is connected", () => {
   assert.doesNotMatch(diagramLabel, /ROUTER、|RESEARCHER、/);
 });
 
+// ---- routing (opt-in on the server) ----
+
+const routed = (decided, fallback = false) => [
+  { stage: "received" },
+  { stage: "routing" },
+  { stage: "route_selected", route: "main", decided, fallback },
+];
+
+test("without routing events nothing about the router changes", () => {
+  const model = viewModel(feed(begin(), { stage: "received" }, { stage: "generating" }));
+  assert.equal(node(model, "router").connected, false);
+  assert.equal(model.routeNote, null);
+  assert.equal(edge(model, "input-main").active, true);
+  assert.equal(edge(model, "input-router").active, false);
+});
+
+test("routing connects and lights the router, then the path to MAIN AGENT", () => {
+  const routing = viewModel(feed(begin(), { stage: "received" }, { stage: "routing" }));
+  assert.equal(routing.caption, "ROUTING");
+  assert.equal(node(routing, "router").connected, true);
+  assert.equal(node(routing, "router").active, true);
+  assert.equal(edge(routing, "input-router").active, true);
+  assert.equal(edge(routing, "input-router").connected, true);
+  assert.equal(edge(routing, "input-main").active, false);
+
+  const selected = viewModel(feed(begin(), ...routed("memory")));
+  assert.equal(selected.caption, "ROUTE SELECTED · MAIN AGENT");
+  assert.equal(selected.routeNote, null);
+  assert.equal(node(selected, "router").active, true);
+  assert.equal(node(selected, "main").active, true);
+  assert.equal(edge(selected, "router-main").active, true);
+  assert.equal(edge(selected, "router-main").connected, true);
+  assert.equal(edge(selected, "input-main").active, false);
+
+  // The path to MAIN AGENT stays lit while it works; the router stays connected, no longer active.
+  const generating = viewModel(feed(begin(), ...routed("memory"), { stage: "memory_lookup", count: 1 }, { stage: "generating" }));
+  assert.equal(node(generating, "router").connected, true);
+  assert.equal(node(generating, "router").active, false);
+  assert.equal(edge(generating, "input-router").active, true);
+  assert.equal(edge(generating, "router-main").active, true);
+  assert.equal(edge(generating, "input-main").active, false);
+  for (const id of ["realtime", "researcher"]) {
+    assert.equal(node(generating, id).connected, false);
+    assert.equal(node(generating, id).active, false);
+  }
+  assert.match(generating.diagramLabel, /ROUTER/);
+  const done = viewModel(feed(begin(), ...routed("memory"), { stage: "done" }));
+  assert.ok(done.edges.every((e) => !e.active));
+  assert.equal(node(done, "router").connected, true);
+  // A fresh turn without routing events forgets the router.
+  assert.equal(node(viewModel(begin()), "router").connected, false);
+});
+
+test("casual and research are shown as routed but run on the main agent", () => {
+  for (const [decided, caption] of [["casual", "ROUTED: CASUAL"], ["research", "ROUTED: RESEARCH"]]) {
+    const selected = viewModel(feed(begin(), ...routed(decided)));
+    assert.equal(selected.caption, caption);
+    assert.equal(selected.explain, NOT_WIRED_TEXT);
+    assert.equal(selected.explain, "この経路はまだ接続されていないため、メインのエージェントで処理します");
+    assert.equal(selected.live, selected.explain);
+    assert.equal(node(selected, "main").active, true);
+    assert.equal(edge(selected, "router-main").active, true);
+    for (const id of ["realtime", "researcher"]) {
+      const dimmed = node(selected, id);
+      assert.equal(dimmed.connected, false);
+      assert.equal(dimmed.active, false);
+      assert.match(dimmed.title, /not connected/);
+    }
+    assert.equal(edge(selected, "router-realtime").active, false);
+    assert.equal(edge(selected, "router-researcher").active, false);
+    // The note outlasts the moment, so it can be read while the answer is generated.
+    const later = viewModel(feed(begin(), ...routed(decided), { stage: "generating" }));
+    assert.equal(later.caption, "SYNTHESIZING RESPONSE");
+    assert.equal(later.live, `回答を生成しています。${NOT_WIRED_TEXT}。`);
+    assert.equal(later.routeNote.caption, caption);
+    assert.equal(later.routeNote.text, NOT_WIRED_TEXT);
+    assert.equal(viewModel(feed(begin(), ...routed(decided), { stage: "done" })).routeNote.decided, decided);
+    // ...and goes away with the turn.
+    assert.equal(viewModel(reset()).routeNote, null);
+    assert.equal(viewModel(begin(feed(begin(), ...routed(decided)))).routeNote, null);
+  }
+});
+
+test("a router fallback is shown as such, never as a chosen route", () => {
+  const model = viewModel(feed(begin(), ...routed("memory", true)));
+  assert.equal(model.caption, "ROUTE SELECTED · MAIN AGENT (FALLBACK)");
+  assert.equal(model.explain, FALLBACK_TEXT);
+  assert.equal(model.routeNote, null);
+  assert.equal(node(model, "main").active, true);
+});
+
+test("routing fields are validated and unknown ones dropped", () => {
+  assert.deepEqual(
+    parseActivity({ stage: "route_selected", route: "main", decided: "casual", fallback: false, text: "x" }),
+    { stage: "route_selected", route: "main", decided: "casual", fallback: false },
+  );
+  // `main` is never a router choice; a bad optional field is dropped, not the whole event.
+  assert.deepEqual(
+    parseActivity({ stage: "route_selected", route: "main", decided: "main", fallback: "yes" }),
+    { stage: "route_selected", route: "main" },
+  );
+  assert.deepEqual(parseActivity({ stage: "routing", decided: "casual" }), { stage: "routing" });
+  assert.equal(parseActivity({ stage: "route_selected", decided: "casual" }), null);
+  // Without `decided` (an older server) the route is taken as sent and no note is invented.
+  const legacy = viewModel(feed(begin(), { stage: "routing" }, { stage: "route_selected", route: "main" }));
+  assert.equal(legacy.routeNote, null);
+  assert.equal(legacy.caption, "ROUTE SELECTED · MAIN AGENT");
+});
+
 // ---- DOM adapter, with a tiny stand-in DOM ----
 
 class El {
   constructor(tag) { this.tag = tag; this.attrs = {}; this.children = []; this.textContent = ""; this.hidden = false; this.listeners = {}; }
   setAttribute(n, v) { this.attrs[n] = String(v); }
   getAttribute(n) { return this.attrs[n] ?? null; }
+  removeAttribute(n) { delete this.attrs[n]; }
   append(...n) { this.children.push(...n); }
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
   click() { for (const fn of this.listeners.click ?? []) fn(); }
@@ -204,6 +314,43 @@ test("events update the live text, caption, orb mode and nodes", () => {
   assert.equal(root.find((n) => n.attrs["data-edge"] === "input-main").attrs["data-active"], "true");
   view.handle("garbage");
   assert.equal(live.textContent, "回答を生成しています。");
+});
+
+test("the panel shows the routing stages and the not-wired note, mirrored in the live text", () => {
+  const mount = new El("div");
+  const view = createActivityView(fakeDoc(), mount, fakeEnv());
+  const root = mount.children[0];
+  const live = byClass(root, "activity-live");
+  const caption = byClass(root, "activity-caption");
+  const note = byClass(root, "activity-route");
+  const router = root.find((n) => n.attrs["data-node"] === "router");
+  assert.equal(note.hidden, true);
+  view.begin();
+  view.handle({ stage: "received" });
+  view.handle({ stage: "routing" });
+  assert.equal(caption.textContent, "ROUTING");
+  assert.equal(router.attrs["data-connected"], "true");
+  assert.equal(router.attrs["data-status"], "active");
+  assert.equal(root.find((n) => n.attrs["data-edge"] === "input-router").attrs["data-active"], "true");
+  view.handle({ stage: "route_selected", route: "main", decided: "research", fallback: false });
+  assert.equal(caption.textContent, "ROUTED: RESEARCH");
+  assert.equal(live.textContent, NOT_WIRED_TEXT);
+  assert.equal(note.hidden, false);
+  assert.equal(note.attrs["data-decided"], "research");
+  assert.match(note.textContent, /ROUTED: RESEARCH/);
+  assert.match(note.textContent, /まだ接続されていない/);
+  assert.equal(root.find((n) => n.attrs["data-edge"] === "router-main").attrs["data-active"], "true");
+  for (const id of ["realtime", "researcher"]) {
+    const dimmed = root.find((n) => n.attrs["data-node"] === id);
+    assert.equal(dimmed.attrs["data-connected"], "false");
+    assert.equal(dimmed.attrs["data-status"], "idle");
+  }
+  view.handle({ stage: "generating" });
+  assert.equal(live.textContent, `回答を生成しています。${NOT_WIRED_TEXT}。`);
+  assert.equal(note.hidden, false);
+  view.begin();
+  assert.equal(note.hidden, true);
+  assert.equal(note.textContent, "");
 });
 
 test("done returns to standby after a delay; stop and error stay visible", () => {
