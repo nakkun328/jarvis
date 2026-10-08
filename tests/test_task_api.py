@@ -210,10 +210,10 @@ def test_list_orders_filters_and_bounds(app_repo) -> None:
     repo.transition(created[1].id, TaskStatus.PENDING, TaskStatus.CANCELLED)
 
     body = client.get("/api/tasks").json()["tasks"]
-    assert [item["id"] for item in body] == [str(task.id) for task in created]
+    assert [item["id"] for item in body] == [str(task.id) for task in reversed(created)]
     assert [item["id"] for item in client.get("/api/tasks?limit=2").json()["tasks"]] == [
-        str(created[0].id),
-        str(created[1].id),
+        str(created[4].id),
+        str(created[3].id),
     ]
     cancelled = client.get("/api/tasks?status=cancelled").json()["tasks"]
     assert [item["id"] for item in cancelled] == [str(created[1].id)]
@@ -238,6 +238,18 @@ def test_list_rejects_bad_query(app_repo, query: str) -> None:
     response = client.get(f"/api/tasks?{query}")
     assert response.status_code == 422
     assert isinstance(response.json()["detail"], list)
+
+
+def test_list_with_more_tasks_than_limit_returns_the_newest(app_repo) -> None:
+    client, repo = app_repo
+    created = [repo.create_task(f"goal {i}", STEPS) for i in range(6)]
+    for index in (0, 2, 4):
+        repo.transition(created[index].id, TaskStatus.PENDING, TaskStatus.CANCELLED)
+
+    newest = client.get("/api/tasks?limit=3").json()["tasks"]
+    assert [item["id"] for item in newest] == [str(t.id) for t in created[:2:-1]]
+    cancelled = client.get("/api/tasks?status=cancelled&limit=2").json()["tasks"]
+    assert [item["id"] for item in cancelled] == [str(created[4].id), str(created[2].id)]
 
 
 def test_list_limit_boundary_accepts_100(app_repo) -> None:

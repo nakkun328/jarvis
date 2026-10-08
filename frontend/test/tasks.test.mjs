@@ -149,11 +149,11 @@ test("counts come only from returned tasks and unknown statuses go to other", ()
   assert.equal(counts.other, 1);
 });
 
-test("list view model filters, orders newest first, and reports empty states", () => {
+test("list view model filters, keeps the API's newest-first order, and reports empty states", () => {
   const tasks = [
-    task({ id: "a", status: "completed", goal: "old" }),
-    task({ id: "b", status: "running", goal: "mid" }),
     task({ id: "c", status: "completed", goal: "new" }),
+    task({ id: "b", status: "running", goal: "mid" }),
+    task({ id: "a", status: "completed", goal: "old" }),
   ];
   const all = listViewModel(tasks, tasks, { selectedId: "b" });
   assert.deepEqual(all.items.map((item) => item.id), ["c", "b", "a"]);

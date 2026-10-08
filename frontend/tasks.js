@@ -165,7 +165,7 @@ function renderList() {
     }
   }
   listNote.textContent = state.truncated
-    ? `サーバーが返した古い順の先頭 ${state.all.length} 件から集計しています。状態を選ぶと、その状態のタスクをサーバーから取得します。`
+    ? `サーバーが返した新しい順の先頭 ${state.all.length} 件から集計しています。状態を選ぶと、その状態のタスクをサーバーから取得します。`
     : "取得できたタスクだけを新しい順に表示しています。";
   renderListStatus();
 }

@@ -120,16 +120,34 @@ class TaskRepository:
             except TaskNotFound:
                 return None
 
-    def list_tasks(self, status: TaskStatus | None = None, *, limit: int = 100) -> list[Task]:
+    def list_tasks(
+        self,
+        status: TaskStatus | None = None,
+        *,
+        limit: int = 100,
+        newest_first: bool = False,
+    ) -> list[Task]:
+        """Tasks in creation order (oldest first), or newest first when asked.
+
+        Creation time decides the order and insertion order breaks ties, so the
+        result is deterministic either way. `limit` applies after ordering: with
+        more rows than `limit`, the default returns the oldest and
+        `newest_first=True` the newest.
+        """
         if status is not None and not isinstance(status, TaskStatus):
             raise ValueError("status must be a TaskStatus")
         _require_limit(limit)
+        if not isinstance(newest_first, bool):
+            raise ValueError("newest_first must be a bool")
         query = "SELECT id FROM tasks"
         params: list[object] = []
         if status is not None:
             query += " WHERE status = ?"
             params.append(status.value)
-        query += " ORDER BY created_at, rowid LIMIT ?"
+        if newest_first:
+            query += " ORDER BY created_at DESC, rowid DESC LIMIT ?"
+        else:
+            query += " ORDER BY created_at, rowid LIMIT ?"
         params.append(limit)
         with self._read() as connection:
             ids = [UUID(row["id"]) for row in connection.execute(query, params)]
