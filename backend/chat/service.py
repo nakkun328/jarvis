@@ -1,12 +1,15 @@
 """Vendor-neutral chat flow with context updates after verified responses."""
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
+from time import perf_counter
 from uuid import UUID
 
 from backend.chat.context import ConversationStore
-from backend.chat.memory_context import MemoryContext
+from backend.chat.memory_context import MemoryContext, MemoryContextError
+from backend.chat.persistence import ConversationStorageError
 from backend.personality.prompt import SYSTEM_PROMPT
 from backend.providers.base import (
     ChatMessage,
@@ -14,6 +17,30 @@ from backend.providers.base import (
     LLMProvider,
     ProviderError,
 )
+
+_LOG = logging.getLogger(__name__)
+
+# Failure logs carry only these event names, the error type and the elapsed time. Exception
+# messages and request/response content never reach the log.
+_FAILURE_EVENTS: tuple[tuple[type[Exception], str], ...] = (
+    (ConversationStorageError, "chat.storage_failed"),
+    (MemoryContextError, "chat.memory_context_failed"),
+    (ProviderError, "chat.provider_failed"),
+)
+
+
+def _log_failure(exc: Exception, started: float, *, streaming: bool) -> None:
+    for error_type, event in _FAILURE_EVENTS:
+        if isinstance(exc, error_type):
+            _LOG.warning(
+                event,
+                extra={
+                    "error_type": type(exc).__name__,
+                    "duration_ms": round((perf_counter() - started) * 1000, 2),
+                    "streaming": streaming,
+                },
+            )
+            return
 
 
 @dataclass(frozen=True)
@@ -78,35 +105,45 @@ class ChatService:
         )
 
     async def complete(self, message: str, conversation_id: UUID | None = None) -> ChatResult:
-        async with self.store.open(conversation_id) as (current_id, conversation):
-            request = await self._request(conversation.messages, message)
-            response = await self.provider.complete(request)
-            if not response.text.strip():
-                raise ProviderError("Provider returned no text")
-            await self.store.remember(current_id, conversation, message, response.text)
-            return ChatResult(current_id, response.text, response.provider, response.model)
+        started = perf_counter()
+        try:
+            async with self.store.open(conversation_id) as (current_id, conversation):
+                request = await self._request(conversation.messages, message)
+                response = await self.provider.complete(request)
+                if not response.text.strip():
+                    raise ProviderError("Provider returned no text")
+                await self.store.remember(current_id, conversation, message, response.text)
+                return ChatResult(current_id, response.text, response.provider, response.model)
+        except Exception as exc:
+            _log_failure(exc, started, streaming=False)
+            raise
 
     async def stream(
         self, message: str, conversation_id: UUID | None = None
     ) -> AsyncIterator[ChatDelta | ChatDone]:
-        async with self.store.open(conversation_id) as (current_id, conversation):
-            chunks: list[str] = []
-            request = await self._request(conversation.messages, message)
-            deltas = self.provider.stream(request)
-            async with AsyncExitStack() as resources:
-                close = getattr(deltas, "aclose", None)
-                if close is not None:
-                    resources.push_async_callback(close)
-                async for delta in deltas:
-                    if delta:
-                        chunks.append(delta)
-                        yield ChatDelta(delta)
-            reply = "".join(chunks)
-            if not reply.strip():
-                raise ProviderError("Provider returned no text")
-            await self.store.remember(current_id, conversation, message, reply)
-            yield ChatDone(
-                conversation_id=current_id,
-                provider=str(getattr(self.provider, "name", "custom")),
-                model=str(getattr(self.provider, "model", "unknown")),
-            )
+        started = perf_counter()
+        try:
+            async with self.store.open(conversation_id) as (current_id, conversation):
+                chunks: list[str] = []
+                request = await self._request(conversation.messages, message)
+                deltas = self.provider.stream(request)
+                async with AsyncExitStack() as resources:
+                    close = getattr(deltas, "aclose", None)
+                    if close is not None:
+                        resources.push_async_callback(close)
+                    async for delta in deltas:
+                        if delta:
+                            chunks.append(delta)
+                            yield ChatDelta(delta)
+                reply = "".join(chunks)
+                if not reply.strip():
+                    raise ProviderError("Provider returned no text")
+                await self.store.remember(current_id, conversation, message, reply)
+                yield ChatDone(
+                    conversation_id=current_id,
+                    provider=str(getattr(self.provider, "name", "custom")),
+                    model=str(getattr(self.provider, "model", "unknown")),
+                )
+        except Exception as exc:
+            _log_failure(exc, started, streaming=True)
+            raise

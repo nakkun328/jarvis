@@ -9,29 +9,49 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.chat import build_chat_router
+from backend.api.request_logging import RequestLoggingMiddleware
 from backend.chat.memory_context import MemoryContext
 from backend.chat.persistence import SQLiteConversationStore
+from backend.chat.semantic_context import SemanticMemoryContext
 from backend.chat.service import ChatService
 from backend.core.config import ConfigError, Settings
 from backend.core.database import Database
 from backend.core.logging import configure_logging
+from backend.memory.embedding import EmbeddingProvider
 from backend.memory.obsidian import ObsidianVault
 from backend.memory.repository import MemoryRepository
 from backend.memory.retrieval import MemoryRetriever
+from backend.memory.semantic import SemanticMemorySearcher
+from backend.memory.vector import VectorIndex
 from backend.providers.base import LLMProvider
 from backend.providers.factory import create_provider
 
 
-def create_app(settings: Settings | None = None, provider: LLMProvider | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    provider: LLMProvider | None = None,
+    *,
+    embedding_provider: EmbeddingProvider | None = None,
+    memory_index: VectorIndex | None = None,
+) -> FastAPI:
     settings = settings or Settings.from_env()
+    if (embedding_provider is None) != (memory_index is None):
+        raise ConfigError("Semantic chat requires both an embedding provider and memory index")
+    if embedding_provider is not None and settings.memory_vault_path is None:
+        raise ConfigError("Semantic chat requires an explicitly configured memory vault")
     database = Database(settings.db_path)
     memory_context = None
     if settings.memory_vault_path is not None:
         vault_path = settings.memory_vault_path
         if vault_path.is_symlink() or not vault_path.is_dir():
             raise ConfigError("JARVIS_MEMORY_VAULT_PATH must be an existing vault directory")
-        memory_context = MemoryContext(
-            MemoryRetriever(MemoryRepository(database), ObsidianVault(vault_path))
+        retriever = MemoryRetriever(
+            MemoryRepository(database), ObsidianVault(vault_path), vector_index=memory_index
+        )
+        memory_context = (
+            SemanticMemoryContext(SemanticMemorySearcher(retriever, embedding_provider))
+            if embedding_provider is not None
+            else MemoryContext(retriever)
         )
     if provider is None:
         provider = create_provider(settings)
@@ -61,6 +81,7 @@ def create_app(settings: Settings | None = None, provider: LLMProvider | None = 
         redoc_url=None,
         openapi_url=None,
     )
+    app.add_middleware(RequestLoggingMiddleware)
 
     @app.get("/health/live")
     def liveness() -> dict[str, str]:

@@ -38,6 +38,13 @@ def _restore_v4_layout(database: Database) -> None:
     with database.connect() as connection:
         connection.execute("PRAGMA foreign_keys = OFF")
         with connection:
+            for table in (
+                "research_claims",
+                "research_sources",
+                "research_queries",
+                "research_sessions",
+            ):
+                connection.execute(f"DROP TABLE {table}")
             connection.execute("DROP TABLE memory_lifecycle_events")
             connection.execute("DROP INDEX memory_records_by_status")
             connection.execute("DROP INDEX memory_records_by_supersedes")
@@ -60,7 +67,7 @@ def _restore_v4_layout(database: Database) -> None:
             connection.execute(
                 "CREATE INDEX memory_records_by_status ON memory_records(status, created_at)"
             )
-            connection.execute("DELETE FROM schema_migrations WHERE version = 5")
+            connection.execute("DELETE FROM schema_migrations WHERE version IN (5, 6)")
             connection.execute("PRAGMA user_version = 4")
             assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
@@ -149,6 +156,7 @@ def test_v2_migration_preserves_conversation_and_records_v3(tmp_path: Path) -> N
             3,
             4,
             5,
+            6,
         ]
     assert MemoryRepository(database).add(_candidate()).status is MemoryStatus.PENDING
 
