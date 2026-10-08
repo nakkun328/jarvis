@@ -6,12 +6,18 @@ model reply, memory content, a path or upstream error text. The constructors bel
 supported way to build one, and ``__post_init__`` rejects any field that does not belong to the
 stage.
 
-Emitted today by ``ChatService``: ``received``, ``memory_lookup`` (only when memory context is
-configured and was consulted), ``generating``, ``done`` and ``error``.
+Emitted today by ``ChatService``: ``received``, ``routing`` and ``route_selected`` (only when a
+router was explicitly configured), ``memory_lookup`` (only when memory context is configured and
+was consulted), ``generating``, ``done`` and ``error``.
 
-In the vocabulary but NOT emitted yet, because the features do not exist: ``routing``,
-``route_selected``, ``researching`` and ``speaking``. They are reserved so the later router,
-Researcher and realtime work can reuse one vocabulary. Nothing may fake them.
+``route_selected`` says two different things and never mixes them up: ``route`` is the path that
+actually runs (always ``main`` today, because the casual and research paths are not wired) and
+``decided`` is what the router chose. ``fallback`` says the router could not decide and the safe
+default was used.
+
+In the vocabulary but NOT emitted yet, because the features do not exist: ``researching`` and
+``speaking``. They are reserved so the later Researcher and realtime work can reuse one
+vocabulary. Nothing may fake them.
 """
 
 from dataclasses import dataclass
@@ -60,20 +66,25 @@ class ActivityErrorCode(StrEnum):
     INTERNAL = "internal"
 
 
-# The one field each stage may (or must) carry. Everything else is rejected.
-_FIELD_BY_STAGE: dict[ActivityStage, str | None] = {
-    ActivityStage.RECEIVED: None,
-    ActivityStage.ROUTING: None,
-    ActivityStage.ROUTE_SELECTED: "route",
-    ActivityStage.MEMORY_LOOKUP: "count",
-    ActivityStage.RESEARCHING: "step",
-    ActivityStage.GENERATING: None,
-    ActivityStage.SPEAKING: None,
-    ActivityStage.DONE: None,
-    ActivityStage.ERROR: "code",
+# What the router may have chosen. ``main`` is where a turn runs, never a router choice.
+DECIDED_ROUTES = frozenset({ActivityRoute.CASUAL, ActivityRoute.MEMORY, ActivityRoute.RESEARCH})
+
+# The fields each stage may (and must) carry. Everything else is rejected.
+_FIELDS_BY_STAGE: dict[ActivityStage, tuple[str, ...]] = {
+    ActivityStage.RECEIVED: (),
+    ActivityStage.ROUTING: (),
+    ActivityStage.ROUTE_SELECTED: ("route", "decided", "fallback"),
+    ActivityStage.MEMORY_LOOKUP: ("count",),
+    ActivityStage.RESEARCHING: ("step",),
+    ActivityStage.GENERATING: (),
+    ActivityStage.SPEAKING: (),
+    ActivityStage.DONE: (),
+    ActivityStage.ERROR: ("code",),
 }
 _FIELD_TYPES: dict[str, type] = {
     "route": ActivityRoute,
+    "decided": ActivityRoute,
+    "fallback": bool,
     "count": int,
     "step": ResearchStep,
     "code": ActivityErrorCode,
@@ -84,6 +95,8 @@ _FIELD_TYPES: dict[str, type] = {
 class ActivityEvent:
     stage: ActivityStage
     route: ActivityRoute | None = None
+    decided: ActivityRoute | None = None
+    fallback: bool | None = None
     count: int | None = None
     step: ResearchStep | None = None
     code: ActivityErrorCode | None = None
@@ -91,10 +104,10 @@ class ActivityEvent:
     def __post_init__(self) -> None:
         if not isinstance(self.stage, ActivityStage):
             raise ValueError("unknown activity stage")
-        allowed = _FIELD_BY_STAGE[self.stage]
+        allowed = _FIELDS_BY_STAGE[self.stage]
         for name in _FIELD_TYPES:
             value = getattr(self, name)
-            if name != allowed:
+            if name not in allowed:
                 if value is not None:
                     raise ValueError(f"{self.stage.value} takes no {name}")
                 continue
@@ -102,6 +115,8 @@ class ActivityEvent:
                 raise ValueError(f"{self.stage.value} requires a valid {name}")
         if self.count is not None and not 0 <= self.count <= MAX_COUNT:
             raise ValueError("count out of range")
+        if self.decided is not None and self.decided not in DECIDED_ROUTES:
+            raise ValueError("decided must be a router choice")
 
     @classmethod
     def received(cls) -> "ActivityEvent":
@@ -112,8 +127,11 @@ class ActivityEvent:
         return cls(ActivityStage.ROUTING)
 
     @classmethod
-    def route_selected(cls, route: ActivityRoute) -> "ActivityEvent":
-        return cls(ActivityStage.ROUTE_SELECTED, route=route)
+    def route_selected(
+        cls, route: ActivityRoute, decided: ActivityRoute, fallback: bool
+    ) -> "ActivityEvent":
+        """``route``: the path that actually runs. ``decided``: what the router chose."""
+        return cls(ActivityStage.ROUTE_SELECTED, route=route, decided=decided, fallback=fallback)
 
     @classmethod
     def memory_lookup(cls, count: int) -> "ActivityEvent":
@@ -139,11 +157,10 @@ class ActivityEvent:
     def error(cls, code: ActivityErrorCode) -> "ActivityEvent":
         return cls(ActivityStage.ERROR, code=code)
 
-    def to_payload(self) -> dict[str, str | int]:
-        """The SSE/JSON form: ``stage`` plus the stage's single allowlisted field, if any."""
-        payload: dict[str, str | int] = {"stage": self.stage.value}
-        field = _FIELD_BY_STAGE[self.stage]
-        if field is not None:
+    def to_payload(self) -> dict[str, str | int | bool]:
+        """The SSE/JSON form: ``stage`` plus the stage's allowlisted fields, if any."""
+        payload: dict[str, str | int | bool] = {"stage": self.stage.value}
+        for field in _FIELDS_BY_STAGE[self.stage]:
             value = getattr(self, field)
             payload[field] = value.value if isinstance(value, StrEnum) else value
         return payload

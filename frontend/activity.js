@@ -16,7 +16,7 @@ const HIDE_LABEL = "図を隠す";
 const SHOW_LABEL = "図を表示";
 
 // Node and edge geometry for the 340x150 diagram. The ROUTER is drawn above the direct
-// INPUT -> MAIN AGENT path that messages take today.
+// INPUT -> MAIN AGENT path that messages take when no router is configured.
 const NODE_BOX = {
   input: { x: 8, y: 63, w: 60, h: 24 },
   router: { x: 108, y: 16, w: 64, h: 24 },
@@ -119,6 +119,11 @@ export function createActivityView(doc, mount, env = {}) {
   live.setAttribute("aria-live", "polite");
   lastLive = initial.live;
 
+  // Present only while the router chose a path that is not wired and the Main Agent runs the
+  // turn instead. It outlasts the single route_selected moment, for the rest of the turn.
+  const routeNote = html(doc, "p", "activity-route");
+  routeNote.hidden = true;
+
   const body = html(doc, "div", "activity-body");
   body.setAttribute("id", "activity-body");
   const stage = html(doc, "div", "activity-stage");
@@ -126,7 +131,7 @@ export function createActivityView(doc, mount, env = {}) {
   const { diagram, edges, nodes } = buildDiagram(doc, initial);
   stage.append(orb, diagram);
   body.append(stage);
-  root.append(bar, live, body);
+  root.append(bar, live, routeNote, body);
   mount.append(root);
 
   function setCollapsed(collapsed) {
@@ -147,6 +152,15 @@ export function createActivityView(doc, mount, env = {}) {
     if (model.live !== lastLive) {
       live.textContent = model.live;
       lastLive = model.live;
+    }
+    if (model.routeNote) {
+      routeNote.textContent = `${model.routeNote.caption} · ${model.routeNote.text}`;
+      routeNote.setAttribute("data-decided", model.routeNote.decided);
+      routeNote.hidden = false;
+    } else {
+      routeNote.textContent = "";
+      routeNote.removeAttribute("data-decided");
+      routeNote.hidden = true;
     }
     diagram.setAttribute("aria-label", model.diagramLabel);
     for (const edge of model.edges) {

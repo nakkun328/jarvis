@@ -108,3 +108,22 @@ def test_reserved_stages_are_documented_as_not_emitted() -> None:
     assert "## Activity events" in text
     for stage in ("routing", "route_selected", "researching", "speaking"):
         assert stage in text.split("## Activity events", 1)[1]
+
+
+def test_routing_note_has_a_style_and_the_wording_is_documented() -> None:
+    css = (FRONTEND / "activity.css").read_text()
+    assert ".activity-route" in css and ".activity-route[hidden]" in css
+    root = Path(__file__).resolve().parents[1]
+    wording = "この経路はまだ接続されていないため、メインのエージェントで処理します"
+    assert wording in (FRONTEND / "activity-view.js").read_text()
+    chat_doc = (root / "docs" / "chat.md").read_text().split("## Activity events", 1)[1]
+    for term in ("route_selected", "decided", "fallback", "ROUTED: CASUAL", "ROUTED: RESEARCH"):
+        assert term in chat_doc
+    router_doc = (root / "docs" / "router.md").read_text()
+    for term in ("JARVIS_ROUTER", "off", "rule", "llm", "extra", "not wired"):
+        assert term in router_doc.replace("Not wired", "not wired")
+
+
+def test_routing_note_is_a_text_node_only() -> None:
+    source = (FRONTEND / "activity.js").read_text()
+    assert "activity-route" in source and "textContent" in source

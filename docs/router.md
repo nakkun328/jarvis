@@ -1,6 +1,6 @@
 # Router contract and evaluation
 
-Status: **library only.** No route is wired into chat. Nothing here calls a live model; all tests use fakes. See [conversation-routing-plan.md](conversation-routing-plan.md) for the plan this implements (components 3 and 4).
+Status: **library, plus an opt-in first wiring slice (off by default).** With the router on, each chat turn asks it for a decision and shows it in the Activity View, but every turn still runs on the Main Agent path: the casual and research paths are not wired. Nothing here calls a live model; all tests use fakes. See [conversation-routing-plan.md](conversation-routing-plan.md) for the plan this implements (components 3 and 4) and [Wiring](#wiring-opt-in-first-slice) below.
 
 ## What it is
 
@@ -18,9 +18,40 @@ A router returns a frozen `RouteDecision(route, confidence, reason, used_fallbac
 
 ## What it is not
 
-- Not wired into `ChatService`, the activity events or any API route.
+- Not an executor: it only chooses. In the wired slice a `casual` or `research` decision is shown and then the Main Agent answers anyway (see below).
 - `RuleRouter` is a transparent keyword **baseline** for tests and an offline fallback. It is not the intended method: the real router reads paraphrases and context with a model. The evaluation set contains paraphrases on purpose so the gap stays visible.
 - A fake or contract-only run says nothing about routing quality.
+
+## Wiring (opt-in first slice)
+
+Off by default: with no router configured, `ChatService` behaves exactly as before (no extra model call, no new events, no log lines).
+
+**Switch.** `JARVIS_ROUTER` is read in `backend/core/config.py`:
+
+| Value | Router |
+| --- | --- |
+| `off` (default) | None. |
+| `rule` | `RuleRouter` (offline keyword baseline; no model call). |
+| `llm` | `LLMRouter` over the **same chat provider** that answers the turn (no new key, model or provider). It needs a configured chat provider, otherwise startup fails. |
+
+Any other value (including an empty one) is a startup `ConfigError`. `create_app(..., router=...)` is an explicit injection point (like the semantic-chat one); an injected router wins over the switch and is used as given, so the caller decides whether to wrap it in an `AuditedRouter`. A router built from the switch is wrapped in an `AuditedRouter` with an in-memory sink.
+
+**Privacy and cost of `llm`.** Every turn makes one extra, short model call, and **the user's message is sent to that provider** (the same provider the chat already uses). That is added latency (up to the router timeout, 8 s, before the turn continues on the safe path) and added provider cost on every turn. The router never sees memory notes or conversation history: its request is the fixed system prompt plus the one JSON-quoted message. `rule` sends nothing anywhere.
+
+**Behaviour per turn.** The service calls `router.decide(message)` once the conversation is open and **before** the memory lookup, on every chat path (the streaming and regular endpoints, with or without the activity header), so the audit and the log event are the same everywhere. It then emits the activity events `routing` and `route_selected` (`route`, `decided`, `fallback`: see [chat.md](chat.md#activity-events)). `route` is the path that actually runs and is always `main` today; `decided` is the router's choice.
+
+| Router decided | Executed today |
+| --- | --- |
+| `memory` | The existing Main Agent path, unchanged. |
+| `casual` | The same Main Agent path. The casual path is not wired; the view says `ROUTED: CASUAL` and why. |
+| `research` | The same Main Agent path. The Researcher path is not wired; the view says `ROUTED: RESEARCH` and why. |
+| any failure | Fallback (`decided: memory`, `fallback: true`), Main Agent path. |
+
+A router that raises, returns something that is not a `RouteDecision`, or does not answer within a 15 s service-level guard is treated as a fallback; the turn is never blocked or failed by routing. Cancellation (the client going away) propagates and nothing is saved, as for any cancelled turn. A failure writes only the fixed log event `chat.router_failed` with the exception type.
+
+**What is stored.** Nothing persistent. The decision is not written to the conversation, the database or the vault. The only records are the in-memory `RouteAuditRecord`s (route, reason, confidence tenths, length bucket, SHA-256 of the input; never the text) and the fixed `router.decision` log event. The hash is pseudonymous (see Audit). The activity events carry enum values and one bool only.
+
+**Not wired.** The Realtime (casual) path, the Researcher path as a chat route, any routing by conversation history or user settings, a per-route model or budget, a UI switch, and live-model quality, latency and cost measurements. The 0.6 confidence threshold and the timeouts remain maintainer proposals. Do not read the events as proof that a casual or research path exists.
 
 ## Fallback policy
 
