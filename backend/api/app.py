@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.chat import build_chat_router
+from backend.api.memory import create_memory_router
 from backend.api.request_logging import RequestLoggingMiddleware
 from backend.api.research import create_research_router
 from backend.api.tasks import create_tasks_router
@@ -113,6 +114,7 @@ def create_app(
         return {"status": "ok"}
 
     app.include_router(build_chat_router(chat_service))
+    app.include_router(create_memory_router(MemoryRepository(database)))
     app.include_router(create_research_router(ResearchRepository(database)))
     app.include_router(create_tasks_router(TaskRepository(database)))
 
