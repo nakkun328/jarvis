@@ -1,6 +1,6 @@
 # JARVIS
 
-JARVIS is a personal assistant under development. The project aims to use one identity, memory, and task system across devices. Phase 1 provides local chat, bounded conversation context, streamed responses, an OpenAI adapter, and a responsive web client. Phase 2 adds durable reviewed memories in SQLite and editable Obsidian notes, with a derived local vector index. Remote access remains future work.
+JARVIS is a personal assistant under development. The project aims to use one identity, memory, and task system across devices. Phase 1 provides local chat, bounded conversation context, streamed responses, an OpenAI adapter, and a responsive web client. Phase 2 adds durable reviewed memories in SQLite and editable Obsidian notes, with a derived local vector index. Remote access needs the single-owner login layer ([auth](docs/auth.md)).
 
 ## Setup
 
@@ -24,6 +24,11 @@ See [.env.example](.env.example). Copy it to `.env` if useful, but export the va
 | `JARVIS_LLM_PROVIDER` | `none` | Set to `openai` to enable the OpenAI adapter. |
 | `OPENAI_API_KEY` | unset | Server-side key for the optional OpenAI provider. |
 | `JARVIS_OPENAI_MODEL` | unset | Explicit model to use with the optional OpenAI provider. |
+| `JARVIS_AUTH_PASSPHRASE_HASH` | unset | Turns on the single-owner login. Create it with `python -m backend.auth.hash_password`. Required to bind a non-loopback address. See [auth](docs/auth.md). |
+| `JARVIS_AUTH_SIGNING_KEY` | random per start | At least 32 characters; signs session cookies. If unset, a random key is used and sessions reset on restart. |
+| `JARVIS_AUTH_SESSION_HOURS` | `168` | Absolute session lifetime in hours (1 to 8760). |
+| `JARVIS_AUTH_COOKIE_SECURE` | `true` | Mark the session cookie Secure. `false` is for plain-HTTP loopback development only. |
+| `JARVIS_TRUSTED_PROXY` | `false` | `1` honors `X-Forwarded-For` / `X-Forwarded-Host` from the single reverse proxy in front. |
 
 Install the optional provider with `.venv/bin/python -m pip install -e '.[openai]'`. Set `JARVIS_LLM_PROVIDER=openai`, `OPENAI_API_KEY`, and `JARVIS_OPENAI_MODEL` to enable live chat. Leave `JARVIS_LLM_PROVIDER=none` to browse the UI and use health checks without an LLM; chat requests then return 503. The adapter passes `store=False` to the OpenAI Responses API and keeps credentials on the server.
 
@@ -34,10 +39,10 @@ Set `JARVIS_MEMORY_VAULT_PATH` to an existing Obsidian vault to include matching
 ## Run
 
 ```sh
-.venv/bin/uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
+.venv/bin/python -m backend.serve --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000/` for the chat UI. The `/health/live` and `/health/ready` endpoints report service and SQLite status. Keep the service bound to localhost; authentication and remote access are not implemented yet. Successful conversation turns persist in SQLite, while active request locks remain process-local; run one worker for now.
+Open `http://127.0.0.1:8000/` for the chat UI. The `/health/live` and `/health/ready` endpoints report service and SQLite status. Without login, keep the service on loopback: `backend.serve` refuses any other `--host` unless `JARVIS_AUTH_PASSPHRASE_HASH` is set. JARVIS does not provide TLS; for remote use, keep it on `127.0.0.1` behind a reverse proxy or tunnel that terminates HTTPS, as described in [auth](docs/auth.md). Starting `uvicorn backend.api.app:app` directly still works for loopback, but it does not perform that safety check. Successful conversation turns persist in SQLite, while active request locks remain process-local; run one worker for now.
 
 ## Test
 
@@ -60,5 +65,6 @@ node --test frontend/test/*.test.mjs
 - [Quick Research](docs/research-quick.md)
 - [Tools](docs/tools.md)
 - [Read-only filesystem tools](docs/tools-filesystem.md)
+- [Login and remote access](docs/auth.md)
 - [Security](docs/security.md)
 - [Development plan](docs/development.md)
