@@ -19,7 +19,8 @@ See [.env.example](.env.example). Copy it to `.env` if useful, but export the va
 | --- | --- | --- |
 | `JARVIS_DB_PATH` | `data/jarvis.sqlite3` | SQLite file path; parent directories are created at startup. |
 | `JARVIS_MEMORY_VAULT_PATH` | unset | Opt in to including matching approved vault notes in chat requests. The configured provider receives those excerpts. |
-| `JARVIS_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
+| `JARVIS_PERSONALITY_PATH` | unset | Optional TOML file that selects personality levels; unset uses the documented initial values. An invalid file stops startup. See [personality settings](docs/personality.md). |
+| `JARVIS_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Logs are JSON lines on stderr; see [logging](docs/logging.md). |
 | `JARVIS_LLM_PROVIDER` | `none` | Set to `openai` to enable the OpenAI adapter. |
 | `OPENAI_API_KEY` | unset | Server-side key for the optional OpenAI provider. |
 | `JARVIS_OPENAI_MODEL` | unset | Explicit model to use with the optional OpenAI provider. |
@@ -44,17 +45,20 @@ Open `http://127.0.0.1:8000/` for the chat UI. The `/health/live` and `/health/r
 .venv/bin/pytest
 .venv/bin/ruff check .
 .venv/bin/python -m compileall -q backend tests
-node --test frontend/test/chat-api.test.mjs
+node --test frontend/test/*.test.mjs
 ```
 
 ## Project documents
 
 - [Architecture](docs/architecture.md)
 - [Chat API and context](docs/chat.md)
+- [Personality settings](docs/personality.md)
 - [Memory](docs/memory.md)
 - [Vector index rebuild](docs/index-rebuild.md)
 - [Local memory review](docs/memory-review.md)
 - [Research](docs/research.md)
+- [Quick Research](docs/research-quick.md)
 - [Tools](docs/tools.md)
+- [Read-only filesystem tools](docs/tools-filesystem.md)
 - [Security](docs/security.md)
 - [Development plan](docs/development.md)

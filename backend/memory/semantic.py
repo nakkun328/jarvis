@@ -25,7 +25,7 @@ class SemanticMemorySearcher:
         space = self.provider.space
         if not isinstance(space, EmbeddingSpace):
             raise ValueError("Provider must declare an embedding space")
-        vector = (await embed_texts(self.provider, (query,)))[0]
+        vector = (await embed_texts(self.provider, (query,), query=True))[0]
         if self.provider.space != space:
             raise ValueError("Embedding contract changed during semantic search")
         result = await self.retriever.search_vector(space.query(vector, limit=limit))

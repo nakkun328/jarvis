@@ -1,0 +1,16 @@
+.search-page { padding-top: 1.5rem; }
+.search-page h1 { font-size: clamp(1.4rem, 4vw, 2rem); }
+.search-page p { line-height: 1.65; }
+.notice { padding: .9rem 1rem; border: 1px solid #426077; border-radius: .7rem; }
+#mode { color: #a8dce7; }
+#mode.fake { color: #1b1200; background: #ffcf5c; font-weight: 700; padding: .7rem 1rem; border-radius: .7rem; }
+#search-form label { display: block; margin-bottom: .6rem; }
+#search-status { margin: 1rem 0; font-size: .9rem; }
+.candidate { border: 1px solid #385165; border-radius: .8rem; padding: 1rem; margin-top: 1rem; }
+.candidate h2 { font-size: 1.05rem; margin: 0 0 .8rem; }
+.candidate .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.candidate dl { margin-bottom: 0; font-size: .85rem; overflow-wrap: anywhere; }
+.candidate dt { color: #9fb2c2; margin-top: .55rem; }
+.candidate dd { margin-left: 0; }
+.search-page .hint { text-align: left; display: block; }
+.candidate.fake { border-color: #ffcf5c; border-style: dashed; }
