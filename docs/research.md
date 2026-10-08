@@ -19,4 +19,6 @@ Research state is stored in SQLite (schema version 6, applied by the existing mi
 
 Status transitions are compare-and-swap with an allowed-transition table: `pending` to `running` or `cancelled`; `running` to `waiting`, `completed`, `failed`, or `cancelled`; `waiting` to `running`, `cancelled`, or `failed`. `failed`, `completed`, and `cancelled` are final: the session, its queries, sources, and claims no longer change. Completion happens only through `set_result` on a running session, which stores the bounded result text. A failure stores one of a fixed set of short codes (`search_failed`, `no_results`, `reader_failed`, `synthesis_failed`, `timeout`, `budget_exceeded`, `internal_error`), never an upstream message.
 
-The repository offers no physical deletion. Evaluation scoring and the research pipeline that fills these tables are later steps.
+The repository offers no physical deletion. Evaluation scoring is a later step. The Quick Research pipeline that fills these tables is described in [research-quick.md](research-quick.md).
+
+Level selection, the deterministic query planner, source type classification and the authority, freshness and relevance ratings (R2, not yet wired into Quick Research) are described in [research-quality.md](research-quality.md).

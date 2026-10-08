@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JARVIS · 人工記憶の検索試験</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/synthetic-search.css" />
+    <script type="module" src="/static/synthetic-search.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand"><span class="brand-mark" aria-hidden="true">J</span>
+          <div><strong>JARVIS</strong><span>人工記憶だけを検索するローカル試験</span></div>
+        </div>
+      </header>
+      <main class="conversation search-page">
+        <h1>人工記憶の検索試験</h1>
+        <p>人工データ専用 · LLM回答生成なし</p>
+        <p class="notice">検索候補があることと、質問へ回答できる支持根拠があることは別です
+          （candidate != answer evidence）。候補は現在の正本で承認済みの記憶だけです。
+          旧版・未承認・却下は表示されません。本文を確認してください。回答可能性は判定していません。</p>
+        <p id="mode" role="status">試験モードを確認しています…</p>
+        <form id="search-form">
+          <label for="query">質問（4000文字以内）</label>
+          <div class="composer">
+            <textarea id="query" rows="3" maxlength="4000" placeholder="制御用のチップを何に替えたっけ？"></textarea>
+            <button id="search" type="submit">検索</button>
+          </div>
+        </form>
+        <p class="hint">初回は人工記憶と一時indexを準備します。scoreは確率・確信度ではありません。</p>
+        <p class="status" id="search-status" role="status" aria-live="polite"></p>
+        <button class="new-chat" id="retry" type="button" hidden>同じ質問で再試行</button>
+        <section id="results" aria-label="現在の承認済み検索候補" aria-busy="false"></section>
+        <p class="hint">終了はサーバーの端末で Ctrl-C。一時データ・index・モデルを解放します。</p>
+      </main>
+    </div>
+  </body>
+</html>
