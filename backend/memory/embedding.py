@@ -73,7 +73,7 @@ class EmbeddingProvider(Protocol):
 
 
 async def embed_texts(
-    provider: EmbeddingProvider, texts: Sequence[str]
+    provider: EmbeddingProvider, texts: Sequence[str], *, query: bool = False
 ) -> tuple[tuple[float, ...], ...]:
     """Validate provider output before it reaches a derived vector index.
 
@@ -93,7 +93,11 @@ async def embed_texts(
         raise ValueError("texts must be a sequence of nonempty strings")
     if not batch:
         return ()
-    result = await provider.embed(batch)
+    # Asymmetric encoders may prepend different query/document prompts. Their
+    # declared space must include both preprocessing rules. Legacy providers
+    # retain their existing embed method for both roles.
+    encode = getattr(provider, "embed_query", provider.embed) if query else provider.embed
+    result = await encode(batch)
     if isinstance(result, (str, bytes)):
         raise ValueError("provider must return one vector per text")
     try:

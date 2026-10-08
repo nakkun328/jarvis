@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 _HISTORY_MISMATCH = "SQLite schema version and migration history disagree"
 
 
@@ -192,6 +192,10 @@ class Database:
                         self._create_research_tables(connection)
                         self._record_migration(connection, 6)
                         connection.execute("PRAGMA user_version = 6")
+                    if version < 7:
+                        self._create_task_tables(connection)
+                        self._record_migration(connection, 7)
+                        connection.execute("PRAGMA user_version = 7")
                     if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
                         raise DatabaseError("SQLite foreign key check failed during migration")
         except (OSError, sqlite3.Error) as exc:
@@ -263,6 +267,61 @@ class Database:
         )
         connection.execute("CREATE INDEX research_claims_by_session ON research_claims(session_id)")
         connection.execute("CREATE INDEX research_claims_by_source ON research_claims(source_id)")
+
+    @staticmethod
+    def _create_task_tables(connection: sqlite3.Connection) -> None:
+        """v7: durable tasks and their steps."""
+        connection.execute(
+            "CREATE TABLE tasks ("
+            "id TEXT PRIMARY KEY, "
+            "goal TEXT NOT NULL CHECK(length(goal) BETWEEN 1 AND 2000), "
+            "target_device TEXT CHECK(target_device IS NULL "
+            "OR length(target_device) BETWEEN 1 AND 100), "
+            "status TEXT NOT NULL CHECK(status IN "
+            "('pending', 'running', 'waiting', 'failed', 'completed', 'cancelled')), "
+            "current_step INTEGER CHECK(current_step IS NULL OR current_step >= 0), "
+            "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, "
+            "started_at TEXT, finished_at TEXT, "
+            "result_summary TEXT CHECK(result_summary IS NULL "
+            "OR length(result_summary) BETWEEN 1 AND 4000), "
+            "failure_code TEXT CHECK(failure_code IS NULL OR failure_code IN "
+            "('execution_failed', 'verification_failed', 'timeout', 'interrupted', "
+            "'internal_error')), "
+            "waiting_reason TEXT CHECK(waiting_reason IS NULL OR waiting_reason IN "
+            "('needs_confirmation', 'needs_input', 'dependency')), "
+            "attempt INTEGER NOT NULL DEFAULT 1 CHECK(attempt BETWEEN 1 AND 10), "
+            "verified TEXT NOT NULL DEFAULT 'not_verified' CHECK(verified IN "
+            "('not_verified', 'verified', 'verification_failed')), "
+            "retry_of TEXT REFERENCES tasks(id), "
+            "CHECK ((failure_code IS NOT NULL) = (status = 'failed')), "
+            "CHECK ((waiting_reason IS NOT NULL) = (status = 'waiting')), "
+            "CHECK ((result_summary IS NOT NULL) = (status = 'completed')), "
+            "CHECK (status != 'completed' OR verified = 'verified'), "
+            "CHECK ((finished_at IS NOT NULL) = "
+            "(status IN ('failed', 'completed', 'cancelled'))), "
+            "CHECK (status IN ('pending', 'cancelled') OR started_at IS NOT NULL), "
+            "CHECK (retry_of IS NULL OR attempt > 1))"
+        )
+        connection.execute("CREATE INDEX tasks_by_status ON tasks(status, created_at)")
+        connection.execute(
+            "CREATE UNIQUE INDEX tasks_by_retry_of ON tasks(retry_of) WHERE retry_of IS NOT NULL"
+        )
+        connection.execute(
+            "CREATE TRIGGER tasks_terminal_is_immutable BEFORE UPDATE ON tasks "
+            "WHEN OLD.status IN ('failed', 'completed', 'cancelled') "
+            "BEGIN SELECT RAISE(ABORT, 'task is finished'); END"
+        )
+        connection.execute(
+            "CREATE TABLE task_steps ("
+            "task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, "
+            "step_index INTEGER NOT NULL CHECK(step_index >= 0), "
+            "description TEXT NOT NULL CHECK(length(description) BETWEEN 1 AND 500), "
+            "status TEXT NOT NULL CHECK(status IN "
+            "('pending', 'running', 'completed', 'failed', 'skipped', 'cancelled')), "
+            "started_at TEXT, finished_at TEXT, "
+            "note TEXT CHECK(note IS NULL OR length(note) BETWEEN 1 AND 500), "
+            "PRIMARY KEY (task_id, step_index))"
+        )
 
     def is_ready(self) -> bool:
         try:

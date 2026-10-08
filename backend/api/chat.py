@@ -1,7 +1,6 @@
 """Chat HTTP and SSE endpoints."""
 
 import json
-import logging
 from contextlib import aclosing
 from uuid import UUID
 
@@ -16,8 +15,6 @@ from backend.chat.memory_context import MemoryContextError
 from backend.chat.persistence import ConversationStorageError
 from backend.chat.service import ChatDelta, ChatService
 from backend.providers.base import ProviderError
-
-_LOG = logging.getLogger(__name__)
 
 
 class _ClosingStreamingResponse(StreamingResponse):
@@ -69,13 +66,10 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
         except ConversationCapacityError as exc:
             raise HTTPException(status_code=503, detail="conversation capacity reached") from exc
         except ConversationStorageError as exc:
-            _LOG.warning("Conversation storage failed: %s", type(exc).__name__)
             raise HTTPException(status_code=503, detail="conversation storage unavailable") from exc
         except MemoryContextError as exc:
-            _LOG.warning("Memory context failed: %s", type(exc).__name__)
             raise HTTPException(status_code=503, detail="memory context unavailable") from exc
         except ProviderError as exc:
-            _LOG.warning("Chat provider failed: %s", type(exc).__name__)
             raise HTTPException(status_code=502, detail="chat provider failed") from exc
         return ChatResponse(
             conversation_id=result.conversation_id,
@@ -110,14 +104,11 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
                 yield _sse("error", {"message": "conversation not found"})
             except ConversationCapacityError:
                 yield _sse("error", {"message": "conversation capacity reached"})
-            except ConversationStorageError as exc:
-                _LOG.warning("Conversation storage stream failed: %s", type(exc).__name__)
+            except ConversationStorageError:
                 yield _sse("error", {"message": "conversation storage unavailable"})
-            except MemoryContextError as exc:
-                _LOG.warning("Memory context stream failed: %s", type(exc).__name__)
+            except MemoryContextError:
                 yield _sse("error", {"message": "memory context unavailable"})
-            except ProviderError as exc:
-                _LOG.warning("Chat provider stream failed: %s", type(exc).__name__)
+            except ProviderError:
                 yield _sse("error", {"message": "chat provider failed"})
 
         return _ClosingStreamingResponse(

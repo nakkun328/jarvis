@@ -25,13 +25,17 @@ class MemoryContext:
             result = await asyncio.to_thread(self._verified_search, query)
         except (MemoryRepositoryError, OSError, TypeError, ValueError) as exc:
             raise MemoryContextError("Memory retrieval unavailable") from exc
+        return self._render_result(result)
+
+    @staticmethod
+    def _render_result(result: RetrievalResult) -> str | None:
         if result.issues:
             raise MemoryContextError("An approved memory note could not be verified")
         if not result.matches:
             return None
 
         items: list[dict[str, object]] = []
-        for match in result.matches:
+        for match in result.matches[:_MAX_MATCHES]:
             record = match.record
             item: dict[str, object] = {
                 "id": str(record.id),
