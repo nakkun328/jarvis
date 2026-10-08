@@ -45,7 +45,7 @@ Open `http://127.0.0.1:8000/` for the chat UI. The `/health/live` and `/health/r
 .venv/bin/pytest
 .venv/bin/ruff check .
 .venv/bin/python -m compileall -q backend tests
-node --test frontend/test/chat-api.test.mjs
+node --test frontend/test/*.test.mjs
 ```
 
 ## Project documents
