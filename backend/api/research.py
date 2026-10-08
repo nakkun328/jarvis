@@ -157,7 +157,9 @@ def create_research_router(repository: ResearchRepository) -> APIRouter:
         parsed_status = _parse_status(status)
         parsed_limit = _parse_limit(limit)
         try:
-            sessions = repository.list_sessions(parsed_status, limit=parsed_limit)
+            sessions = repository.list_sessions(
+                parsed_status, limit=parsed_limit, newest_first=True
+            )
         except ResearchRepositoryError as exc:
             raise storage_unavailable(exc) from exc
         return {"sessions": [session_summary(session) for session in sessions]}

@@ -121,7 +121,7 @@ def test_list_is_empty_without_sessions(client: TestClient) -> None:
     assert response.json() == {"sessions": []}
 
 
-def test_list_returns_allowlisted_summaries_oldest_first(
+def test_list_returns_allowlisted_summaries_newest_first(
     client: TestClient, repo: ResearchRepository
 ) -> None:
     first = repo.create_session("first?")
@@ -132,10 +132,10 @@ def test_list_returns_allowlisted_summaries_oldest_first(
         failure_reason=FailureReason.NO_RESULTS,
     )
     body = client.get("/api/research/sessions").json()
-    assert [item["id"] for item in body["sessions"]] == [str(first.id), str(second.id)]
+    assert [item["id"] for item in body["sessions"]] == [str(second.id), str(first.id)]
     for item in body["sessions"]:
         assert set(item) == SUMMARY_KEYS
-    assert body["sessions"][0] == {
+    assert body["sessions"][1] == {
         "id": str(first.id),
         "question": "first?",
         "level": "quick",
@@ -145,9 +145,19 @@ def test_list_returns_allowlisted_summaries_oldest_first(
         "created_at": "2026-10-07T12:00:01.000000Z",
         "updated_at": "2026-10-07T12:00:01.000000Z",
     }
-    assert body["sessions"][1]["level"] == "deep"
-    assert body["sessions"][1]["status"] == "failed"
-    assert body["sessions"][1]["failure_reason"] == "no_results"
+    assert body["sessions"][0]["level"] == "deep"
+    assert body["sessions"][0]["status"] == "failed"
+    assert body["sessions"][0]["failure_reason"] == "no_results"
+
+
+def test_list_with_limit_keeps_the_newest_sessions(
+    client: TestClient, repo: ResearchRepository
+) -> None:
+    ids = [str(repo.create_session(f"q{n}?").id) for n in range(5)]
+    body = client.get("/api/research/sessions", params={"limit": 2}).json()
+    assert [item["id"] for item in body["sessions"]] == ids[::-1][:2]
+    everything = client.get("/api/research/sessions").json()
+    assert [item["id"] for item in everything["sessions"]] == ids[::-1]
 
 
 def test_list_summary_has_no_result_text_or_children(
@@ -182,7 +192,7 @@ def test_list_limit_bounds(client: TestClient, repo: ResearchRepository) -> None
     assert client.get(f"/api/research/sessions?limit={MAX_LIST_LIMIT}").status_code == 200
     assert [
         item["question"] for item in client.get("/api/research/sessions?limit=2").json()["sessions"]
-    ] == ["question 0?", "question 1?"]
+    ] == ["question 4?", "question 3?"]
 
 
 @pytest.mark.parametrize(
@@ -372,7 +382,7 @@ class BrokenRepository(ResearchRepository):
         super().__init__(database)
         self.message = message
 
-    def list_sessions(self, status=None, *, limit=100):
+    def list_sessions(self, status=None, *, limit=100, newest_first=False):
         raise ResearchRepositoryError(self.message)
 
     def get_session(self, session_id):

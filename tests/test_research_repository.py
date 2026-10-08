@@ -87,6 +87,74 @@ def test_create_session_defaults_and_persists(repository: ResearchRepository, da
     assert repository.list_sessions(ResearchStatus.RUNNING) == []
 
 
+def _ticking(database: Database) -> ResearchRepository:
+    """A repository whose clock moves forward one second on every call."""
+    state = {"now": NOW}
+
+    def clock() -> datetime:
+        state["now"] += timedelta(seconds=1)
+        return state["now"]
+
+    return ResearchRepository(database, clock=clock)
+
+
+def test_list_sessions_orders_oldest_first_by_default_and_newest_first_on_request(
+    database: Database,
+) -> None:
+    repository = _ticking(database)
+    first, second, third = (repository.create_session(f"q{n}") for n in range(3))
+    assert repository.list_sessions() == [first, second, third]
+    assert repository.list_sessions(newest_first=False) == [first, second, third]
+    assert repository.list_sessions(newest_first=True) == [third, second, first]
+    assert repository.list_sessions(limit=2) == [first, second]
+    assert repository.list_sessions(limit=2, newest_first=True) == [third, second]
+
+
+def test_list_sessions_newest_first_applies_status_filter_before_limit(
+    database: Database,
+) -> None:
+    repository = _ticking(database)
+    sessions = [repository.create_session(f"q{n}") for n in range(8)]
+    running = []
+    for session in sessions[::2]:
+        repository.transition(session.id, ResearchStatus.PENDING, ResearchStatus.RUNNING)
+        running.append(session.id)
+    newest = repository.list_sessions(ResearchStatus.RUNNING, limit=3, newest_first=True)
+    assert [s.id for s in newest] == running[::-1][:3]
+    assert all(s.status is ResearchStatus.RUNNING for s in newest)
+    oldest = repository.list_sessions(ResearchStatus.RUNNING, limit=3)
+    assert [s.id for s in oldest] == running[:3]
+    assert repository.list_sessions(ResearchStatus.PENDING, limit=2, newest_first=True) == [
+        repository.get_session(sessions[7].id),
+        repository.get_session(sessions[5].id),
+    ]
+
+
+def test_list_sessions_ties_break_by_id_in_both_directions(database: Database) -> None:
+    repository = ResearchRepository(database, clock=lambda: NOW)
+    created = [repository.create_session(f"q{n}") for n in range(6)]
+    by_id = sorted(created, key=lambda session: str(session.id))
+    assert repository.list_sessions() == by_id
+    assert repository.list_sessions(newest_first=True) == by_id[::-1]
+    assert repository.list_sessions(limit=2, newest_first=True) == by_id[::-1][:2]
+    assert repository.list_sessions(newest_first=True) == repository.list_sessions(
+        newest_first=True
+    )
+
+
+@pytest.mark.parametrize("newest_first", [1, 0, None, "yes"])
+def test_list_sessions_rejects_non_bool_newest_first(
+    repository: ResearchRepository, newest_first
+) -> None:
+    with pytest.raises(ValueError):
+        repository.list_sessions(newest_first=newest_first)
+
+
+def test_list_sessions_newest_first_is_keyword_only(repository: ResearchRepository) -> None:
+    with pytest.raises(TypeError):
+        repository.list_sessions(None, 10, True)
+
+
 @pytest.mark.parametrize("question", ["", "   ", "x" * 2001, "bad\x00text", None, 5])
 def test_create_session_rejects_bad_question(repository: ResearchRepository, question) -> None:
     with pytest.raises(ValueError):
