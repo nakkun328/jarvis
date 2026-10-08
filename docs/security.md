@@ -7,11 +7,13 @@ Phase 1 exposes health checks, a local chat API, and a web client. The chat API 
 - Validate external inputs at API and tool boundaries.
 - Give tools the smallest needed privileges and require confirmation for red-level operations.
 - Command execution only goes through named, application-registered commands with a deny-by-default argument grammar, a scrubbed environment, and bounded time and output; see [tools-shell.md](tools-shell.md). Never register a general shell or interpreter.
-- Record execution and verification without logging sensitive request bodies.
+- Record execution and verification without logging sensitive request bodies. Application logs are structured and redacted; see [logging](logging.md) for what is and is not recorded.
 - Review new dependencies and protect database and vault files with appropriate local permissions.
 
 When `JARVIS_MEMORY_VAULT_PATH` is set, matching approved note excerpts are included in requests to the configured LLM provider. Keep this opt-in disabled for vaults that must remain local, and treat editable note text as untrusted reference data.
 
 On POSIX systems, JARVIS creates a new SQLite file with mode `0600` and a new data directory with mode `0700`. Existing database files and directories retain their current permissions; review those permissions when moving an older installation.
+
+`JARVIS_PERSONALITY_PATH` names a local TOML file that can only select predefined personality levels; it cannot add prompt text, change tool permissions, or remove the honesty rules. The loader refuses symlinks, non-regular files, files over 4 KiB, and unknown keys, and stops startup on any error without echoing file contents. See [personality settings](personality.md).
 
 The `.gitignore` excludes `.env` and `.env.*` except `.env.example`. Before a PR, inspect the diff and tracked files for secrets and generated data.

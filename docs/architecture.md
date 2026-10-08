@@ -7,7 +7,7 @@ One JARVIS will serve multiple devices with one identity, personality, memory, t
 ## Implemented in Phase 0
 
 - `backend.api`: FastAPI application factory, startup initialization, liveness and readiness checks.
-- `backend.core`: environment configuration, logging, SQLite connection and schema bootstrap.
+- `backend.core`: environment configuration, structured redacted logging ([details](logging.md)), SQLite connection and schema bootstrap.
 - `backend.providers`: a contract for complete and streamed LLM responses, with an OpenAI adapter added as the first Phase 1 increment.
 
 Phase 1 adds an OpenAI Responses API adapter behind that contract. The adapter uses explicit model configuration, passes `store=False`, checks that each response completed, and keeps the API key server-side. Streaming exposes text deltas and closes the SDK stream after use. The chat service combines a personality prompt with bounded process-local context and exposes regular and streamed HTTP endpoints. The web client uses the same origin as the API.
