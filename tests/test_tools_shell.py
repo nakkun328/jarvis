@@ -861,7 +861,7 @@ def test_output_is_decoded_and_neutralised(work):
     assert result["stdout_bytes"] == len(b"ok\xff\xfe \x1b[31mred\x00\x07\n")
 
 
-def test_output_cap_truncates_and_stops_the_child(work):
+def test_output_cap_truncates_and_the_timeout_still_stops_the_child(work):
     name = script(
         work,
         "flood.py",
@@ -873,16 +873,30 @@ def test_output_cap_truncates_and_stops_the_child(work):
         """,
     )
     audit = InMemoryShellAuditSink()
-    tool = make_tool(py_command(work, max_output_bytes=4096, timeout_seconds=20), audit=audit)
-    started = time.monotonic()
+    tool = make_tool(py_command(work, max_output_bytes=4096, timeout_seconds=1), audit=audit)
     result = run(tool, request(args=[name]))
-    assert time.monotonic() - started < 10  # killed on the cap, not by the timeout
-    assert result["truncated"] is True and result["timed_out"] is False
+    assert result["truncated"] is True and result["timed_out"] is True
     assert result["stdout_bytes"] + result["stderr_bytes"] == 4096
     assert len(result["stdout"]) == 4096 and set(result["stdout"]) == {"x"}
     assert result["signal"] in (signal.SIGTERM, signal.SIGKILL)
     assert result["cleanup_complete"] is True
-    assert audit.records[-1].outcome is ShellOutcome.OUTPUT_CAP and audit.records[-1].truncated
+    assert audit.records[-1].outcome is ShellOutcome.TIMED_OUT and audit.records[-1].truncated
+
+
+def test_chatty_command_is_not_killed_by_the_cap(work):
+    name = script(
+        work,
+        "chatty.py",
+        """
+        import sys
+        sys.stderr.write("w" * 20000)
+        sys.stdout.write("done")
+        """,
+    )
+    result = run(make_tool(py_command(work, max_output_bytes=1000)), request(args=[name]))
+    assert result["exit_code"] == 0 and result["signal"] == 0 and not result["timed_out"]
+    assert result["truncated"] is True
+    assert result["stdout_bytes"] + result["stderr_bytes"] == 1000
 
 
 def test_output_exactly_at_the_cap_is_not_truncated(work):

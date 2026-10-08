@@ -69,8 +69,8 @@ A command allow-list is only as safe as its arguments: many programs run other p
 
 - `asyncio.create_subprocess_exec` with an argv list. Never `shell=True`, never `sh -c`. Shell metacharacters that pass validation reach the program as literal argv elements.
 - `stdin` is `/dev/null`. The child runs in a new session and process group (`start_new_session`).
-- stdout and stderr are read with a shared hard byte cap. When it is exceeded the process group is stopped and `truncated` is set. Output is decoded with `errors="replace"`, and control characters are replaced with visible stand-ins, so the text is inert data. It never contains more characters than bytes.
-- Timeout, cancellation, and output-cap stops send `SIGTERM` to the whole process group, wait a short grace period, then `SIGKILL` the group. After a normal exit any remaining members of the group are killed as well, so no background process outlives a run. `cleanup_complete` reports whether the group was confirmed gone.
+- stdout and stderr are read with a shared hard byte cap. Bytes over it are read and discarded and `truncated` is set; the command is not stopped by the cap alone. Output is decoded with `errors="replace"`, and control characters are replaced with visible stand-ins, so the text is inert data. It never contains more characters than bytes.
+- Timeout and cancellation stops send `SIGTERM` to the whole process group, wait a short grace period, then `SIGKILL` the group. After a normal exit any remaining members of a still-populated group are killed as well, so no background process outlives a run. `cleanup_complete` reports whether the group was confirmed gone.
 - The tool's own timeout is always shorter than the registry's (command timeout plus a margin), so a timed-out run reports facts instead of being abandoned.
 
 Output (always untrusted data): `command`, `exit_code` (`-1` when the process did not exit by itself), `signal` and `signal_name` (`0`/`""` if none), `timed_out`, `cancelled`, `truncated`, `stdout`, `stderr`, `stdout_bytes`, `stderr_bytes`, `duration_ms`, `cleanup_complete`.
@@ -116,6 +116,6 @@ Both are Yellow and must be registered explicitly.
 
 ## Known design choices (not changed)
 
-- One shared byte cap for stdout and stderr; exceeding it kills the process group and sets `truncated` (with `exit_code` -1 and the kill signal). This is deliberate flood protection; a command that is merely chatty is stopped, and the result says so.
-- The process group is signalled by numeric id after the leader exits; a reused id is a theoretical race that signalling by group id cannot remove.
+- One shared byte cap for stdout and stderr. Bytes over the cap are read and discarded, `truncated` is set, and the command keeps running until it exits or hits its timeout; the cap alone never kills a command.
+- After the leader exits the process group is signalled only while it is still non-empty; a reused group id in the window between the check and the signal is a theoretical race that signalling by group id cannot remove.
 - Three tool names (one per permission level) and `internal_error` for second-gate refusals follow from the #49 contract (single permission per `ToolSpec`, fixed error vocabulary). Changing them means changing #49.

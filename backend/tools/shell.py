@@ -1060,24 +1060,24 @@ class _Budget:
         self.cap = cap
         self.used = 0
         self.truncated = False
-        self.exceeded = asyncio.Event()
 
 
 async def _pump(stream: asyncio.StreamReader, sink: bytearray, budget: _Budget) -> None:
-    """Copy a pipe into `sink` until EOF or the shared cap; flag the first byte over the cap."""
+    """Copy a pipe into `sink` until EOF, keeping at most the shared cap.
+
+    Bytes over the cap are read and discarded so a chatty command is not blocked or killed;
+    only the timeout and cancellation stop a run.
+    """
     while True:
         chunk = await stream.read(65_536)
         if not chunk:
             return
-        room = budget.cap - budget.used
+        room = max(budget.cap - budget.used, 0)
         if len(chunk) > room:
-            sink += chunk[: max(room, 0)]
-            budget.used += max(room, 0)
             budget.truncated = True
-            budget.exceeded.set()
-            return
-        sink += chunk
-        budget.used += len(chunk)
+        keep = chunk[:room]
+        sink += keep
+        budget.used += len(keep)
 
 
 async def _returncode(proc: "asyncio.subprocess.Process") -> int:
@@ -1298,20 +1298,22 @@ class ShellTool:
             asyncio.ensure_future(_pump(proc.stderr, err_buf, budget)),
         }
         exit_task = asyncio.ensure_future(_returncode(proc))
-        cap_task = asyncio.ensure_future(budget.exceeded.wait())
         cancel_task = (
             asyncio.ensure_future(context.cancellation.wait()) if command.cancellable else None
         )
-        helpers = {t for t in (exit_task, cap_task, cancel_task) if t is not None}
+        helpers = {t for t in (exit_task, cancel_task) if t is not None}
         try:
             done, _ = await asyncio.wait(
                 helpers, timeout=command.timeout_seconds, return_when=asyncio.FIRST_COMPLETED
             )
             if exit_task in done:
-                _signal_group(pgid, signal.SIGKILL)  # no background process outlives the run
+                # No background process outlives the run. Skip the signal when the group is
+                # already empty so a recycled group id is never signalled.
+                if _group_alive(pgid):
+                    _signal_group(pgid, signal.SIGKILL)
             else:
                 trace.cancelled = cancel_task is not None and cancel_task in done
-                trace.timed_out = not trace.cancelled and cap_task not in done
+                trace.timed_out = not trace.cancelled
                 _signal_group(pgid, signal.SIGTERM)
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(_returncode(proc), self._grace)
