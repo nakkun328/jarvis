@@ -1,8 +1,9 @@
 # Search provider selection (JAR-36 decision document)
 
-Status: proposal for maintainer decision. No live provider is implemented. The `SearchProvider`
-contract and the mock are in place ([research-search.md](research-search.md)); this page
-compares candidates for the first live adapter.
+Status: proposal for maintainer decision. A Tavily adapter exists but is off by default,
+unwired, and has not been run against the real service ([research-search.md](research-search.md#tavily-adapter-off-by-default));
+the owner's first trial and terms check decide whether it is adopted. The `SearchProvider`
+contract and the mock are in place; this page compares candidates for the first live adapter.
 
 **Evidence limit.** This was written without network access, from general knowledge of
 the vendors as of mid-2026 and not checked against their current documentation. Every

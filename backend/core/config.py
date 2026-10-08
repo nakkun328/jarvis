@@ -13,6 +13,9 @@ class ConfigError(ValueError):
 
 _LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 _LLM_PROVIDERS = frozenset({"none", "openai"})
+_SEARCH_PROVIDERS = frozenset({"none", "tavily"})
+_DEFAULT_SEARCH_MONTHLY_LIMIT = 800
+_MAX_SEARCH_MONTHLY_LIMIT = 1_000_000
 # off: no router (default). rule: the offline keyword baseline. llm: one extra short call to
 # the configured chat provider per turn (docs/router.md "Wiring").
 _ROUTER_MODES = frozenset({"off", "rule", "llm"})
@@ -59,6 +62,10 @@ class Settings:
     auth_session_hours: int = 168
     auth_cookie_secure: bool = True
     trusted_proxy: bool = False
+    # Web search is off by default. The key is excluded from repr like the other credentials.
+    search_provider: str = "none"
+    search_key: str | None = field(default=None, repr=False)
+    search_monthly_limit: int = _DEFAULT_SEARCH_MONTHLY_LIMIT
 
     @property
     def auth_enabled(self) -> bool:
@@ -72,6 +79,20 @@ class Settings:
         if self.llm_provider not in _LLM_PROVIDERS:
             raise ConfigError(
                 f"JARVIS_LLM_PROVIDER must be one of: {', '.join(sorted(_LLM_PROVIDERS))}"
+            )
+        if self.search_provider not in _SEARCH_PROVIDERS:
+            raise ConfigError(
+                f"JARVIS_SEARCH_PROVIDER must be one of: {', '.join(sorted(_SEARCH_PROVIDERS))}"
+            )
+        if self.search_provider != "none" and not (self.search_key or "").strip():
+            raise ConfigError("JARVIS_SEARCH_API_KEY is required when a search provider is set")
+        if (
+            isinstance(self.search_monthly_limit, bool)
+            or not isinstance(self.search_monthly_limit, int)
+            or not 1 <= self.search_monthly_limit <= _MAX_SEARCH_MONTHLY_LIMIT
+        ):
+            raise ConfigError(
+                f"JARVIS_SEARCH_MONTHLY_LIMIT must be between 1 and {_MAX_SEARCH_MONTHLY_LIMIT}"
             )
         if self.router not in _ROUTER_MODES:
             raise ConfigError(f"JARVIS_ROUTER must be one of: {', '.join(sorted(_ROUTER_MODES))}")
@@ -117,6 +138,9 @@ class Settings:
         signing_key = os.environ.get("JARVIS_AUTH_SIGNING_KEY")
         if signing_key is not None and not signing_key.strip():
             raise ConfigError("JARVIS_AUTH_SIGNING_KEY must not be empty")
+        search_key = os.environ.get("JARVIS_SEARCH_API_KEY")
+        if search_key is not None and not search_key.strip():
+            raise ConfigError("JARVIS_SEARCH_API_KEY must not be empty")
         return cls(
             db_path=Path(raw_path).expanduser(),
             log_level=os.environ.get("JARVIS_LOG_LEVEL", "INFO").upper(),
@@ -131,4 +155,9 @@ class Settings:
             auth_session_hours=_env_int("JARVIS_AUTH_SESSION_HOURS", 168),
             auth_cookie_secure=_env_bool("JARVIS_AUTH_COOKIE_SECURE", True),
             trusted_proxy=_env_bool("JARVIS_TRUSTED_PROXY", False),
+            search_provider=os.environ.get("JARVIS_SEARCH_PROVIDER", "none").strip().lower(),
+            search_key=search_key.strip() if search_key is not None else None,
+            search_monthly_limit=_env_int(
+                "JARVIS_SEARCH_MONTHLY_LIMIT", _DEFAULT_SEARCH_MONTHLY_LIMIT
+            ),
         )

@@ -30,6 +30,9 @@ See [.env.example](.env.example). Copy it to `.env` if useful, but export the va
 | `JARVIS_AUTH_SESSION_HOURS` | `168` | Absolute session lifetime in hours (1 to 8760). |
 | `JARVIS_AUTH_COOKIE_SECURE` | `true` | Mark the session cookie Secure. `false` is for plain-HTTP loopback development only. |
 | `JARVIS_TRUSTED_PROXY` | `false` | `1` honors `X-Forwarded-For` / `X-Forwarded-Host` from the single reverse proxy in front. |
+| `JARVIS_SEARCH_PROVIDER` | `none` | `none` or `tavily`. Search is off by default and nothing calls it yet. See [search](docs/research-search.md#tavily-adapter-off-by-default). |
+| `JARVIS_SEARCH_API_KEY` | unset | Required when the search provider is `tavily`. Set it only in your own shell; never commit it. |
+| `JARVIS_SEARCH_MONTHLY_LIMIT` | `800` | Local monthly cap on recorded search queries (a proposal below the free plan's 1,000 credits). Not the vendor's credit balance. |
 
 Install the optional provider with `.venv/bin/python -m pip install -e '.[openai]'`. Set `JARVIS_LLM_PROVIDER=openai`, `OPENAI_API_KEY`, and `JARVIS_OPENAI_MODEL` to enable live chat. Leave `JARVIS_LLM_PROVIDER=none` to browse the UI and use health checks without an LLM; chat requests then return 503. The adapter passes `store=False` to the OpenAI Responses API and keeps credentials on the server.
 
