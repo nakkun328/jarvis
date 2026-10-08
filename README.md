@@ -52,6 +52,8 @@ Set `JARVIS_MEMORY_VAULT_PATH` to an existing Obsidian vault to include matching
 .venv/bin/python -m backend.serve --host 127.0.0.1 --port 8000
 ```
 
+Before starting, `.venv/bin/python -m backend.doctor` reports (read-only, without printing any secret) which features are active and what is missing; see [doctor](docs/doctor.md).
+
 Open `http://127.0.0.1:8000/` for the chat UI. The `/health/live` and `/health/ready` endpoints report service and SQLite status. Without login, keep the service on loopback: `backend.serve` refuses any other `--host` unless `JARVIS_AUTH_PASSPHRASE_HASH` is set. JARVIS does not provide TLS; for remote use, keep it on `127.0.0.1` behind a reverse proxy or tunnel that terminates HTTPS, as described in [auth](docs/auth.md). Starting `uvicorn backend.api.app:app` directly still works for loopback, but it does not perform that safety check. Successful conversation turns persist in SQLite, while active request locks remain process-local; run one worker for now.
 
 ## Test
@@ -72,6 +74,7 @@ node --test frontend/test/*.test.mjs
 - [Vector index rebuild](docs/index-rebuild.md)
 - [Local memory review](docs/memory-review.md)
 - [Web shell, Memory screen and PWA](docs/web-shell.md)
+- [Configuration doctor](docs/doctor.md)
 - [Research](docs/research.md)
 - [Quick Research](docs/research-quick.md)
 - [Standard Research and follow-up queries](docs/research-standard.md)
