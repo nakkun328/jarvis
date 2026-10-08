@@ -491,7 +491,9 @@ def test_sse_request_has_header_and_one_correlated_access_record(
     assert access["request_id"] == "sse-request-0001"
     assert access["path"] == "/api/chat/stream" and access["status"] == 200
     # No per-delta logging: only startup and the single access record are present.
-    assert [entry["event"] for entry in entries] == ["JARVIS backend started", "http.request"]
+    events = [entry["event"] for entry in entries]
+    assert events[0] == "JARVIS backend started" and events[-1] == "http.request"
+    assert all(event.startswith("Personality (") for event in events[1:-1])
 
 
 def test_provider_failure_logs_event_type_and_duration_only(
@@ -571,7 +573,8 @@ def test_client_errors_are_not_logged_as_failures(
         )
     assert missing.status_code == 404
     events = [entry["event"] for entry in app_events(capsys.readouterr().err)]
-    assert events == ["JARVIS backend started", "http.request"]
+    assert events[0] == "JARVIS backend started" and events[-1] == "http.request"
+    assert all(event.startswith("Personality (") for event in events[1:-1])
 
 
 def test_redact_text_is_idempotent_and_bounded_on_hostile_input() -> None:

@@ -10,7 +10,8 @@ from uuid import UUID
 from backend.chat.context import ConversationStore
 from backend.chat.memory_context import MemoryContext, MemoryContextError
 from backend.chat.persistence import ConversationStorageError
-from backend.personality.prompt import SYSTEM_PROMPT
+from backend.personality.prompt import SYSTEM_PROMPT, render_system_prompt
+from backend.personality.settings import PersonalityProfile
 from backend.providers.base import (
     ChatMessage,
     CompletionRequest,
@@ -70,16 +71,20 @@ class ChatService:
         store: ConversationStore | None = None,
         *,
         memory_context: MemoryContext | None = None,
+        personality: PersonalityProfile | None = None,
     ) -> None:
         self.provider = provider
         self.store = store or ConversationStore()
         self.memory_context = memory_context
+        self._system_prompt = (
+            SYSTEM_PROMPT if personality is None else render_system_prompt(personality)
+        )
 
     async def _request(self, history: list[ChatMessage], message: str) -> CompletionRequest:
         memory = None
         if self.memory_context is not None:
             memory = await self.memory_context.for_query(message)
-        prompt = SYSTEM_PROMPT
+        prompt = self._system_prompt
         memory_messages: tuple[ChatMessage, ...] = ()
         if memory is not None:
             prompt += (

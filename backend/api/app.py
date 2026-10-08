@@ -23,6 +23,7 @@ from backend.memory.repository import MemoryRepository
 from backend.memory.retrieval import MemoryRetriever
 from backend.memory.semantic import SemanticMemorySearcher
 from backend.memory.vector import VectorIndex
+from backend.personality.settings import PersonalityError, load_personality
 from backend.providers.base import LLMProvider
 from backend.providers.factory import create_provider
 
@@ -35,6 +36,10 @@ def create_app(
     memory_index: VectorIndex | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
+    try:
+        personality = load_personality(settings.personality_path)
+    except PersonalityError as error:
+        raise ConfigError(f"Invalid personality settings: {error}") from None
     if (embedding_provider is None) != (memory_index is None):
         raise ConfigError("Semantic chat requires both an embedding provider and memory index")
     if embedding_provider is not None and settings.memory_vault_path is None:
@@ -56,7 +61,12 @@ def create_app(
     if provider is None:
         provider = create_provider(settings)
     chat_service = (
-        ChatService(provider, SQLiteConversationStore(database), memory_context=memory_context)
+        ChatService(
+            provider,
+            SQLiteConversationStore(database),
+            memory_context=memory_context,
+            personality=personality,
+        )
         if provider is not None
         else None
     )
@@ -67,6 +77,11 @@ def create_app(
         try:
             database.initialize()
             logging.getLogger(__name__).info("JARVIS backend started")
+            logging.getLogger(__name__).info(
+                "Personality (%s): %s",
+                "file" if settings.personality_path is not None else "default",
+                personality.describe(),
+            )
             yield
         finally:
             close = getattr(provider, "aclose", None)
