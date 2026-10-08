@@ -64,6 +64,7 @@ node --test frontend/test/*.test.mjs
 - [Web shell, Memory screen and PWA](docs/web-shell.md)
 - [Research](docs/research.md)
 - [Quick Research](docs/research-quick.md)
+- [Standard Research and follow-up queries](docs/research-standard.md)
 - [Tools](docs/tools.md)
 - [Read-only filesystem tools](docs/tools-filesystem.md)
 - [Login and remote access](docs/auth.md)
