@@ -1,0 +1,159 @@
+{
+ "note": "Artificial questions. level/reason/capped = decision with the maximum given in max_level (default deep).",
+ "cases": [
+  {
+   "question": "What is the latest version of Python?",
+   "level": "quick",
+   "reason": "simple_fact_cue"
+  },
+  {
+   "question": "Pythonの最新バージョンを教えて",
+   "level": "quick",
+   "reason": "simple_fact_cue"
+  },
+  {
+   "question": "When was the Eiffel Tower built?",
+   "level": "quick",
+   "reason": "simple_fact_cue"
+  },
+  {
+   "question": "How does TCP slow start work?",
+   "level": "quick",
+   "reason": "default_quick"
+  },
+  {
+   "question": "光合成のしくみを説明して",
+   "level": "quick",
+   "reason": "default_quick"
+  },
+  {
+   "question": "",
+   "level": "quick",
+   "reason": "default_quick"
+  },
+  {
+   "question": "PostgreSQL vs MySQL for a small web app",
+   "level": "standard",
+   "reason": "comparison_cue"
+  },
+  {
+   "question": "Compare Rust and Go for command line tools",
+   "level": "standard",
+   "reason": "comparison_cue"
+  },
+  {
+   "question": "Which is better, Vim or Emacs?",
+   "level": "standard",
+   "reason": "comparison_cue"
+  },
+  {
+   "question": "What is the difference between a mutex and a semaphore?",
+   "level": "standard",
+   "reason": "comparison_cue"
+  },
+  {
+   "question": "Should I switch from npm to pnpm?",
+   "level": "standard",
+   "reason": "comparison_cue"
+  },
+  {
+   "question": "PostgreSQLとMySQLの違いは?",
+   "level": "standard",
+   "reason": "comparison_cue"
+  },
+  {
+   "question": "電気自動車とガソリン車はどちらが安い?",
+   "level": "standard",
+   "reason": "comparison_cue"
+  },
+  {
+   "question": "ノートPCのおすすめを教えて",
+   "level": "standard",
+   "reason": "comparison_cue"
+  },
+  {
+   "question": "ＰｏｓｔｇｒｅＳＱＬ ＶＳ MySQL",
+   "level": "standard",
+   "reason": "comparison_cue"
+  },
+  {
+   "question": "What are the pros and cons of microservices?",
+   "level": "deep",
+   "reason": "multi_facet_cue"
+  },
+  {
+   "question": "ベクトルDBのメリットとデメリットを整理して",
+   "level": "deep",
+   "reason": "multi_facet_cue"
+  },
+  {
+   "question": "多角的に見た再生可能エネルギーの課題",
+   "level": "deep",
+   "reason": "multi_facet_cue"
+  },
+  {
+   "question": "What is X? Why does Y happen? How is Z fixed?",
+   "level": "deep",
+   "reason": "multi_question"
+  },
+  {
+   "question": "Is it fast?? Really???",
+   "level": "quick",
+   "reason": "default_quick"
+  },
+  {
+   "question": "Write a report on solid state batteries",
+   "level": "extensive",
+   "reason": "report_cue",
+   "max_level": "extensive"
+  },
+  {
+   "question": "Write a report on solid state batteries",
+   "level": "deep",
+   "reason": "report_cue",
+   "capped": true
+  },
+  {
+   "question": "家庭用蓄電池について網羅的に調べて",
+   "level": "extensive",
+   "reason": "report_cue",
+   "max_level": "extensive"
+  },
+  {
+   "question": "家庭用蓄電池について網羅的に調べて",
+   "level": "deep",
+   "reason": "report_cue",
+   "capped": true
+  },
+  {
+   "question": "Please do not search, just answer from what you know",
+   "level": "memory",
+   "reason": "no_search_request"
+  },
+  {
+   "question": "検索しないで覚えている範囲で答えて",
+   "level": "memory",
+   "reason": "no_search_request"
+  },
+  {
+   "question": "Do you remember what I told you about my project?",
+   "level": "memory",
+   "reason": "memory_cue"
+  },
+  {
+   "question": "前に話した私の好みを覚えてる?",
+   "level": "memory",
+   "reason": "memory_cue"
+  },
+  {
+   "question": "Do you remember the latest version I asked about?",
+   "level": "quick",
+   "reason": "simple_fact_cue"
+  },
+  {
+   "question": "Please file a bug report for me",
+   "level": "quick",
+   "reason": "default_quick"
+  }
+ ]
+}

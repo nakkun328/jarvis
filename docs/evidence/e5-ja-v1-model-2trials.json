@@ -1,0 +1,3188 @@
+{
+  "schema_version": 1,
+  "report_kind": "repeated_evaluation",
+  "status": "completed",
+  "evidence_kind": "model",
+  "quality_assessment": "not_established",
+  "quality_thresholds": null,
+  "started_at": "2026-10-04T06:03:51.072082+00:00",
+  "finished_at": "2026-10-04T06:03:59.501221+00:00",
+  "limit": 3,
+  "dataset": {
+    "id": "jarvis-synthetic-ja-v1",
+    "sha256": "915366e1a160900992a4ee579dc3bae0c22d4530f0c5086020965549e87be230",
+    "synthetic": true,
+    "notes": 11,
+    "queries": 12
+  },
+  "contract": {
+    "name": "intfloat/multilingual-e5-small",
+    "version": "614241f622f53c4eeff9890bdc4f31cfecc418b3-d5a845578979b21cdef5260843c0bf1f8a7f00abc1d7a3eb995ce4ab9164d1f5",
+    "dimension": 384,
+    "identifier": "intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3-d5a845578979b21cdef5260843c0bf1f8a7f00abc1d7a3eb995ce4ab9164d1f5:d384",
+    "provider_class": "backend.memory.local_embedding.LocalE5Embeddings"
+  },
+  "conditions": {
+    "requested_trials": 2,
+    "fresh_temporary_index_per_trial": true,
+    "execution": "sequential",
+    "input": "fixed deep-copied dataset and gold",
+    "provider": "same caller-owned instance and declared contract",
+    "variability": "observed retrieval; provider outputs and ANN are not isolated",
+    "rank_identity_required": false
+  },
+  "trials": [
+    {
+      "schema_version": 1,
+      "status": "completed",
+      "evidence_kind": "model",
+      "quality_assessment": "not_established",
+      "quality_thresholds": null,
+      "dataset": {
+        "id": "jarvis-synthetic-ja-v1",
+        "sha256": "915366e1a160900992a4ee579dc3bae0c22d4530f0c5086020965549e87be230",
+        "synthetic": true,
+        "notes": 11,
+        "queries": 12
+      },
+      "started_at": "2026-10-04T06:03:51.072662+00:00",
+      "limit": 3,
+      "contract": {
+        "name": "intfloat/multilingual-e5-small",
+        "version": "614241f622f53c4eeff9890bdc4f31cfecc418b3-d5a845578979b21cdef5260843c0bf1f8a7f00abc1d7a3eb995ce4ab9164d1f5",
+        "dimension": 384,
+        "identifier": "intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3-d5a845578979b21cdef5260843c0bf1f8a7f00abc1d7a3eb995ce4ab9164d1f5:d384",
+        "provider_class": "backend.memory.local_embedding.LocalE5Embeddings"
+      },
+      "retrieval_environment": {
+        "index": "ChromaVectorIndex",
+        "search": "approximate nearest neighbor; identical ranks are not guaranteed",
+        "python": "3.11.11",
+        "platform": "Darwin",
+        "chromadb": "1.5.9"
+      },
+      "queries": [
+        {
+          "id": "controller-paraphrase",
+          "kind": "paraphrase",
+          "rationale": "名称と部品の言い換え。訂正後のESP32だけが根拠。",
+          "relevant_ids": [
+            "robot-current"
+          ],
+          "supporting_ids": [
+            "robot-current"
+          ],
+          "text": "あの星を観測する試作機、制御用のチップを何に替えたっけ？",
+          "retrieved_ids": [
+            "robot-current",
+            "design-paper",
+            "lens-storage"
+          ],
+          "results": [
+            {
+              "id": "robot-current",
+              "score": -0.2777720093727112,
+              "content": "訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/robot-current",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "88696a4da3ec9fd3f5c0e92f7d84c8297fd3045ea0c9af60cc92444b19a54152",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.33791109919548035,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "lens-storage",
+              "score": -0.39449119567871094,
+              "content": "架空の光学実験に使う予備レンズは銀色の棚の右端の箱に収納する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/lens-storage",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0701aa236d88c3c60acf66684191452ec4c2fc301b4c1d7890b224c17d907e64",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": 1.0,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": true
+          }
+        },
+        {
+          "id": "paper-paraphrase",
+          "kind": "paraphrase",
+          "rationale": "設計メモの保存方法を別表現で問う。",
+          "relevant_ids": [
+            "design-paper"
+          ],
+          "supporting_ids": [
+            "design-paper"
+          ],
+          "text": "工作の設計を書き留めるとき、どんな紙と筆記具を使う？",
+          "retrieved_ids": [
+            "design-paper",
+            "data-format",
+            "lens-storage"
+          ],
+          "results": [
+            {
+              "id": "design-paper",
+              "score": -0.28506430983543396,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "data-format",
+              "score": -0.41687363386154175,
+              "content": "架空の温度実験の記録はCSV形式にして、測定時刻と摂氏温度を列に記入する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/data-format",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0be652c9683622464fe76d8294ce20fa71957e47bd5a29eb3414d30afd6df5d2",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "lens-storage",
+              "score": -0.42940717935562134,
+              "content": "架空の光学実験に使う予備レンズは銀色の棚の右端の箱に収納する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/lens-storage",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0701aa236d88c3c60acf66684191452ec4c2fc301b4c1d7890b224c17d907e64",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": 1.0,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": true
+          }
+        },
+        {
+          "id": "current-observing-time",
+          "kind": "revision",
+          "rationale": "index作成後に編集された正本の水曜19時を使う。木曜候補を使わない。",
+          "relevant_ids": [
+            "observing-time"
+          ],
+          "supporting_ids": [
+            "observing-time"
+          ],
+          "text": "星を見る架空の集まりは何曜日の何時から？",
+          "retrieved_ids": [
+            "observing-time",
+            "garden-water",
+            "design-paper"
+          ],
+          "results": [
+            {
+              "id": "observing-time",
+              "score": -0.21473702788352966,
+              "content": "架空の星見会は水曜日の19時に始まる。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/observing-time",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "24a6d67d0853361d0c008f46888c346bcc59d294e37a25aa9fe37abcca5b3d4e",
+              "edited_since_approval": true,
+              "stale": false
+            },
+            {
+              "id": "garden-water",
+              "score": -0.4089890122413635,
+              "content": "架空の菜園の給水タイマーは毎朝7時に10分間作動する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/garden-water",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "29222c9cc1b589a36a57dac568469467707f11773d3c8a73a84f9dcfd64fd680",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.4536324739456177,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": 1.0,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": true
+          }
+        },
+        {
+          "id": "garden-paraphrase",
+          "kind": "paraphrase",
+          "rationale": "給水タイマーの言い換え。",
+          "relevant_ids": [
+            "garden-water"
+          ],
+          "supporting_ids": [
+            "garden-water"
+          ],
+          "text": "菜園に自動で水をやるのは朝の何時から、どれくらい？",
+          "retrieved_ids": [
+            "garden-water",
+            "observing-time",
+            "design-paper"
+          ],
+          "results": [
+            {
+              "id": "garden-water",
+              "score": -0.21166419982910156,
+              "content": "架空の菜園の給水タイマーは毎朝7時に10分間作動する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/garden-water",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "29222c9cc1b589a36a57dac568469467707f11773d3c8a73a84f9dcfd64fd680",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "observing-time",
+              "score": -0.45895475149154663,
+              "content": "架空の星見会は水曜日の19時に始まる。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/observing-time",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "24a6d67d0853361d0c008f46888c346bcc59d294e37a25aa9fe37abcca5b3d4e",
+              "edited_since_approval": true,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.4600638747215271,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": 1.0,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": true
+          }
+        },
+        {
+          "id": "lens-paraphrase",
+          "kind": "paraphrase",
+          "rationale": "予備レンズの保管位置。",
+          "relevant_ids": [
+            "lens-storage"
+          ],
+          "supporting_ids": [
+            "lens-storage"
+          ],
+          "text": "光学実験の交換用レンズを探している。どこにしまった？",
+          "retrieved_ids": [
+            "lens-storage",
+            "design-paper",
+            "robot-current"
+          ],
+          "results": [
+            {
+              "id": "lens-storage",
+              "score": -0.27361631393432617,
+              "content": "架空の光学実験に使う予備レンズは銀色の棚の右端の箱に収納する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/lens-storage",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0701aa236d88c3c60acf66684191452ec4c2fc301b4c1d7890b224c17d907e64",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.35389959812164307,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "robot-current",
+              "score": -0.3805515766143799,
+              "content": "訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/robot-current",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "88696a4da3ec9fd3f5c0e92f7d84c8297fd3045ea0c9af60cc92444b19a54152",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": 1.0,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": true
+          }
+        },
+        {
+          "id": "csv-paraphrase",
+          "kind": "paraphrase",
+          "rationale": "形式と列の根拠を問う。",
+          "relevant_ids": [
+            "data-format"
+          ],
+          "supporting_ids": [
+            "data-format"
+          ],
+          "text": "温度測定の結果はどのファイル形式で、何を記録する？",
+          "retrieved_ids": [
+            "data-format",
+            "design-paper",
+            "lens-storage"
+          ],
+          "results": [
+            {
+              "id": "data-format",
+              "score": -0.23909218609333038,
+              "content": "架空の温度実験の記録はCSV形式にして、測定時刻と摂氏温度を列に記入する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/data-format",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0be652c9683622464fe76d8294ce20fa71957e47bd5a29eb3414d30afd6df5d2",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.439666748046875,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "lens-storage",
+              "score": -0.46511131525039673,
+              "content": "架空の光学実験に使う予備レンズは銀色の棚の右端の箱に収納する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/lens-storage",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0701aa236d88c3c60acf66684191452ec4c2fc301b4c1d7890b224c17d907e64",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": 1.0,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": true
+          }
+        },
+        {
+          "id": "controller-correction",
+          "kind": "correction",
+          "rationale": "訂正済みの旧factを復活させない。",
+          "relevant_ids": [
+            "robot-current"
+          ],
+          "supporting_ids": [
+            "robot-current"
+          ],
+          "text": "観測試作機は今もRP2040で動かすことになっている？",
+          "retrieved_ids": [
+            "robot-current",
+            "design-paper",
+            "garden-water"
+          ],
+          "results": [
+            {
+              "id": "robot-current",
+              "score": -0.22340410947799683,
+              "content": "訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/robot-current",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "88696a4da3ec9fd3f5c0e92f7d84c8297fd3045ea0c9af60cc92444b19a54152",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.40584322810173035,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "garden-water",
+              "score": -0.44015419483184814,
+              "content": "架空の菜園の給水タイマーは毎朝7時に10分間作動する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/garden-water",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "29222c9cc1b589a36a57dac568469467707f11773d3c8a73a84f9dcfd64fd680",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": 1.0,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": true
+          }
+        },
+        {
+          "id": "unrelated-railway",
+          "kind": "unrelated",
+          "rationale": "corpusに鉄道の情報はない。非empty top-kを診断し、採用する閾値は未定。",
+          "relevant_ids": [],
+          "supporting_ids": [],
+          "text": "架空王国の鉄道の始発時刻は何時？",
+          "retrieved_ids": [
+            "observing-time",
+            "garden-water",
+            "data-format"
+          ],
+          "results": [
+            {
+              "id": "observing-time",
+              "score": -0.3768573999404907,
+              "content": "架空の星見会は水曜日の19時に始まる。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/observing-time",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "24a6d67d0853361d0c008f46888c346bcc59d294e37a25aa9fe37abcca5b3d4e",
+              "edited_since_approval": true,
+              "stale": false
+            },
+            {
+              "id": "garden-water",
+              "score": -0.4236612319946289,
+              "content": "架空の菜園の給水タイマーは毎朝7時に10分間作動する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/garden-water",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "29222c9cc1b589a36a57dac568469467707f11773d3c8a73a84f9dcfd64fd680",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "data-format",
+              "score": -0.42656365036964417,
+              "content": "架空の温度実験の記録はCSV形式にして、測定時刻と摂氏温度を列に記入する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/data-format",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0be652c9683622464fe76d8294ce20fa71957e47bd5a29eb3414d30afd6df5d2",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": null,
+            "recall_at_k": null,
+            "reciprocal_rank": null,
+            "support_recall_at_k": null,
+            "negative_query_nonempty": true,
+            "supporting_gold_exists": false
+          }
+        },
+        {
+          "id": "unsupported-battery",
+          "kind": "insufficient_evidence",
+          "rationale": "制御基板のnoteは関連するが電池持ちを裏づけない。2時間の候補は未承認。",
+          "relevant_ids": [
+            "robot-current"
+          ],
+          "supporting_ids": [],
+          "text": "観測試作機ミズキの電池は何時間使える？",
+          "retrieved_ids": [
+            "robot-current",
+            "garden-water",
+            "design-paper"
+          ],
+          "results": [
+            {
+              "id": "robot-current",
+              "score": -0.30936866998672485,
+              "content": "訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/robot-current",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "88696a4da3ec9fd3f5c0e92f7d84c8297fd3045ea0c9af60cc92444b19a54152",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "garden-water",
+              "score": -0.39397189021110535,
+              "content": "架空の菜園の給水タイマーは毎朝7時に10分間作動する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/garden-water",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "29222c9cc1b589a36a57dac568469467707f11773d3c8a73a84f9dcfd64fd680",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.4001446068286896,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": null,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": false
+          }
+        },
+        {
+          "id": "unsupported-price",
+          "kind": "insufficient_evidence",
+          "rationale": "noteに価格がないことを明記。関連性と回答可能性を分ける。",
+          "relevant_ids": [
+            "design-paper"
+          ],
+          "supporting_ids": [],
+          "text": "設計メモに使う方眼紙の購入価格はいくら？",
+          "retrieved_ids": [
+            "design-paper",
+            "robot-current",
+            "lens-storage"
+          ],
+          "results": [
+            {
+              "id": "design-paper",
+              "score": -0.20468232035636902,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "robot-current",
+              "score": -0.42539480328559875,
+              "content": "訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/robot-current",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "88696a4da3ec9fd3f5c0e92f7d84c8297fd3045ea0c9af60cc92444b19a54152",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "lens-storage",
+              "score": -0.43744441866874695,
+              "content": "架空の光学実験に使う予備レンズは銀色の棚の右端の箱に収納する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/lens-storage",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0701aa236d88c3c60acf66684191452ec4c2fc301b4c1d7890b224c17d907e64",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": null,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": false
+          }
+        },
+        {
+          "id": "retired-venue-query",
+          "kind": "retirement",
+          "rationale": "退役した旧会場をapproved contextへ戻さない。元noteは削除しない。",
+          "relevant_ids": [],
+          "supporting_ids": [],
+          "text": "廃止した工作会の会場はどこだった？",
+          "retrieved_ids": [
+            "design-paper",
+            "lens-storage",
+            "observing-time"
+          ],
+          "results": [
+            {
+              "id": "design-paper",
+              "score": -0.4823421835899353,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "lens-storage",
+              "score": -0.487249493598938,
+              "content": "架空の光学実験に使う予備レンズは銀色の棚の右端の箱に収納する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/lens-storage",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0701aa236d88c3c60acf66684191452ec4c2fc301b4c1d7890b224c17d907e64",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "observing-time",
+              "score": -0.49472755193710327,
+              "content": "架空の星見会は水曜日の19時に始まる。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/observing-time",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "24a6d67d0853361d0c008f46888c346bcc59d294e37a25aa9fe37abcca5b3d4e",
+              "edited_since_approval": true,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": null,
+            "recall_at_k": null,
+            "reciprocal_rank": null,
+            "support_recall_at_k": null,
+            "negative_query_nonempty": true,
+            "supporting_gold_exists": false
+          }
+        },
+        {
+          "id": "pending-paint-query",
+          "kind": "unapproved",
+          "rationale": "未承認候補の成分を事実として使わない。",
+          "relevant_ids": [],
+          "supporting_ids": [],
+          "text": "採用保留の青い塗料にはどんな成分が入っている？",
+          "retrieved_ids": [
+            "robot-current",
+            "design-paper",
+            "garden-water"
+          ],
+          "results": [
+            {
+              "id": "robot-current",
+              "score": -0.4623328447341919,
+              "content": "訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/robot-current",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "88696a4da3ec9fd3f5c0e92f7d84c8297fd3045ea0c9af60cc92444b19a54152",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.4727921783924103,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "garden-water",
+              "score": -0.48105019330978394,
+              "content": "架空の菜園の給水タイマーは毎朝7時に10分間作動する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/garden-water",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "29222c9cc1b589a36a57dac568469467707f11773d3c8a73a84f9dcfd64fd680",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": null,
+            "recall_at_k": null,
+            "reciprocal_rank": null,
+            "support_recall_at_k": null,
+            "negative_query_nonempty": true,
+            "supporting_gold_exists": false
+          }
+        }
+      ],
+      "metric_definitions": {
+        "precision_at_k": "relevant retrieved / configured k; positive gold only",
+        "recall_at_k": "relevant retrieved / relevant gold; positive gold only",
+        "reciprocal_rank": "1 / first relevant rank, or 0; positive gold only",
+        "support_recall_at_k": "supporting retrieved / supporting gold; support gold only",
+        "negative_query_nonempty": "retrieved context despite no relevant gold; diagnostic"
+      },
+      "index_challenge": {
+        "intentionally_stale_or_unreviewed": true,
+        "extra_ids": [
+          "robot-old",
+          "pending-runtime",
+          "pending-paint",
+          "retired-venue",
+          "conflict-time"
+        ],
+        "stale_ids": [
+          "observing-time"
+        ],
+        "original_notes_preserved": true
+      },
+      "summary": {
+        "mean_precision_at_k": 0.3333333333333333,
+        "mean_recall_at_k": 1.0,
+        "mean_reciprocal_rank": 1.0,
+        "mean_support_recall_at_k": 1.0,
+        "negative_queries": 3,
+        "negative_nonempty": 3,
+        "insufficient_evidence_queries": 2,
+        "insufficient_evidence_returning_context": 2,
+        "exclusion_violations": 0
+      },
+      "safety_status": "no_exclusion_violation_observed",
+      "finished_at": "2026-10-04T06:03:58.964088+00:00",
+      "executed": true,
+      "trial_number": 1
+    },
+    {
+      "schema_version": 1,
+      "status": "completed",
+      "evidence_kind": "model",
+      "quality_assessment": "not_established",
+      "quality_thresholds": null,
+      "dataset": {
+        "id": "jarvis-synthetic-ja-v1",
+        "sha256": "915366e1a160900992a4ee579dc3bae0c22d4530f0c5086020965549e87be230",
+        "synthetic": true,
+        "notes": 11,
+        "queries": 12
+      },
+      "started_at": "2026-10-04T06:03:58.964301+00:00",
+      "limit": 3,
+      "contract": {
+        "name": "intfloat/multilingual-e5-small",
+        "version": "614241f622f53c4eeff9890bdc4f31cfecc418b3-d5a845578979b21cdef5260843c0bf1f8a7f00abc1d7a3eb995ce4ab9164d1f5",
+        "dimension": 384,
+        "identifier": "intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3-d5a845578979b21cdef5260843c0bf1f8a7f00abc1d7a3eb995ce4ab9164d1f5:d384",
+        "provider_class": "backend.memory.local_embedding.LocalE5Embeddings"
+      },
+      "retrieval_environment": {
+        "index": "ChromaVectorIndex",
+        "search": "approximate nearest neighbor; identical ranks are not guaranteed",
+        "python": "3.11.11",
+        "platform": "Darwin",
+        "chromadb": "1.5.9"
+      },
+      "queries": [
+        {
+          "id": "controller-paraphrase",
+          "kind": "paraphrase",
+          "rationale": "名称と部品の言い換え。訂正後のESP32だけが根拠。",
+          "relevant_ids": [
+            "robot-current"
+          ],
+          "supporting_ids": [
+            "robot-current"
+          ],
+          "text": "あの星を観測する試作機、制御用のチップを何に替えたっけ？",
+          "retrieved_ids": [
+            "robot-current",
+            "design-paper",
+            "lens-storage"
+          ],
+          "results": [
+            {
+              "id": "robot-current",
+              "score": -0.2777720093727112,
+              "content": "訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/robot-current",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "88696a4da3ec9fd3f5c0e92f7d84c8297fd3045ea0c9af60cc92444b19a54152",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.33791109919548035,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "lens-storage",
+              "score": -0.39449119567871094,
+              "content": "架空の光学実験に使う予備レンズは銀色の棚の右端の箱に収納する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/lens-storage",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0701aa236d88c3c60acf66684191452ec4c2fc301b4c1d7890b224c17d907e64",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": 1.0,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": true
+          }
+        },
+        {
+          "id": "paper-paraphrase",
+          "kind": "paraphrase",
+          "rationale": "設計メモの保存方法を別表現で問う。",
+          "relevant_ids": [
+            "design-paper"
+          ],
+          "supporting_ids": [
+            "design-paper"
+          ],
+          "text": "工作の設計を書き留めるとき、どんな紙と筆記具を使う？",
+          "retrieved_ids": [
+            "design-paper",
+            "data-format",
+            "lens-storage"
+          ],
+          "results": [
+            {
+              "id": "design-paper",
+              "score": -0.28506430983543396,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "data-format",
+              "score": -0.41687363386154175,
+              "content": "架空の温度実験の記録はCSV形式にして、測定時刻と摂氏温度を列に記入する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/data-format",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0be652c9683622464fe76d8294ce20fa71957e47bd5a29eb3414d30afd6df5d2",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "lens-storage",
+              "score": -0.42940717935562134,
+              "content": "架空の光学実験に使う予備レンズは銀色の棚の右端の箱に収納する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/lens-storage",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0701aa236d88c3c60acf66684191452ec4c2fc301b4c1d7890b224c17d907e64",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": 1.0,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": true
+          }
+        },
+        {
+          "id": "current-observing-time",
+          "kind": "revision",
+          "rationale": "index作成後に編集された正本の水曜19時を使う。木曜候補を使わない。",
+          "relevant_ids": [
+            "observing-time"
+          ],
+          "supporting_ids": [
+            "observing-time"
+          ],
+          "text": "星を見る架空の集まりは何曜日の何時から？",
+          "retrieved_ids": [
+            "observing-time",
+            "garden-water",
+            "design-paper"
+          ],
+          "results": [
+            {
+              "id": "observing-time",
+              "score": -0.21473702788352966,
+              "content": "架空の星見会は水曜日の19時に始まる。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/observing-time",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "24a6d67d0853361d0c008f46888c346bcc59d294e37a25aa9fe37abcca5b3d4e",
+              "edited_since_approval": true,
+              "stale": false
+            },
+            {
+              "id": "garden-water",
+              "score": -0.4089890122413635,
+              "content": "架空の菜園の給水タイマーは毎朝7時に10分間作動する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/garden-water",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "29222c9cc1b589a36a57dac568469467707f11773d3c8a73a84f9dcfd64fd680",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.4536324739456177,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": 1.0,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": true
+          }
+        },
+        {
+          "id": "garden-paraphrase",
+          "kind": "paraphrase",
+          "rationale": "給水タイマーの言い換え。",
+          "relevant_ids": [
+            "garden-water"
+          ],
+          "supporting_ids": [
+            "garden-water"
+          ],
+          "text": "菜園に自動で水をやるのは朝の何時から、どれくらい？",
+          "retrieved_ids": [
+            "garden-water",
+            "observing-time",
+            "design-paper"
+          ],
+          "results": [
+            {
+              "id": "garden-water",
+              "score": -0.21166419982910156,
+              "content": "架空の菜園の給水タイマーは毎朝7時に10分間作動する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/garden-water",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "29222c9cc1b589a36a57dac568469467707f11773d3c8a73a84f9dcfd64fd680",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "observing-time",
+              "score": -0.45895475149154663,
+              "content": "架空の星見会は水曜日の19時に始まる。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/observing-time",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "24a6d67d0853361d0c008f46888c346bcc59d294e37a25aa9fe37abcca5b3d4e",
+              "edited_since_approval": true,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.4600638747215271,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": 1.0,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": true
+          }
+        },
+        {
+          "id": "lens-paraphrase",
+          "kind": "paraphrase",
+          "rationale": "予備レンズの保管位置。",
+          "relevant_ids": [
+            "lens-storage"
+          ],
+          "supporting_ids": [
+            "lens-storage"
+          ],
+          "text": "光学実験の交換用レンズを探している。どこにしまった？",
+          "retrieved_ids": [
+            "lens-storage",
+            "design-paper",
+            "robot-current"
+          ],
+          "results": [
+            {
+              "id": "lens-storage",
+              "score": -0.27361631393432617,
+              "content": "架空の光学実験に使う予備レンズは銀色の棚の右端の箱に収納する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/lens-storage",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0701aa236d88c3c60acf66684191452ec4c2fc301b4c1d7890b224c17d907e64",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.35389959812164307,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "robot-current",
+              "score": -0.3805515766143799,
+              "content": "訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/robot-current",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "88696a4da3ec9fd3f5c0e92f7d84c8297fd3045ea0c9af60cc92444b19a54152",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": 1.0,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": true
+          }
+        },
+        {
+          "id": "csv-paraphrase",
+          "kind": "paraphrase",
+          "rationale": "形式と列の根拠を問う。",
+          "relevant_ids": [
+            "data-format"
+          ],
+          "supporting_ids": [
+            "data-format"
+          ],
+          "text": "温度測定の結果はどのファイル形式で、何を記録する？",
+          "retrieved_ids": [
+            "data-format",
+            "design-paper",
+            "lens-storage"
+          ],
+          "results": [
+            {
+              "id": "data-format",
+              "score": -0.23909218609333038,
+              "content": "架空の温度実験の記録はCSV形式にして、測定時刻と摂氏温度を列に記入する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/data-format",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0be652c9683622464fe76d8294ce20fa71957e47bd5a29eb3414d30afd6df5d2",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.439666748046875,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "lens-storage",
+              "score": -0.46511131525039673,
+              "content": "架空の光学実験に使う予備レンズは銀色の棚の右端の箱に収納する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/lens-storage",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0701aa236d88c3c60acf66684191452ec4c2fc301b4c1d7890b224c17d907e64",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": 1.0,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": true
+          }
+        },
+        {
+          "id": "controller-correction",
+          "kind": "correction",
+          "rationale": "訂正済みの旧factを復活させない。",
+          "relevant_ids": [
+            "robot-current"
+          ],
+          "supporting_ids": [
+            "robot-current"
+          ],
+          "text": "観測試作機は今もRP2040で動かすことになっている？",
+          "retrieved_ids": [
+            "robot-current",
+            "design-paper",
+            "garden-water"
+          ],
+          "results": [
+            {
+              "id": "robot-current",
+              "score": -0.22340410947799683,
+              "content": "訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/robot-current",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "88696a4da3ec9fd3f5c0e92f7d84c8297fd3045ea0c9af60cc92444b19a54152",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.40584322810173035,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "garden-water",
+              "score": -0.44015419483184814,
+              "content": "架空の菜園の給水タイマーは毎朝7時に10分間作動する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/garden-water",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "29222c9cc1b589a36a57dac568469467707f11773d3c8a73a84f9dcfd64fd680",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": 1.0,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": true
+          }
+        },
+        {
+          "id": "unrelated-railway",
+          "kind": "unrelated",
+          "rationale": "corpusに鉄道の情報はない。非empty top-kを診断し、採用する閾値は未定。",
+          "relevant_ids": [],
+          "supporting_ids": [],
+          "text": "架空王国の鉄道の始発時刻は何時？",
+          "retrieved_ids": [
+            "observing-time",
+            "garden-water",
+            "data-format"
+          ],
+          "results": [
+            {
+              "id": "observing-time",
+              "score": -0.3768573999404907,
+              "content": "架空の星見会は水曜日の19時に始まる。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/observing-time",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "24a6d67d0853361d0c008f46888c346bcc59d294e37a25aa9fe37abcca5b3d4e",
+              "edited_since_approval": true,
+              "stale": false
+            },
+            {
+              "id": "garden-water",
+              "score": -0.4236612319946289,
+              "content": "架空の菜園の給水タイマーは毎朝7時に10分間作動する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/garden-water",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "29222c9cc1b589a36a57dac568469467707f11773d3c8a73a84f9dcfd64fd680",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "data-format",
+              "score": -0.42656365036964417,
+              "content": "架空の温度実験の記録はCSV形式にして、測定時刻と摂氏温度を列に記入する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/data-format",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0be652c9683622464fe76d8294ce20fa71957e47bd5a29eb3414d30afd6df5d2",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": null,
+            "recall_at_k": null,
+            "reciprocal_rank": null,
+            "support_recall_at_k": null,
+            "negative_query_nonempty": true,
+            "supporting_gold_exists": false
+          }
+        },
+        {
+          "id": "unsupported-battery",
+          "kind": "insufficient_evidence",
+          "rationale": "制御基板のnoteは関連するが電池持ちを裏づけない。2時間の候補は未承認。",
+          "relevant_ids": [
+            "robot-current"
+          ],
+          "supporting_ids": [],
+          "text": "観測試作機ミズキの電池は何時間使える？",
+          "retrieved_ids": [
+            "robot-current",
+            "garden-water",
+            "design-paper"
+          ],
+          "results": [
+            {
+              "id": "robot-current",
+              "score": -0.30936866998672485,
+              "content": "訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/robot-current",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "88696a4da3ec9fd3f5c0e92f7d84c8297fd3045ea0c9af60cc92444b19a54152",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "garden-water",
+              "score": -0.39397189021110535,
+              "content": "架空の菜園の給水タイマーは毎朝7時に10分間作動する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/garden-water",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "29222c9cc1b589a36a57dac568469467707f11773d3c8a73a84f9dcfd64fd680",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.4001446068286896,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": null,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": false
+          }
+        },
+        {
+          "id": "unsupported-price",
+          "kind": "insufficient_evidence",
+          "rationale": "noteに価格がないことを明記。関連性と回答可能性を分ける。",
+          "relevant_ids": [
+            "design-paper"
+          ],
+          "supporting_ids": [],
+          "text": "設計メモに使う方眼紙の購入価格はいくら？",
+          "retrieved_ids": [
+            "design-paper",
+            "robot-current",
+            "lens-storage"
+          ],
+          "results": [
+            {
+              "id": "design-paper",
+              "score": -0.20468232035636902,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "robot-current",
+              "score": -0.42539480328559875,
+              "content": "訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/robot-current",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "88696a4da3ec9fd3f5c0e92f7d84c8297fd3045ea0c9af60cc92444b19a54152",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "lens-storage",
+              "score": -0.43744441866874695,
+              "content": "架空の光学実験に使う予備レンズは銀色の棚の右端の箱に収納する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/lens-storage",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0701aa236d88c3c60acf66684191452ec4c2fc301b4c1d7890b224c17d907e64",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": 0.3333333333333333,
+            "recall_at_k": 1.0,
+            "reciprocal_rank": 1.0,
+            "support_recall_at_k": null,
+            "negative_query_nonempty": null,
+            "supporting_gold_exists": false
+          }
+        },
+        {
+          "id": "retired-venue-query",
+          "kind": "retirement",
+          "rationale": "退役した旧会場をapproved contextへ戻さない。元noteは削除しない。",
+          "relevant_ids": [],
+          "supporting_ids": [],
+          "text": "廃止した工作会の会場はどこだった？",
+          "retrieved_ids": [
+            "design-paper",
+            "lens-storage",
+            "observing-time"
+          ],
+          "results": [
+            {
+              "id": "design-paper",
+              "score": -0.4823421835899353,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "lens-storage",
+              "score": -0.487249493598938,
+              "content": "架空の光学実験に使う予備レンズは銀色の棚の右端の箱に収納する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/lens-storage",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "0701aa236d88c3c60acf66684191452ec4c2fc301b4c1d7890b224c17d907e64",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "observing-time",
+              "score": -0.49472755193710327,
+              "content": "架空の星見会は水曜日の19時に始まる。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/observing-time",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "24a6d67d0853361d0c008f46888c346bcc59d294e37a25aa9fe37abcca5b3d4e",
+              "edited_since_approval": true,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": null,
+            "recall_at_k": null,
+            "reciprocal_rank": null,
+            "support_recall_at_k": null,
+            "negative_query_nonempty": true,
+            "supporting_gold_exists": false
+          }
+        },
+        {
+          "id": "pending-paint-query",
+          "kind": "unapproved",
+          "rationale": "未承認候補の成分を事実として使わない。",
+          "relevant_ids": [],
+          "supporting_ids": [],
+          "text": "採用保留の青い塗料にはどんな成分が入っている？",
+          "retrieved_ids": [
+            "robot-current",
+            "design-paper",
+            "garden-water"
+          ],
+          "results": [
+            {
+              "id": "robot-current",
+              "score": -0.4623328447341919,
+              "content": "訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/robot-current",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "88696a4da3ec9fd3f5c0e92f7d84c8297fd3045ea0c9af60cc92444b19a54152",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "design-paper",
+              "score": -0.4727921783924103,
+              "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/design-paper",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "710c7997098e09810b3d5b0998ef4ff77995ba541e9b8ed3838639065b5721f8",
+              "edited_since_approval": false,
+              "stale": false
+            },
+            {
+              "id": "garden-water",
+              "score": -0.48105019330978394,
+              "content": "架空の菜園の給水タイマーは毎朝7時に10分間作動する。",
+              "source": "synthetic-evaluation:jarvis-synthetic-ja-v1/garden-water",
+              "origin": "user_explicit",
+              "confidence": 0.8,
+              "importance": 0.7,
+              "revision": "29222c9cc1b589a36a57dac568469467707f11773d3c8a73a84f9dcfd64fd680",
+              "edited_since_approval": false,
+              "stale": false
+            }
+          ],
+          "forbidden_ids_returned": [],
+          "metrics": {
+            "precision_at_k": null,
+            "recall_at_k": null,
+            "reciprocal_rank": null,
+            "support_recall_at_k": null,
+            "negative_query_nonempty": true,
+            "supporting_gold_exists": false
+          }
+        }
+      ],
+      "metric_definitions": {
+        "precision_at_k": "relevant retrieved / configured k; positive gold only",
+        "recall_at_k": "relevant retrieved / relevant gold; positive gold only",
+        "reciprocal_rank": "1 / first relevant rank, or 0; positive gold only",
+        "support_recall_at_k": "supporting retrieved / supporting gold; support gold only",
+        "negative_query_nonempty": "retrieved context despite no relevant gold; diagnostic"
+      },
+      "index_challenge": {
+        "intentionally_stale_or_unreviewed": true,
+        "extra_ids": [
+          "robot-old",
+          "pending-runtime",
+          "pending-paint",
+          "retired-venue",
+          "conflict-time"
+        ],
+        "stale_ids": [
+          "observing-time"
+        ],
+        "original_notes_preserved": true
+      },
+      "summary": {
+        "mean_precision_at_k": 0.3333333333333333,
+        "mean_recall_at_k": 1.0,
+        "mean_reciprocal_rank": 1.0,
+        "mean_support_recall_at_k": 1.0,
+        "negative_queries": 3,
+        "negative_nonempty": 3,
+        "insufficient_evidence_queries": 2,
+        "insufficient_evidence_returning_context": 2,
+        "exclusion_violations": 0
+      },
+      "safety_status": "no_exclusion_violation_observed",
+      "finished_at": "2026-10-04T06:03:59.498691+00:00",
+      "executed": true,
+      "trial_number": 2
+    }
+  ],
+  "queries": [
+    {
+      "id": "controller-paraphrase",
+      "kind": "paraphrase",
+      "rationale": "名称と部品の言い換え。訂正後のESP32だけが根拠。",
+      "relevant_ids": [
+        "robot-current"
+      ],
+      "supporting_ids": [
+        "robot-current"
+      ],
+      "text": "あの星を観測する試作機、制御用のチップを何に替えたっけ？",
+      "observed_trial_numbers": [
+        1,
+        2
+      ],
+      "candidate_sets": [
+        {
+          "ids": [
+            "design-paper",
+            "lens-storage",
+            "robot-current"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "rankings": [
+        {
+          "ids": [
+            "robot-current",
+            "design-paper",
+            "lens-storage"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "candidate_set_variants": 1,
+      "ranking_variants": 1,
+      "candidate_set_changed": false,
+      "ranking_changed": false,
+      "ranks_by_candidate": {
+        "design-paper": [
+          2,
+          2
+        ],
+        "lens-storage": [
+          3,
+          3
+        ],
+        "robot-current": [
+          1,
+          1
+        ]
+      },
+      "context_count_distribution": {
+        "count": 2,
+        "values": [
+          3,
+          3
+        ],
+        "min": 3,
+        "max": 3,
+        "mean": 3.0,
+        "population_stdev": 0.0
+      },
+      "metric_distributions": {
+        "precision_at_k": {
+          "count": 2,
+          "values": [
+            0.3333333333333333,
+            0.3333333333333333
+          ],
+          "min": 0.3333333333333333,
+          "max": 0.3333333333333333,
+          "mean": 0.3333333333333333,
+          "population_stdev": 0.0
+        },
+        "recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "reciprocal_rank": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "support_recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        }
+      }
+    },
+    {
+      "id": "paper-paraphrase",
+      "kind": "paraphrase",
+      "rationale": "設計メモの保存方法を別表現で問う。",
+      "relevant_ids": [
+        "design-paper"
+      ],
+      "supporting_ids": [
+        "design-paper"
+      ],
+      "text": "工作の設計を書き留めるとき、どんな紙と筆記具を使う？",
+      "observed_trial_numbers": [
+        1,
+        2
+      ],
+      "candidate_sets": [
+        {
+          "ids": [
+            "data-format",
+            "design-paper",
+            "lens-storage"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "rankings": [
+        {
+          "ids": [
+            "design-paper",
+            "data-format",
+            "lens-storage"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "candidate_set_variants": 1,
+      "ranking_variants": 1,
+      "candidate_set_changed": false,
+      "ranking_changed": false,
+      "ranks_by_candidate": {
+        "data-format": [
+          2,
+          2
+        ],
+        "design-paper": [
+          1,
+          1
+        ],
+        "lens-storage": [
+          3,
+          3
+        ]
+      },
+      "context_count_distribution": {
+        "count": 2,
+        "values": [
+          3,
+          3
+        ],
+        "min": 3,
+        "max": 3,
+        "mean": 3.0,
+        "population_stdev": 0.0
+      },
+      "metric_distributions": {
+        "precision_at_k": {
+          "count": 2,
+          "values": [
+            0.3333333333333333,
+            0.3333333333333333
+          ],
+          "min": 0.3333333333333333,
+          "max": 0.3333333333333333,
+          "mean": 0.3333333333333333,
+          "population_stdev": 0.0
+        },
+        "recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "reciprocal_rank": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "support_recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        }
+      }
+    },
+    {
+      "id": "current-observing-time",
+      "kind": "revision",
+      "rationale": "index作成後に編集された正本の水曜19時を使う。木曜候補を使わない。",
+      "relevant_ids": [
+        "observing-time"
+      ],
+      "supporting_ids": [
+        "observing-time"
+      ],
+      "text": "星を見る架空の集まりは何曜日の何時から？",
+      "observed_trial_numbers": [
+        1,
+        2
+      ],
+      "candidate_sets": [
+        {
+          "ids": [
+            "design-paper",
+            "garden-water",
+            "observing-time"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "rankings": [
+        {
+          "ids": [
+            "observing-time",
+            "garden-water",
+            "design-paper"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "candidate_set_variants": 1,
+      "ranking_variants": 1,
+      "candidate_set_changed": false,
+      "ranking_changed": false,
+      "ranks_by_candidate": {
+        "design-paper": [
+          3,
+          3
+        ],
+        "garden-water": [
+          2,
+          2
+        ],
+        "observing-time": [
+          1,
+          1
+        ]
+      },
+      "context_count_distribution": {
+        "count": 2,
+        "values": [
+          3,
+          3
+        ],
+        "min": 3,
+        "max": 3,
+        "mean": 3.0,
+        "population_stdev": 0.0
+      },
+      "metric_distributions": {
+        "precision_at_k": {
+          "count": 2,
+          "values": [
+            0.3333333333333333,
+            0.3333333333333333
+          ],
+          "min": 0.3333333333333333,
+          "max": 0.3333333333333333,
+          "mean": 0.3333333333333333,
+          "population_stdev": 0.0
+        },
+        "recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "reciprocal_rank": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "support_recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        }
+      }
+    },
+    {
+      "id": "garden-paraphrase",
+      "kind": "paraphrase",
+      "rationale": "給水タイマーの言い換え。",
+      "relevant_ids": [
+        "garden-water"
+      ],
+      "supporting_ids": [
+        "garden-water"
+      ],
+      "text": "菜園に自動で水をやるのは朝の何時から、どれくらい？",
+      "observed_trial_numbers": [
+        1,
+        2
+      ],
+      "candidate_sets": [
+        {
+          "ids": [
+            "design-paper",
+            "garden-water",
+            "observing-time"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "rankings": [
+        {
+          "ids": [
+            "garden-water",
+            "observing-time",
+            "design-paper"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "candidate_set_variants": 1,
+      "ranking_variants": 1,
+      "candidate_set_changed": false,
+      "ranking_changed": false,
+      "ranks_by_candidate": {
+        "design-paper": [
+          3,
+          3
+        ],
+        "garden-water": [
+          1,
+          1
+        ],
+        "observing-time": [
+          2,
+          2
+        ]
+      },
+      "context_count_distribution": {
+        "count": 2,
+        "values": [
+          3,
+          3
+        ],
+        "min": 3,
+        "max": 3,
+        "mean": 3.0,
+        "population_stdev": 0.0
+      },
+      "metric_distributions": {
+        "precision_at_k": {
+          "count": 2,
+          "values": [
+            0.3333333333333333,
+            0.3333333333333333
+          ],
+          "min": 0.3333333333333333,
+          "max": 0.3333333333333333,
+          "mean": 0.3333333333333333,
+          "population_stdev": 0.0
+        },
+        "recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "reciprocal_rank": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "support_recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        }
+      }
+    },
+    {
+      "id": "lens-paraphrase",
+      "kind": "paraphrase",
+      "rationale": "予備レンズの保管位置。",
+      "relevant_ids": [
+        "lens-storage"
+      ],
+      "supporting_ids": [
+        "lens-storage"
+      ],
+      "text": "光学実験の交換用レンズを探している。どこにしまった？",
+      "observed_trial_numbers": [
+        1,
+        2
+      ],
+      "candidate_sets": [
+        {
+          "ids": [
+            "design-paper",
+            "lens-storage",
+            "robot-current"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "rankings": [
+        {
+          "ids": [
+            "lens-storage",
+            "design-paper",
+            "robot-current"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "candidate_set_variants": 1,
+      "ranking_variants": 1,
+      "candidate_set_changed": false,
+      "ranking_changed": false,
+      "ranks_by_candidate": {
+        "design-paper": [
+          2,
+          2
+        ],
+        "lens-storage": [
+          1,
+          1
+        ],
+        "robot-current": [
+          3,
+          3
+        ]
+      },
+      "context_count_distribution": {
+        "count": 2,
+        "values": [
+          3,
+          3
+        ],
+        "min": 3,
+        "max": 3,
+        "mean": 3.0,
+        "population_stdev": 0.0
+      },
+      "metric_distributions": {
+        "precision_at_k": {
+          "count": 2,
+          "values": [
+            0.3333333333333333,
+            0.3333333333333333
+          ],
+          "min": 0.3333333333333333,
+          "max": 0.3333333333333333,
+          "mean": 0.3333333333333333,
+          "population_stdev": 0.0
+        },
+        "recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "reciprocal_rank": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "support_recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        }
+      }
+    },
+    {
+      "id": "csv-paraphrase",
+      "kind": "paraphrase",
+      "rationale": "形式と列の根拠を問う。",
+      "relevant_ids": [
+        "data-format"
+      ],
+      "supporting_ids": [
+        "data-format"
+      ],
+      "text": "温度測定の結果はどのファイル形式で、何を記録する？",
+      "observed_trial_numbers": [
+        1,
+        2
+      ],
+      "candidate_sets": [
+        {
+          "ids": [
+            "data-format",
+            "design-paper",
+            "lens-storage"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "rankings": [
+        {
+          "ids": [
+            "data-format",
+            "design-paper",
+            "lens-storage"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "candidate_set_variants": 1,
+      "ranking_variants": 1,
+      "candidate_set_changed": false,
+      "ranking_changed": false,
+      "ranks_by_candidate": {
+        "data-format": [
+          1,
+          1
+        ],
+        "design-paper": [
+          2,
+          2
+        ],
+        "lens-storage": [
+          3,
+          3
+        ]
+      },
+      "context_count_distribution": {
+        "count": 2,
+        "values": [
+          3,
+          3
+        ],
+        "min": 3,
+        "max": 3,
+        "mean": 3.0,
+        "population_stdev": 0.0
+      },
+      "metric_distributions": {
+        "precision_at_k": {
+          "count": 2,
+          "values": [
+            0.3333333333333333,
+            0.3333333333333333
+          ],
+          "min": 0.3333333333333333,
+          "max": 0.3333333333333333,
+          "mean": 0.3333333333333333,
+          "population_stdev": 0.0
+        },
+        "recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "reciprocal_rank": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "support_recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        }
+      }
+    },
+    {
+      "id": "controller-correction",
+      "kind": "correction",
+      "rationale": "訂正済みの旧factを復活させない。",
+      "relevant_ids": [
+        "robot-current"
+      ],
+      "supporting_ids": [
+        "robot-current"
+      ],
+      "text": "観測試作機は今もRP2040で動かすことになっている？",
+      "observed_trial_numbers": [
+        1,
+        2
+      ],
+      "candidate_sets": [
+        {
+          "ids": [
+            "design-paper",
+            "garden-water",
+            "robot-current"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "rankings": [
+        {
+          "ids": [
+            "robot-current",
+            "design-paper",
+            "garden-water"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "candidate_set_variants": 1,
+      "ranking_variants": 1,
+      "candidate_set_changed": false,
+      "ranking_changed": false,
+      "ranks_by_candidate": {
+        "design-paper": [
+          2,
+          2
+        ],
+        "garden-water": [
+          3,
+          3
+        ],
+        "robot-current": [
+          1,
+          1
+        ]
+      },
+      "context_count_distribution": {
+        "count": 2,
+        "values": [
+          3,
+          3
+        ],
+        "min": 3,
+        "max": 3,
+        "mean": 3.0,
+        "population_stdev": 0.0
+      },
+      "metric_distributions": {
+        "precision_at_k": {
+          "count": 2,
+          "values": [
+            0.3333333333333333,
+            0.3333333333333333
+          ],
+          "min": 0.3333333333333333,
+          "max": 0.3333333333333333,
+          "mean": 0.3333333333333333,
+          "population_stdev": 0.0
+        },
+        "recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "reciprocal_rank": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "support_recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        }
+      }
+    },
+    {
+      "id": "unrelated-railway",
+      "kind": "unrelated",
+      "rationale": "corpusに鉄道の情報はない。非empty top-kを診断し、採用する閾値は未定。",
+      "relevant_ids": [],
+      "supporting_ids": [],
+      "text": "架空王国の鉄道の始発時刻は何時？",
+      "observed_trial_numbers": [
+        1,
+        2
+      ],
+      "candidate_sets": [
+        {
+          "ids": [
+            "data-format",
+            "garden-water",
+            "observing-time"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "rankings": [
+        {
+          "ids": [
+            "observing-time",
+            "garden-water",
+            "data-format"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "candidate_set_variants": 1,
+      "ranking_variants": 1,
+      "candidate_set_changed": false,
+      "ranking_changed": false,
+      "ranks_by_candidate": {
+        "data-format": [
+          3,
+          3
+        ],
+        "garden-water": [
+          2,
+          2
+        ],
+        "observing-time": [
+          1,
+          1
+        ]
+      },
+      "context_count_distribution": {
+        "count": 2,
+        "values": [
+          3,
+          3
+        ],
+        "min": 3,
+        "max": 3,
+        "mean": 3.0,
+        "population_stdev": 0.0
+      },
+      "metric_distributions": {
+        "precision_at_k": {
+          "count": 0,
+          "values": [
+            null,
+            null
+          ],
+          "min": null,
+          "max": null,
+          "mean": null,
+          "population_stdev": null
+        },
+        "recall_at_k": {
+          "count": 0,
+          "values": [
+            null,
+            null
+          ],
+          "min": null,
+          "max": null,
+          "mean": null,
+          "population_stdev": null
+        },
+        "reciprocal_rank": {
+          "count": 0,
+          "values": [
+            null,
+            null
+          ],
+          "min": null,
+          "max": null,
+          "mean": null,
+          "population_stdev": null
+        },
+        "support_recall_at_k": {
+          "count": 0,
+          "values": [
+            null,
+            null
+          ],
+          "min": null,
+          "max": null,
+          "mean": null,
+          "population_stdev": null
+        }
+      }
+    },
+    {
+      "id": "unsupported-battery",
+      "kind": "insufficient_evidence",
+      "rationale": "制御基板のnoteは関連するが電池持ちを裏づけない。2時間の候補は未承認。",
+      "relevant_ids": [
+        "robot-current"
+      ],
+      "supporting_ids": [],
+      "text": "観測試作機ミズキの電池は何時間使える？",
+      "observed_trial_numbers": [
+        1,
+        2
+      ],
+      "candidate_sets": [
+        {
+          "ids": [
+            "design-paper",
+            "garden-water",
+            "robot-current"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "rankings": [
+        {
+          "ids": [
+            "robot-current",
+            "garden-water",
+            "design-paper"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "candidate_set_variants": 1,
+      "ranking_variants": 1,
+      "candidate_set_changed": false,
+      "ranking_changed": false,
+      "ranks_by_candidate": {
+        "design-paper": [
+          3,
+          3
+        ],
+        "garden-water": [
+          2,
+          2
+        ],
+        "robot-current": [
+          1,
+          1
+        ]
+      },
+      "context_count_distribution": {
+        "count": 2,
+        "values": [
+          3,
+          3
+        ],
+        "min": 3,
+        "max": 3,
+        "mean": 3.0,
+        "population_stdev": 0.0
+      },
+      "metric_distributions": {
+        "precision_at_k": {
+          "count": 2,
+          "values": [
+            0.3333333333333333,
+            0.3333333333333333
+          ],
+          "min": 0.3333333333333333,
+          "max": 0.3333333333333333,
+          "mean": 0.3333333333333333,
+          "population_stdev": 0.0
+        },
+        "recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "reciprocal_rank": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "support_recall_at_k": {
+          "count": 0,
+          "values": [
+            null,
+            null
+          ],
+          "min": null,
+          "max": null,
+          "mean": null,
+          "population_stdev": null
+        }
+      }
+    },
+    {
+      "id": "unsupported-price",
+      "kind": "insufficient_evidence",
+      "rationale": "noteに価格がないことを明記。関連性と回答可能性を分ける。",
+      "relevant_ids": [
+        "design-paper"
+      ],
+      "supporting_ids": [],
+      "text": "設計メモに使う方眼紙の購入価格はいくら？",
+      "observed_trial_numbers": [
+        1,
+        2
+      ],
+      "candidate_sets": [
+        {
+          "ids": [
+            "design-paper",
+            "lens-storage",
+            "robot-current"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "rankings": [
+        {
+          "ids": [
+            "design-paper",
+            "robot-current",
+            "lens-storage"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "candidate_set_variants": 1,
+      "ranking_variants": 1,
+      "candidate_set_changed": false,
+      "ranking_changed": false,
+      "ranks_by_candidate": {
+        "design-paper": [
+          1,
+          1
+        ],
+        "lens-storage": [
+          3,
+          3
+        ],
+        "robot-current": [
+          2,
+          2
+        ]
+      },
+      "context_count_distribution": {
+        "count": 2,
+        "values": [
+          3,
+          3
+        ],
+        "min": 3,
+        "max": 3,
+        "mean": 3.0,
+        "population_stdev": 0.0
+      },
+      "metric_distributions": {
+        "precision_at_k": {
+          "count": 2,
+          "values": [
+            0.3333333333333333,
+            0.3333333333333333
+          ],
+          "min": 0.3333333333333333,
+          "max": 0.3333333333333333,
+          "mean": 0.3333333333333333,
+          "population_stdev": 0.0
+        },
+        "recall_at_k": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "reciprocal_rank": {
+          "count": 2,
+          "values": [
+            1.0,
+            1.0
+          ],
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0,
+          "population_stdev": 0.0
+        },
+        "support_recall_at_k": {
+          "count": 0,
+          "values": [
+            null,
+            null
+          ],
+          "min": null,
+          "max": null,
+          "mean": null,
+          "population_stdev": null
+        }
+      }
+    },
+    {
+      "id": "retired-venue-query",
+      "kind": "retirement",
+      "rationale": "退役した旧会場をapproved contextへ戻さない。元noteは削除しない。",
+      "relevant_ids": [],
+      "supporting_ids": [],
+      "text": "廃止した工作会の会場はどこだった？",
+      "observed_trial_numbers": [
+        1,
+        2
+      ],
+      "candidate_sets": [
+        {
+          "ids": [
+            "design-paper",
+            "lens-storage",
+            "observing-time"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "rankings": [
+        {
+          "ids": [
+            "design-paper",
+            "lens-storage",
+            "observing-time"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "candidate_set_variants": 1,
+      "ranking_variants": 1,
+      "candidate_set_changed": false,
+      "ranking_changed": false,
+      "ranks_by_candidate": {
+        "design-paper": [
+          1,
+          1
+        ],
+        "lens-storage": [
+          2,
+          2
+        ],
+        "observing-time": [
+          3,
+          3
+        ]
+      },
+      "context_count_distribution": {
+        "count": 2,
+        "values": [
+          3,
+          3
+        ],
+        "min": 3,
+        "max": 3,
+        "mean": 3.0,
+        "population_stdev": 0.0
+      },
+      "metric_distributions": {
+        "precision_at_k": {
+          "count": 0,
+          "values": [
+            null,
+            null
+          ],
+          "min": null,
+          "max": null,
+          "mean": null,
+          "population_stdev": null
+        },
+        "recall_at_k": {
+          "count": 0,
+          "values": [
+            null,
+            null
+          ],
+          "min": null,
+          "max": null,
+          "mean": null,
+          "population_stdev": null
+        },
+        "reciprocal_rank": {
+          "count": 0,
+          "values": [
+            null,
+            null
+          ],
+          "min": null,
+          "max": null,
+          "mean": null,
+          "population_stdev": null
+        },
+        "support_recall_at_k": {
+          "count": 0,
+          "values": [
+            null,
+            null
+          ],
+          "min": null,
+          "max": null,
+          "mean": null,
+          "population_stdev": null
+        }
+      }
+    },
+    {
+      "id": "pending-paint-query",
+      "kind": "unapproved",
+      "rationale": "未承認候補の成分を事実として使わない。",
+      "relevant_ids": [],
+      "supporting_ids": [],
+      "text": "採用保留の青い塗料にはどんな成分が入っている？",
+      "observed_trial_numbers": [
+        1,
+        2
+      ],
+      "candidate_sets": [
+        {
+          "ids": [
+            "design-paper",
+            "garden-water",
+            "robot-current"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "rankings": [
+        {
+          "ids": [
+            "robot-current",
+            "design-paper",
+            "garden-water"
+          ],
+          "trial_numbers": [
+            1,
+            2
+          ]
+        }
+      ],
+      "candidate_set_variants": 1,
+      "ranking_variants": 1,
+      "candidate_set_changed": false,
+      "ranking_changed": false,
+      "ranks_by_candidate": {
+        "design-paper": [
+          2,
+          2
+        ],
+        "garden-water": [
+          3,
+          3
+        ],
+        "robot-current": [
+          1,
+          1
+        ]
+      },
+      "context_count_distribution": {
+        "count": 2,
+        "values": [
+          3,
+          3
+        ],
+        "min": 3,
+        "max": 3,
+        "mean": 3.0,
+        "population_stdev": 0.0
+      },
+      "metric_distributions": {
+        "precision_at_k": {
+          "count": 0,
+          "values": [
+            null,
+            null
+          ],
+          "min": null,
+          "max": null,
+          "mean": null,
+          "population_stdev": null
+        },
+        "recall_at_k": {
+          "count": 0,
+          "values": [
+            null,
+            null
+          ],
+          "min": null,
+          "max": null,
+          "mean": null,
+          "population_stdev": null
+        },
+        "reciprocal_rank": {
+          "count": 0,
+          "values": [
+            null,
+            null
+          ],
+          "min": null,
+          "max": null,
+          "mean": null,
+          "population_stdev": null
+        },
+        "support_recall_at_k": {
+          "count": 0,
+          "values": [
+            null,
+            null
+          ],
+          "min": null,
+          "max": null,
+          "mean": null,
+          "population_stdev": null
+        }
+      }
+    }
+  ],
+  "summary": {
+    "requested_trials": 2,
+    "completed_trials": 2,
+    "failed_trials": 0,
+    "completed_trial_numbers": [
+      1,
+      2
+    ],
+    "excluded_trial_numbers": [],
+    "distribution_scope": "completed comparable trials only; failures retained separately",
+    "metric_distributions": {
+      "exclusion_violations": {
+        "count": 2,
+        "values": [
+          0,
+          0
+        ],
+        "min": 0,
+        "max": 0,
+        "mean": 0.0,
+        "population_stdev": 0.0
+      },
+      "insufficient_evidence_queries": {
+        "count": 2,
+        "values": [
+          2,
+          2
+        ],
+        "min": 2,
+        "max": 2,
+        "mean": 2.0,
+        "population_stdev": 0.0
+      },
+      "insufficient_evidence_returning_context": {
+        "count": 2,
+        "values": [
+          2,
+          2
+        ],
+        "min": 2,
+        "max": 2,
+        "mean": 2.0,
+        "population_stdev": 0.0
+      },
+      "mean_precision_at_k": {
+        "count": 2,
+        "values": [
+          0.3333333333333333,
+          0.3333333333333333
+        ],
+        "min": 0.3333333333333333,
+        "max": 0.3333333333333333,
+        "mean": 0.3333333333333333,
+        "population_stdev": 0.0
+      },
+      "mean_recall_at_k": {
+        "count": 2,
+        "values": [
+          1.0,
+          1.0
+        ],
+        "min": 1.0,
+        "max": 1.0,
+        "mean": 1.0,
+        "population_stdev": 0.0
+      },
+      "mean_reciprocal_rank": {
+        "count": 2,
+        "values": [
+          1.0,
+          1.0
+        ],
+        "min": 1.0,
+        "max": 1.0,
+        "mean": 1.0,
+        "population_stdev": 0.0
+      },
+      "mean_support_recall_at_k": {
+        "count": 2,
+        "values": [
+          1.0,
+          1.0
+        ],
+        "min": 1.0,
+        "max": 1.0,
+        "mean": 1.0,
+        "population_stdev": 0.0
+      },
+      "negative_nonempty": {
+        "count": 2,
+        "values": [
+          3,
+          3
+        ],
+        "min": 3,
+        "max": 3,
+        "mean": 3.0,
+        "population_stdev": 0.0
+      },
+      "negative_queries": {
+        "count": 2,
+        "values": [
+          3,
+          3
+        ],
+        "min": 3,
+        "max": 3,
+        "mean": 3.0,
+        "population_stdev": 0.0
+      }
+    },
+    "exclusion_violations": 0,
+    "executed_trials": 2
+  },
+  "safety_status": "no_exclusion_violation_observed",
+  "fixture_file_sha256": "a83026370afe529df4b1415ae93c82df68d61b447a6c7c5e238b7cdfe318d042",
+  "runner": {
+    "commit": "dbb85298cd3cb8c5e92f5ead0ac337333e7fc560",
+    "dirty": false,
+    "script_sha256": "51f9a261cec210cde94658f789695cfd4faf4e2f4d11d5130f1ea47380c62c83",
+    "implementation_sha256": "88a4ccf1fa467b687b6afcc1e74d892b9248bb770cd26147b660594abd1f7764"
+  }
+}

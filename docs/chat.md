@@ -1,6 +1,6 @@
 # Phase 1 chat
 
-The initial chat flow uses the existing vendor-neutral `LLMProvider` contract. A personality prompt is sent as a system message, followed by at most ten recent user/assistant turns and the current user message. A turn enters context only after a complete, nonblank provider response. Provider failures leave the previous context intact.
+The initial chat flow uses the existing vendor-neutral `LLMProvider` contract. A personality prompt, rendered once at startup from the [personality settings](personality.md), is sent as a system message, followed by at most ten recent user/assistant turns and the current user message. A turn enters context only after a complete, nonblank provider response. Provider failures leave the previous context intact.
 
 Phase 2 stores complete successful turns in SQLite and reloads the latest 20 messages for the provider, so conversation IDs survive a process restart. It keeps at most 100 active context locks in a process and evicts an idle lock when needed; evicting a lock does not delete the transcript. Requests in one process are serialized by conversation. Cross-worker ordering is not yet coordinated, so run one worker when conversation continuity matters.
 
@@ -15,3 +15,82 @@ If SQLite becomes unavailable while serving chat, the regular endpoint returns H
 Set `JARVIS_LLM_PROVIDER=openai` plus the adapter's server-side key and model variables to enable live chat. With the default `none`, chat returns 503 while health checks and the web client remain available. The UI is served from `/` when `frontend/index.html` is present. This release has no login or remote access control; bind the server to `127.0.0.1`.
 
 Alternatively, set `JARVIS_LLM_PROVIDER=gemini` with `GEMINI_API_KEY` and `JARVIS_GEMINI_MODEL`. The Gemini adapter maps the same provider messages to Google's text `generateContent` request and streams response deltas through the existing SSE route. It sends `store: false`; conversation history remains in JARVIS's SQLite database. Opted-in approved memory references are sent to Gemini under the same review and freshness checks as other providers.
+
+## Web UI behaviour
+
+The plain HTML/JS client (`frontend/`) shows text as it streams, but only a stream that ends with a `done` event is a saved reply. The server stores a turn only after `done`, so a failed or stopped turn is never in later context and retrying it is safe. Text received before a failure stays visible, but it is labelled "incomplete, not saved" and styled differently from a reply.
+
+| Situation | What the user sees | Conversation id | Input / actions |
+| --- | --- | --- | --- |
+| Normal reply | Deltas appear incrementally; provider and model shown after `done` | Stored from `done`, reused on the next turn | Input focused again |
+| Provider failure before the first delta (`error` event or HTTP 502) | Japanese error under the user message, no reply text | Unchanged | Input usable, **再試行** resends the same text |
+| Provider failure after some deltas | Partial text in an "incomplete, not saved" box plus the error | Unchanged | **再試行** resends the same text and replaces the partial |
+| Stop button while streaming | Partial text (if any) plus "stopped, not saved" | Unchanged | **再試行** available; the server drops the stream without saving |
+| Network failure / stream ends without `done` | "Could not connect" or "ended early" error; partial marked unsaved | Unchanged | **再試行** |
+| Second send while a request is in flight | Status "応答中です…"; nothing is sent, the draft stays in the box | Unchanged | Send and New conversation are disabled; Stop is shown |
+| Missing or expired `conversation_id` (SSE `error` or HTTP 404) | Explains the conversation is gone and nothing was carried over | Kept as is; never silently replaced | No retry button. Only **新しい会話** starts a new one |
+| Empty or whitespace-only message | Status "メッセージを入力してください。" | Unchanged | Nothing is sent |
+| 4,000-character limit | Counter from 3,600 characters; notice at the limit (browsers truncate pastes silently); over-limit text is refused | Unchanged | Draft is kept |
+| HTTP 503 with provider `none` | Explains that no LLM provider is configured on the server | Unchanged | No retry button (retrying cannot help) |
+| HTTP 503 capacity/storage/memory, other 5xx | Japanese explanation of the cause | Unchanged | **再試行** |
+
+Server error strings are English and are mapped to Japanese in `frontend/chat-api.js`; unknown text is never shown verbatim. `tests/test_chat_ui_contract.py` fails if the backend and that table drift apart. One request runs at a time per browser tab. Two tabs can still target one conversation; the server serializes them but the UI does not reconcile the transcripts.
+
+## Testing the UI without a provider
+
+`scripts/dev_fake_provider_server.py` is a dev/test-only harness. It starts the real app with a scripted provider on a temporary SQLite file, binds only to loopback, and is never imported by production code:
+
+```
+python scripts/dev_fake_provider_server.py --db "$(mktemp -d)/jarvis.sqlite3" --port 8765
+python scripts/dev_fake_provider_server.py --db /absolute/temp/j.sqlite3 --port 8765 --no-provider
+```
+
+Type `/slow`, `/fail-now`, `/fail-after N`, `/flaky` (fails once, then succeeds), `/empty` or `/history` as the message to select a behaviour; anything else gets a short streamed reply. Restarting it on a new database while a page is open reproduces an expired conversation id. Frontend logic is covered by `node --test frontend/test/*.test.mjs` (use the glob form on Node 24); `chat-api.test.mjs` also loads `chat-session.test.mjs` so the single-file gate in `scripts/verify.py` and CI runs both. These checks do not make the whole web milestone complete: login, remote access control, and history browsing are out of scope here.
+
+## Explicit semantic memory opt-in
+
+The default application still uses lexical memory when
+`JARVIS_MEMORY_VAULT_PATH` is configured, and no memory when it is unset.
+The versioned index stack through #29 is now on main (3030299, 2026-10-04).
+This explicit semantic chat path is on main (#36); it selects no deployment encoder.
+An application factory caller can opt in by supplying both dependencies:
+
+```python
+app = create_app(
+    settings,
+    chat_provider,
+    embedding_provider=reviewed_embedding_provider,
+    memory_index=verified_index,
+)
+```
+
+`settings.memory_vault_path` must identify the canonical vault corresponding to
+`settings.db_path`. Build/audit the supplied index from those approved notes
+with `MemoryIndexBuilder` before selecting it. Query and document embeddings
+must use the same exact model/version/dimension space. The caller owns the
+embedding/index resources and their provisioning; this patch chooses no model,
+does not rebuild or switch an index automatically, and does not require #25.
+The ordinary environment-only entry point continues to use lexical retrieval.
+
+Both completion and SSE chat encode only the current query, search for candidate
+IDs, and resolve those IDs through current SQLite/vault review and provenance.
+Semantic selection uses the existing three-match limit and shared bounded JSON
+serializer (content 500, source 200, total 2400 characters). Confidence, origin,
+importance, edited-note and freshness markers remain lower-trust reference data.
+Stale vector rankings may select a current edited note; the cached vector never
+supplies its old facts. Use the separate index revision audit/explicit refresh
+to repair stale rankings. Pending, conflicting, superseded and retired memories
+stay excluded even when their IDs remain in the index.
+
+After asynchronous retrieval, canonical review/revision is checked again.
+Detected changes or embedding/index/vault failures return the existing safe
+HTTP 503 or SSE error before an LLM request or successful transcript write.
+There is no silent lexical fallback; an empty valid result simply adds no memory.
+Cancellation propagates. This remains one local worker, not an atomic snapshot
+across concurrent external vault edits or multiple workers.
+
+Fake embeddings/chat plus real Chroma test routing and integrity, not semantic
+quality. Production embedding provider/model selection and quality evaluation,
+browser UI and live API checks remain separate. OpenAI live validation is pending;
+necessary live checks use Gemini/gemini-2.5-flash in the separate artificial
+connection trial.

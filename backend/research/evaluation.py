@@ -1,0 +1,360 @@
+"""Source evaluation (JAR-43, JAR-44, JAR-45): independent 0..1 ratings, with reasons.
+
+Three ratings are produced and written into ``SourceEvaluation``; each is computed on its own
+and none uses another:
+
+* ``authority``: how much institutional standing the kind of site has, from the
+  ``SourceType`` (``classification.py``). It is NOT popularity, traffic, search rank or
+  correctness. A high-authority source can be wrong, and a low-authority one right.
+* ``freshness``: ``0.5 ** (age / half_life)``, where age is ``retrieved_at - published_at``
+  and the half-life depends on how fast the topic changes (``HALF_LIFE_DAYS``). An unknown
+  publication date gives ``None``; a date is never invented, and a date after the retrieval
+  time (beyond one day of clock slack) is treated as unknown, not as "fresh". Freshness is
+  not quality: for stable topics an old source is fine, and the half-life says so.
+* ``relevance``: lexical overlap between the question's terms and the title/extracted text.
+  This is a cheap baseline and NOT semantic: it cannot see synonyms, negation or whether
+  the page really answers the question, and it can be inflated by keyword stuffing. English
+  is tokenised into lower-cased words (stop words removed, a trailing plural ``s`` dropped);
+  Japanese is split at common particles and cut into character bigrams, so it needs no
+  dictionary. Single characters are matched as substrings.
+
+``primary`` and ``agreement`` (JAR-46) are left untouched (``None`` unless already set).
+
+All ratings are heuristic inputs for a person or a later synthesis step. They are not truth
+values and not probabilities, and two sources with equal ratings are not equally correct.
+Ratings, reasons and the classification basis are fixed codes and numbers; no text from the
+page or the question is copied into them.
+"""
+
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
+from enum import StrEnum
+from types import MappingProxyType
+
+from backend.research.classification import (
+    Basis,
+    SourceClassification,
+    classify_source_detailed,
+)
+from backend.research.models import (
+    MAX_QUESTION_CHARS,
+    MAX_TITLE_CHARS,
+    ResearchSource,
+    SourceEvaluation,
+    SourceType,
+)
+from backend.research.planner import EN_STOPWORDS, clean_text
+from backend.research.repository import ResearchRepository
+
+MAX_TEXT_CHARS = 20_000  # the reader's own text cap
+MAX_QUESTION_TERMS = 64
+_FUTURE_SLACK = timedelta(days=1)
+_DIGITS = 4
+
+
+class RatingReason(StrEnum):
+    """Fixed codes explaining each rating."""
+
+    AUTHORITY_BY_TYPE = "authority_by_type"
+    AUTHORITY_CAPPED_WEAK_BASIS = "authority_capped_weak_basis"
+    AUTHORITY_UNCLASSIFIED = "authority_unclassified"
+    FRESHNESS_DECAY = "freshness_decay"
+    FRESHNESS_UNKNOWN_DATE = "freshness_unknown_date"
+    FRESHNESS_FUTURE_DATE = "freshness_future_date"
+    RELEVANCE_OVERLAP = "relevance_overlap"
+    RELEVANCE_TITLE_ONLY = "relevance_title_only"
+    RELEVANCE_NO_TERMS = "relevance_no_terms"
+    RELEVANCE_NO_TEXT = "relevance_no_text"
+
+
+class TopicClass(StrEnum):
+    """How fast the subject of a question changes."""
+
+    BREAKING = "breaking"  # news, prices, scores: days matter
+    FAST = "fast"  # software versions, security advisories, pricing
+    STANDARD = "standard"  # general technical or product questions (the default)
+    STABLE = "stable"  # history, mathematics, fundamentals
+
+
+HALF_LIFE_DAYS: Mapping[TopicClass, int] = MappingProxyType(
+    {
+        TopicClass.BREAKING: 30,
+        TopicClass.FAST: 180,
+        TopicClass.STANDARD: 730,
+        TopicClass.STABLE: 3650,
+    }
+)
+
+# Heuristic prior by kind of source, following the design's source priority (official
+# documentation, primary sources, papers, reputable news, community, personal blogs).
+AUTHORITY_BY_TYPE: Mapping[SourceType, float] = MappingProxyType(
+    {
+        SourceType.OFFICIAL: 0.9,
+        SourceType.DOCS: 0.85,
+        SourceType.ACADEMIC: 0.75,
+        SourceType.NEWS: 0.6,
+        SourceType.COMMUNITY: 0.4,
+        SourceType.FORUM: 0.35,
+        SourceType.BLOG: 0.3,
+        SourceType.UNKNOWN: 0.25,
+    }
+)
+# A type inferred from a path or a title is easier to fake than one inferred from the host.
+AUTHORITY_CAP_BY_BASIS: Mapping[Basis, float] = MappingProxyType(
+    {Basis.PATH: 0.6, Basis.TITLE: 0.35}
+)
+
+# Topic cues on the case-folded NFKC question: English as whole words, Japanese as substrings.
+_TOPIC_CUES: tuple[tuple[TopicClass, re.Pattern[str], tuple[str, ...]], ...] = (
+    (
+        TopicClass.BREAKING,
+        re.compile(
+            r"(?<![a-z0-9])(?:news|breaking|today|stock price|exchange rate|weather|live score)"
+            r"(?![a-z0-9])"
+        ),
+        ("ニュース", "速報", "今日", "株価", "為替", "天気"),
+    ),
+    (
+        TopicClass.FAST,
+        re.compile(
+            r"(?<![a-z0-9])(?:latest|newest|version|release|update|cve-[0-9-]+"
+            r"|vulnerabilit(?:y|ies)|pricing|price)(?![a-z0-9])"
+        ),
+        ("最新", "バージョン", "リリース", "アップデート", "脆弱性", "料金", "価格", "現在"),
+    ),
+    (
+        TopicClass.STABLE,
+        re.compile(
+            r"(?<![a-z0-9])(?:history of|theorem|proof|definition of|principles? of|algorithm"
+            r"|mathematics)(?![a-z0-9])"
+        ),
+        ("歴史", "定理", "証明", "原理", "アルゴリズム", "数学"),
+    ),
+)
+
+
+def _clean(text: str, limit: int) -> str:
+    return clean_text(text, limit).casefold()
+
+
+def infer_topic_class(question: str) -> TopicClass:
+    """Topic class from cue words in the question; ``standard`` when none match."""
+    if not isinstance(question, str):
+        raise ValueError("question must be a string")
+    text = _clean(question, MAX_QUESTION_CHARS)
+    for topic, pattern, japanese in _TOPIC_CUES:
+        if pattern.search(text) or any(cue in text for cue in japanese):
+            return topic
+    return TopicClass.STANDARD
+
+
+# ----- ratings -----
+
+
+def _check_aware(name: str, value: datetime) -> None:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{name} must be a timezone-aware datetime")
+
+
+def authority_rating(
+    source_type: SourceType, basis: Basis | None = None
+) -> tuple[float, RatingReason]:
+    """Authority prior for a kind of source; ``basis`` (how the type was found) may cap it."""
+    source_type = SourceType(source_type)
+    base = AUTHORITY_BY_TYPE[source_type]
+    if source_type is SourceType.UNKNOWN:
+        return base, RatingReason.AUTHORITY_UNCLASSIFIED
+    cap = AUTHORITY_CAP_BY_BASIS.get(basis) if basis is not None else None
+    if cap is not None and base > cap:
+        return cap, RatingReason.AUTHORITY_CAPPED_WEAK_BASIS
+    return base, RatingReason.AUTHORITY_BY_TYPE
+
+
+def freshness_rating(
+    published_at: datetime | None, retrieved_at: datetime, topic_class: TopicClass
+) -> tuple[float | None, RatingReason]:
+    """Exponential decay with the topic's half-life; ``None`` when the date is unusable."""
+    _check_aware("retrieved_at", retrieved_at)
+    half_life = HALF_LIFE_DAYS[TopicClass(topic_class)]
+    if published_at is None:
+        return None, RatingReason.FRESHNESS_UNKNOWN_DATE
+    _check_aware("published_at", published_at)
+    age = retrieved_at - published_at
+    if age < -_FUTURE_SLACK:
+        return None, RatingReason.FRESHNESS_FUTURE_DATE
+    days = max(age.total_seconds(), 0.0) / 86400
+    return round(2.0 ** (-days / half_life), _DIGITS), RatingReason.FRESHNESS_DECAY
+
+
+_ASCII_TERM = re.compile(r"[a-z0-9][a-z0-9._+#\-]*")
+_CJK_RUN = re.compile(r"[ぁ-んァ-ヶー一-龥々]+")
+_PARTICLE_SPLIT = re.compile("[はがをにへでとのもやかねよ]+")
+_HIRAGANA = re.compile(r"[ぁ-ん]")
+
+
+def _terms(text: str) -> tuple[set[str], set[str]]:
+    """(matchable terms, single-character terms that are matched as substrings)."""
+    terms: set[str] = set()
+    singles: set[str] = set()
+    for match in _ASCII_TERM.finditer(text):
+        word = match.group().strip(".-_+#")
+        if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+            word = word[:-1]
+        if (len(word) > 1 or word.isdigit()) and word not in EN_STOPWORDS:
+            terms.add(word)
+    for run in _CJK_RUN.findall(text):
+        for segment in _PARTICLE_SPLIT.split(run):
+            if len(segment) == 1:
+                if not _HIRAGANA.fullmatch(segment):
+                    singles.add(segment)
+                continue
+            for index in range(len(segment) - 1):
+                pair = segment[index : index + 2]
+                if not all(_HIRAGANA.fullmatch(ch) for ch in pair):
+                    terms.add(pair)
+    return terms, singles
+
+
+def relevance_rating(
+    question: str, title: str | None, text: str | None
+) -> tuple[float | None, RatingReason]:
+    """Lexical overlap of the question's terms with the title and text (not semantic).
+
+    ``0.75 * share of terms found in title or text + 0.25 * share found in the title``.
+    """
+    if not isinstance(question, str):
+        raise ValueError("question must be a string")
+    q_terms, q_singles = _terms(_clean(question, MAX_QUESTION_CHARS))
+    wanted = (sorted(q_terms) + sorted(q_singles))[:MAX_QUESTION_TERMS]
+    if not wanted:
+        return None, RatingReason.RELEVANCE_NO_TERMS
+    title_text = _clean(title, MAX_TITLE_CHARS) if isinstance(title, str) else ""
+    body_text = _clean(text, MAX_TEXT_CHARS) if isinstance(text, str) else ""
+    if not title_text.strip() and not body_text.strip():
+        return None, RatingReason.RELEVANCE_NO_TEXT
+    title_terms, _ = _terms(title_text)
+    body_terms, _ = _terms(body_text)
+    both_terms = title_terms | body_terms
+    both_raw = title_text + " " + body_text
+
+    def found(term: str, terms: set[str], raw: str) -> bool:
+        return term in terms or (term in q_singles and term in raw)
+
+    in_title = sum(found(w, title_terms, title_text) for w in wanted)
+    anywhere = sum(found(w, both_terms, both_raw) for w in wanted)
+    score = (0.75 * anywhere + 0.25 * in_title) / len(wanted)
+    reason = (
+        RatingReason.RELEVANCE_OVERLAP if body_text.strip() else RatingReason.RELEVANCE_TITLE_ONLY
+    )
+    return round(min(score, 1.0), _DIGITS), reason
+
+
+# ----- assembling -----
+
+
+@dataclass(frozen=True)
+class SourceAssessment:
+    """Ratings plus the codes that explain them. ``classification_rule`` is a rule id."""
+
+    evaluation: SourceEvaluation
+    source_type: SourceType
+    classification_rule: str
+    topic_class: TopicClass
+    authority_reason: RatingReason
+    freshness_reason: RatingReason
+    relevance_reason: RatingReason
+
+
+def assess_source(
+    *,
+    question: str,
+    url: str,
+    retrieved_at: datetime,
+    title: str | None = None,
+    text: str | None = None,
+    published_at: datetime | None = None,
+    source_type: SourceType | None = None,
+    topic_class: TopicClass | None = None,
+) -> SourceAssessment:
+    """Rate one source. A non-``unknown`` ``source_type`` is trusted; otherwise it is classified.
+
+    ``text`` is an excerpt of the extracted page (page text is not stored, so the caller
+    that read the page supplies it); only its first 20,000 characters are used.
+    """
+    if source_type is not None and SourceType(source_type) is not SourceType.UNKNOWN:
+        classification = SourceClassification(SourceType(source_type), "provided", Basis.HOST)
+    else:
+        classification = classify_source_detailed(url, title)
+    topic = TopicClass(topic_class) if topic_class is not None else infer_topic_class(question)
+    basis = None if classification.rule_id == "provided" else classification.basis
+    authority, authority_reason = authority_rating(classification.source_type, basis)
+    freshness, freshness_reason = freshness_rating(published_at, retrieved_at, topic)
+    relevance, relevance_reason = relevance_rating(question, title, text)
+    return SourceAssessment(
+        evaluation=SourceEvaluation(authority=authority, freshness=freshness, relevance=relevance),
+        source_type=classification.source_type,
+        classification_rule=classification.rule_id,
+        topic_class=topic,
+        authority_reason=authority_reason,
+        freshness_reason=freshness_reason,
+        relevance_reason=relevance_reason,
+    )
+
+
+def evaluate_source(
+    *,
+    question: str,
+    url: str,
+    retrieved_at: datetime,
+    title: str | None = None,
+    text: str | None = None,
+    published_at: datetime | None = None,
+    source_type: SourceType | None = None,
+    topic_class: TopicClass | None = None,
+) -> SourceEvaluation:
+    """The ratings of ``assess_source`` without the reasons."""
+    return assess_source(
+        question=question,
+        url=url,
+        retrieved_at=retrieved_at,
+        title=title,
+        text=text,
+        published_at=published_at,
+        source_type=source_type,
+        topic_class=topic_class,
+    ).evaluation
+
+
+def evaluate_and_store(
+    repository: ResearchRepository,
+    source: ResearchSource,
+    question: str,
+    *,
+    text: str | None = None,
+    topic_class: TopicClass | None = None,
+) -> ResearchSource:
+    """Rate a stored source and save authority, freshness and relevance.
+
+    Existing ``primary`` and ``agreement`` ratings are kept. The classified type is not
+    stored (the repository has no setter for ``source_type`` yet). Raises what
+    ``set_evaluation`` raises, for example when the session is already final.
+    """
+    evaluation = evaluate_source(
+        question=question,
+        url=source.final_url,
+        retrieved_at=source.retrieved_at,
+        title=source.title,
+        text=text,
+        published_at=source.published_at,
+        source_type=source.source_type,
+        topic_class=topic_class,
+    )
+    merged = replace(
+        source.evaluation,
+        authority=evaluation.authority,
+        freshness=evaluation.freshness,
+        relevance=evaluation.relevance,
+    )
+    return repository.set_evaluation(source.id, merged)

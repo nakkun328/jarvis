@@ -52,7 +52,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test frontend/test/chat-api.test.mjs
+      - run: node --test frontend/test/*.test.mjs
       - run: for script in frontend/*.js; do node --check "$script"; done
 
   vector:
@@ -63,4 +63,4 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install -e '.[dev,vector]'
-      - run: pytest -q tests/test_chroma_vector.py tests/test_vector_retrieval_integration.py tests/test_memory_indexing.py
+      - run: python -m pytest -q tests/test_chroma_vector.py tests/test_vector_retrieval_integration.py tests/test_memory_indexing.py tests/test_semantic_memory.py tests/test_memory_evaluation.py

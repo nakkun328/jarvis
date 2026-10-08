@@ -18,6 +18,11 @@
             <span>Personal assistant</span>
           </div>
         </div>
+        <nav class="app-nav" aria-label="画面の切り替え">
+          <a class="nav-link" href="/" aria-current="page">チャット</a>
+          <a class="nav-link" href="/tasks">タスク</a>
+          <a class="nav-link" href="/research">リサーチ</a>
+        </nav>
         <button class="new-chat" id="new-chat" type="button" aria-label="新しい会話を始める">
           <span aria-hidden="true">＋</span> 新しい会話
         </button>
@@ -36,11 +41,13 @@
       <div class="composer-wrap">
         <div class="composer-inner">
           <p class="status" id="status" role="status" aria-live="polite"></p>
-          <form class="composer" id="chat-form">
+          <form class="composer" id="chat-form" novalidate>
             <label class="sr-only" for="message">JARVIS へのメッセージ</label>
-            <textarea id="message" name="message" rows="1" maxlength="4000" placeholder="JARVIS にメッセージを送る" required></textarea>
+            <textarea id="message" name="message" rows="1" maxlength="4000" placeholder="メッセージを入力"></textarea>
+            <button id="stop" class="stop" type="button" aria-label="応答を停止する" hidden>停止</button>
             <button id="send" type="submit" aria-label="メッセージを送信する">送信</button>
           </form>
+          <p class="counter" id="counter" hidden></p>
           <p class="hint">Enter で送信 · Shift + Enter で改行</p>
         </div>
       </div>

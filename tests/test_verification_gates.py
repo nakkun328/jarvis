@@ -215,6 +215,24 @@ def test_frontend_success_marker_does_not_hide_failure(
     assert not followup.exists()
 
 
+def test_every_frontend_test_file_is_a_required_gate(
+    repo: tuple[Path, str], tmp_path: Path
+) -> None:
+    root, base = repo
+    (root / "frontend/test/synthetic-search.test.mjs").write_text(
+        "import test from 'node:test';\n"
+        "import assert from 'node:assert/strict';\n"
+        "test('second file passes', () => assert.ok(true));\n"
+        "test('second file fails', () => assert.fail('intentional browser test failure'));\n"
+    )
+    commit(root, "failing second frontend test file")
+    process, receipt, folder, followup = run_gate(root, base, tmp_path / "logs")
+    assert process.returncode == receipt["exitcode"] == 1
+    assert receipt["checks"][-1] == {"name": "frontend", "returncode": 1}
+    assert "second file fails" in (folder / "frontend.log").read_text()
+    assert not followup.exists()
+
+
 def test_no_terminal_receipt_while_test_is_running(repo: tuple[Path, str], tmp_path: Path) -> None:
     root, base = repo
     (root / "tests/test_one.py").write_text(
