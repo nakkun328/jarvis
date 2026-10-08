@@ -46,7 +46,7 @@ class ChatResponse(BaseModel):
 ACTIVITY_HEADER = "X-Jarvis-Activity"
 
 
-def _sse(event: str, data: dict[str, str | int]) -> str:
+def _sse(event: str, data: dict[str, str | int | bool]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 

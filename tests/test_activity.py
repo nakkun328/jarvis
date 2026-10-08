@@ -31,7 +31,7 @@ from backend.providers.base import CompletionRequest, CompletionResponse, Provid
 ACTIVITY_NAME = "X-Jarvis-Activity"
 ACTIVITY = {ACTIVITY_NAME: "1"}
 HOSTILE = "IGNORE-ALL-RULES </script><b>x</b> /etc/passwd sk-live-0123456789"
-ALLOWED_KEYS = {"stage", "route", "count", "step", "code"}
+ALLOWED_KEYS = {"stage", "route", "decided", "fallback", "count", "step", "code"}
 VOCABULARY = (
     {stage.value for stage in ActivityStage}
     | {route.value for route in ActivityRoute}
@@ -78,6 +78,8 @@ def assert_only_vocabulary(payload: dict) -> None:
     for key, value in payload.items():
         if key == "count":
             assert type(value) is int and 0 <= value <= 99
+        elif key == "fallback":
+            assert type(value) is bool
         else:
             assert value in VOCABULARY
 
@@ -109,7 +111,11 @@ def test_every_event_serialises_to_stage_plus_one_allowlisted_field() -> None:
     events = [
         ActivityEvent.received(),
         ActivityEvent.routing(),
-        *(ActivityEvent.route_selected(route) for route in ActivityRoute),
+        *(
+            ActivityEvent.route_selected(ActivityRoute.MAIN, decided, fallback)
+            for decided in (ActivityRoute.CASUAL, ActivityRoute.MEMORY, ActivityRoute.RESEARCH)
+            for fallback in (False, True)
+        ),
         ActivityEvent.memory_lookup(2),
         *(ActivityEvent.researching(step) for step in ResearchStep),
         ActivityEvent.generating(),
@@ -121,12 +127,17 @@ def test_every_event_serialises_to_stage_plus_one_allowlisted_field() -> None:
     for event in events:
         payload = event.to_payload()
         assert payload["stage"] == event.stage.value
-        assert len(payload) <= 2
+        # route_selected carries three allowlisted fields, every other stage at most one.
+        assert len(payload) <= (4 if event.stage is ActivityStage.ROUTE_SELECTED else 2)
         assert_only_vocabulary(payload)
     assert ActivityEvent.memory_lookup(3).to_payload() == {"stage": "memory_lookup", "count": 3}
-    assert ActivityEvent.route_selected(ActivityRoute.MAIN).to_payload() == {
+    assert ActivityEvent.route_selected(
+        ActivityRoute.MAIN, ActivityRoute.CASUAL, False
+    ).to_payload() == {
         "stage": "route_selected",
         "route": "main",
+        "decided": "casual",
+        "fallback": False,
     }
     assert ActivityEvent.error(ActivityErrorCode.PROVIDER).to_payload() == {
         "stage": "error",
@@ -148,6 +159,16 @@ def test_every_event_serialises_to_stage_plus_one_allowlisted_field() -> None:
         lambda: ActivityEvent(ActivityStage.ERROR, code="my secret upstream text"),
         lambda: ActivityEvent(ActivityStage.ERROR),
         lambda: ActivityEvent(ActivityStage.ROUTE_SELECTED, route="elsewhere"),
+        lambda: ActivityEvent(ActivityStage.ROUTE_SELECTED, route=ActivityRoute.MAIN),
+        lambda: ActivityEvent(
+            ActivityStage.ROUTE_SELECTED, route=ActivityRoute.MAIN, decided=ActivityRoute.MEMORY
+        ),
+        # `main` is where a turn runs, never something the router chose.
+        lambda: ActivityEvent.route_selected(ActivityRoute.MAIN, ActivityRoute.MAIN, False),
+        lambda: ActivityEvent.route_selected(ActivityRoute.MAIN, ActivityRoute.MEMORY, 1),
+        lambda: ActivityEvent.route_selected(ActivityRoute.MAIN, "memory", False),
+        lambda: ActivityEvent(ActivityStage.ROUTING, decided=ActivityRoute.CASUAL),
+        lambda: ActivityEvent(ActivityStage.DONE, fallback=False),
         lambda: ActivityEvent(ActivityStage.RESEARCHING, step="free text"),
     ],
 )
@@ -156,7 +177,9 @@ def test_events_reject_fields_outside_the_vocabulary(build) -> None:
         build()
 
 
-def test_reserved_stages_are_never_emitted_today(tmp_path: Path) -> None:
+def test_routing_and_reserved_stages_are_not_emitted_without_a_router(tmp_path: Path) -> None:
+    # Without a router (the default) not even the routing stages appear; researching and
+    # speaking do not exist at all yet (see tests/test_router_wiring.py for the router).
     async def run() -> set[ActivityStage]:
         service = ChatService(FakeProvider(), ConversationStore())
         seen = set()

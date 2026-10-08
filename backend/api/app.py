@@ -42,10 +42,28 @@ from backend.research.run_control import (
 )
 from backend.research.search import SearchProvider
 from backend.research.search_factory import create_search_provider
+from backend.router import AuditedRouter, InMemoryAuditSink, LLMRouter, Router, RuleRouter
 from backend.tasks.repository import TaskRepository
 
 if TYPE_CHECKING:
     from backend.research.standard import PageFetcher
+
+
+def _build_router(settings: Settings, provider: LLMProvider | None) -> Router:
+    """The router chosen by ``JARVIS_ROUTER``, with an in-memory audit (no text, not persisted).
+
+    ``llm`` reuses the already configured chat provider: no new key, model or endpoint. An
+    injected ``router=`` is used as given and is not wrapped.
+    """
+    if settings.router == "rule":
+        inner: Router = RuleRouter()
+    elif settings.router == "llm":
+        if provider is None:
+            raise ConfigError("JARVIS_ROUTER=llm requires a configured chat provider")
+        inner = LLMRouter(provider)
+    else:  # pragma: no cover - Settings validates the value
+        raise ConfigError("JARVIS_ROUTER is invalid")
+    return AuditedRouter(inner, InMemoryAuditSink())
 
 
 def create_app(
@@ -57,6 +75,7 @@ def create_app(
     auth: AuthService | None = None,
     search_provider: SearchProvider | None = None,
     page_reader: "PageFetcher | None" = None,
+    router: Router | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     auth = auth or AuthService.from_settings(settings)
@@ -88,12 +107,15 @@ def create_app(
     run_service, research_reason = _build_research(
         settings, database, research_repository, provider, search_provider, page_reader
     )
+    if router is None and settings.router != "off":
+        router = _build_router(settings, provider)
     chat_service = (
         ChatService(
             provider,
             SQLiteConversationStore(database),
             memory_context=memory_context,
             personality=personality,
+            router=router,
         )
         if provider is not None
         else None
