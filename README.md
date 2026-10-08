@@ -57,6 +57,7 @@ node --test frontend/test/chat-api.test.mjs
 - [Vector index rebuild](docs/index-rebuild.md)
 - [Local memory review](docs/memory-review.md)
 - [Research](docs/research.md)
+- [Quick Research](docs/research-quick.md)
 - [Tools](docs/tools.md)
 - [Read-only filesystem tools](docs/tools-filesystem.md)
 - [Security](docs/security.md)
