@@ -110,4 +110,3 @@ export async function pollSession(sessionId, { fetchImpl = fetch, signal } = {})
   if (session === null || !Array.isArray(session.sources)) throw new RunApiError("format");
   return session;
 }
-
