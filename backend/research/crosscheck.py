@@ -31,6 +31,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from uuid import UUID
 
+from backend.research.domains import registrable_domain
 from backend.research.facts import (
     Facts,
     dates_compatible,
@@ -192,11 +193,20 @@ def _positive(stance: Stance) -> bool:
     return stance in {Stance.SUPPORTS, Stance.PARTIAL}
 
 
-def _claim_rating(speaking: Sequence[StanceResult]) -> float | None:
-    if len(speaking) < 2:
-        return None
+def _claim_rating(
+    speaking: Sequence[StanceResult], domains: Mapping[UUID, str | None] | None = None
+) -> float | None:
+    """Mean stance weight; pages of one domain count as one speaker (their mean)."""
     weight = {Stance.SUPPORTS: 1.0, Stance.PARTIAL: 0.5, Stance.CONTRADICTS: 0.0}
-    return round(sum(weight[r.stance] for r in speaking) / len(speaking), _DIGITS)
+    groups: dict[object, list[float]] = {}
+    for result in speaking:
+        domain = (domains or {}).get(result.source_id)
+        key = domain if domain is not None else result.source_id
+        groups.setdefault(key, []).append(weight[result.stance])
+    if len(groups) < 2:
+        return None
+    means = [sum(values) / len(values) for values in groups.values()]
+    return round(sum(means) / len(means), _DIGITS)
 
 
 _MISMATCH_REASON = {
@@ -206,8 +216,16 @@ _MISMATCH_REASON = {
 }
 
 
-def cross_check(claims: Sequence[ClaimInput], evidence: Sequence[EvidenceText]) -> CrossCheckReport:
+def cross_check(
+    claims: Sequence[ClaimInput],
+    evidence: Sequence[EvidenceText],
+    domains: Mapping[UUID, str | None] | None = None,
+) -> CrossCheckReport:
     """Stances per claim and the ``agreement`` rating per source. Pure and deterministic.
+
+    ``domains`` maps source ids to their registrable domain. Sources of one domain are not
+    independent: a source is never compared with another page of its own domain (it may end up
+    with no comparison), and in a claim's rating the pages of one domain count as one speaker.
 
     Every source in ``evidence`` is compared with every claim, including the source that
     each claim cites. Raises ``ValueError`` for more than ``MAX_CLAIMS`` claims or
@@ -234,7 +252,7 @@ def cross_check(claims: Sequence[ClaimInput], evidence: Sequence[EvidenceText]) 
         facts = extract_facts(claim.text, MAX_CLAIM_CHARS)
         stances = tuple(_stance(claim, facts, item) for item in prepared)
         speaking = [s for s in stances if s.stance is not Stance.SILENT]
-        results.append(ClaimCrossCheck(claim.claim_id, stances, _claim_rating(speaking)))
+        results.append(ClaimCrossCheck(claim.claim_id, stances, _claim_rating(speaking, domains)))
 
     sources: list[SourceAgreement] = []
     for item in prepared:
@@ -249,7 +267,9 @@ def cross_check(claims: Sequence[ClaimInput], evidence: Sequence[EvidenceText]) 
             others = [
                 s
                 for s in outcome.stances
-                if s.source_id != item.source_id and s.stance is not Stance.SILENT
+                if s.source_id != item.source_id
+                and s.stance is not Stance.SILENT
+                and not _same_domain(domains, s.source_id, item.source_id)
             ]
             if not others:
                 continue
@@ -261,6 +281,15 @@ def cross_check(claims: Sequence[ClaimInput], evidence: Sequence[EvidenceText]) 
                         mismatch_kinds.append(kind)
         sources.append(_source_agreement(item.source_id, shares, verbatim, mismatch_kinds))
     return CrossCheckReport(tuple(results), tuple(sources))
+
+
+def _same_domain(
+    domains: Mapping[UUID, str | None] | None, first: UUID, second: UUID
+) -> bool:
+    if not domains:
+        return False
+    domain = domains.get(first)
+    return domain is not None and domain == domains.get(second)
 
 
 def _source_agreement(
@@ -311,7 +340,8 @@ def cross_check_and_store(
         ClaimInput(claim.id, claim.source_id, claim.claim_text, claim.quote)
         for claim in repository.list_claims(session_id)
     ]
-    report = cross_check(claims, evidence)
+    domains = {source_id: registrable_domain(sources[source_id].final_url) for source_id in sources}
+    report = cross_check(claims, evidence, domains)
     for agreement in report.sources:
         current = sources[agreement.source_id].evaluation
         repository.set_evaluation(

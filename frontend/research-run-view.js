@@ -192,6 +192,8 @@ const CAVEAT_JA = {
   "Some proposed claims were removed because they could not be verified.":
     "検証できなかった主張は取り除きました。",
   "The sources did not support any claim that could be verified.": NO_VERIFIED_JA,
+  "All verified claims come from one website, so they are not independent.":
+    "検証できた主張はすべて同じウェブサイトのものなので、独立した裏付けとは言えません。",
 };
 const QUICK_NO_CLAIM = "No claim could be verified against a source.";
 const QUICK_NO_CLAIM_JA = NO_VERIFIED_JA;

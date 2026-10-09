@@ -135,12 +135,8 @@ def test_multiple_sources_give_a_cited_result_at_both_levels(tmp_path: Path, lev
     assert_citations_are_verified(env, detail)
     text = detail["result_text"]
     assert "Verified claims:" in text or "Standard research result" in text
-    if level == "standard":
-        # Standard writes the result from verified claims only; the model's prose is unused.
-        assert "FREE TEXT THAT MUST NEVER APPEAR" not in text
-    else:
-        # known gap: Quick prints the model's own (unverified) prose above the verified claims.
-        assert text.startswith("FREE TEXT THAT MUST NEVER APPEAR")
+    # Both levels write the result from verified claims only; the model's prose is unused.
+    assert "FREE TEXT THAT MUST NEVER APPEAR" not in text
     assert "Caveats:" not in text and "Open conflicts" not in text
     assert detail["conflicts"] == [] and "progress" not in detail
     assert detail["queries"], "the queries that were run are recorded"
@@ -400,20 +396,18 @@ def test_internal_urls_from_a_search_are_never_fetched(tmp_path: Path) -> None:
     assert detail["status"] == "completed"
 
 
-def test_known_gap_blocked_urls_use_up_the_page_budget(tmp_path: Path) -> None:
+def test_blocked_urls_do_not_use_up_the_page_budget(tmp_path: Path) -> None:
     evil = [
         hit("http://169.254.169.254/latest/meta-data", "metadata"),
-        hit("http://127.0.0.1:8000/api/auth", "loopback"),
-        hit("http://localhost/admin", "localhost"),
-        hit("http://[::1]/", "ipv6 loopback"),
         hit("file:///etc/passwd", "file"),
+        hit("http://[::1]/", "ipv6 loopback"),
     ]
+    # 3 blocked + 3 good = the 6 hits a Standard query returns; the blocked ones take no slot.
     with Env(tmp_path, search=FakeSearch(evil + AGREEING_HITS)) as env:
         detail = env.run("standard")
     assert not any(m in " ".join(env.transport.requests) for m in ("169.254", "127.0.0.1", "::1"))
-    # known gap: a blocked URL still counts as a page tried, so a flood of internal links in the
-    # hits crowds good sources out of the first pass (5 slots): fewer than 3 sources survive.
-    assert len(detail["sources"]) < 3
+    assert len(detail["sources"]) == 3 and detail["status"] == "completed"
+    assert len(env.transport.requests) == 3  # only the good pages were fetched
 
 
 def test_only_internal_urls_means_failure_not_an_invented_answer(tmp_path: Path) -> None:
@@ -425,21 +419,21 @@ def test_only_internal_urls_means_failure_not_an_invented_answer(tmp_path: Path)
     assert detail["result_text"] is None and detail["claims"] == []
 
 
-# ----- regressions seen in the owner's real run (known gaps, current behaviour asserted) -----
+# ----- regressions seen in the owner's real run (fixed) -----
 
 
-def test_known_gap_near_duplicate_claims_are_all_kept(tmp_path: Path) -> None:
+def test_near_duplicate_claims_are_merged(tmp_path: Path) -> None:
     reworded = "The Foo widget cache keeps its entries for 60 seconds."
     pages = {URL_A: foo_page("Foo Cache Docs", SIXTY_A + " " + reworded)}
     claims = {URL_A: [claim(SIXTY_A), claim(reworded)]}
     with Env(tmp_path, search=FakeSearch(AGREEING_HITS[:1]), pages=pages, claims=claims) as env:
         detail = env.run("standard")
     texts = [c["claim_text"] for c in detail["claims"]]
-    # known gap: near-duplicate claims are not merged; the day they are, expect len(texts) == 1
-    assert texts == [SIXTY_A, reworded]
+    # The reworded copy is merged into one claim; the better-cited (longer quote) wording stays.
+    assert texts == [reworded]
 
 
-def test_known_gap_one_domain_can_supply_every_source_without_a_caveat(tmp_path: Path) -> None:
+def test_one_domain_is_not_counted_as_independent_sources(tmp_path: Path) -> None:
     urls = [f"https://docs.a.test/foo-cache-{n}" for n in range(3)]
     pages = {u: foo_page(f"Foo Cache {n}", SIXTY_A) for n, u in enumerate(urls)}
     hits = [hit(u, f"Foo Cache {n}") for n, u in enumerate(urls)]
@@ -447,9 +441,24 @@ def test_known_gap_one_domain_can_supply_every_source_without_a_caveat(tmp_path:
     with Env(tmp_path, search=FakeSearch(hits), pages=pages, claims=claims) as env:
         detail = env.run("standard")
     assert len(detail["sources"]) == 3 and len(detail["claims"]) == 3
-    assert all(s["evaluation"]["agreement"] == 1.0 for s in detail["sources"])
-    # known gap: three pages of one domain count as three independent sources, so the result
-    # says nothing about it; once a diversity caveat exists, expect it in result_text here.
+    # Pages of one domain do not corroborate each other ...
+    assert all(s["evaluation"]["agreement"] is None for s in detail["sources"])
+    # ... and the result says so.
+    assert CAVEAT_TEXT[Caveat.SINGLE_DOMAIN] in detail["result_text"]
+
+
+def test_pages_are_picked_from_different_domains_first(tmp_path: Path) -> None:
+    same = [f"https://docs.a.test/foo-cache-{n}" for n in range(3)]
+    other = ["https://b.test/foo-cache", "https://c.test/foo-cache"]
+    urls = same + other  # the single-domain pages rank best
+    pages = {u: foo_page(f"Foo Cache {n}", SIXTY_A) for n, u in enumerate(urls)}
+    hits = [hit(u, f"Foo Cache {n}") for n, u in enumerate(urls)]
+    claims = {u: [claim(SIXTY_A)] for u in urls}
+    with Env(tmp_path, search=FakeSearch(hits), pages=pages, claims=claims) as env:
+        detail = env.run("quick")
+    read = {u for u in env.transport.requests}
+    assert any("b.test" in u for u in read) and any("c.test" in u for u in read)
+    assert sum("docs.a.test" in u for u in read) == 1
     assert "Caveats:" not in detail["result_text"]
 
 

@@ -286,8 +286,8 @@ def _two_sources(repository: ResearchRepository):
     sources = [
         repository.add_source(
             session.id,
-            url=f"https://example.test/{name}",
-            final_url=f"https://example.test/{name}",
+            url=f"https://{name}.test/{name}",
+            final_url=f"https://{name}.test/{name}",
             retrieved_at=NOW,
             content_digest=_digest(name),
             evaluation=SourceEvaluation(authority=0.5, primary=1.0),
