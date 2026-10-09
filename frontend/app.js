@@ -1,5 +1,6 @@
 import { sendChat } from "./chat-api.js";
 import { createActivityView } from "./activity.js";
+import { mountModelSelect } from "./model-select.js";
 import { renderReply } from "./chat-links.js";
 import { ChatSession, MAX_MESSAGE_LENGTH, messageLength } from "./chat-session.js";
 
@@ -14,6 +15,20 @@ const status = document.querySelector("#status");
 const counter = document.querySelector("#counter");
 
 const activity = createActivityView(document, document.querySelector("#activity"), window);
+
+const modelMount = document.querySelector("#model-select");
+let modelSelect = null;
+void mountModelSelect(document, modelMount, {
+  storage: (() => {
+    try {
+      return window.localStorage;
+    } catch {
+      return null;
+    }
+  })(),
+}).then((control) => {
+  modelSelect = control;
+});
 
 const PENDING_TEXT = "考えています…";
 const COUNTER_FROM = 3600;
@@ -132,7 +147,12 @@ function beginTurn(text, onRetry) {
 }
 
 const session = new ChatSession({
-  send: (options) => sendChat({ ...options, onActivity: (data) => activity.handle(data) }),
+  send: (options) =>
+    sendChat({
+      ...options,
+      modelChoice: modelSelect?.value ?? null,
+      onActivity: (data) => activity.handle(data),
+    }),
   view: {
     setStatus,
     clearInput() {
@@ -146,6 +166,7 @@ const session = new ChatSession({
     setBusy(value) {
       sendButton.disabled = value;
       newChatButton.disabled = value;
+      modelSelect?.setDisabled(value);
       stopButton.hidden = !value;
       conversation.setAttribute("aria-busy", String(value));
       if (!value) input.focus();

@@ -47,6 +47,16 @@ const SERVER_MESSAGES = {
     retryable: true,
     message: "メモリ参照が利用できません。サーバーの状態を確認して再試行してください。",
   },
+  "unknown model choice": {
+    kind: "model",
+    retryable: true,
+    message: "選択したモデルはサーバーで許可されていません。モデルの選択を変えて再試行してください。",
+  },
+  "model choice unavailable": {
+    kind: "model",
+    retryable: true,
+    message: "選択したモデルは現在使えません（キー未設定など）。別のモデルを選んで再試行してください。",
+  },
   "message must contain text": {
     kind: "invalid",
     retryable: false,
@@ -102,10 +112,11 @@ function requireText(value) {
   return value;
 }
 
-function requestBody(message, conversationId) {
+function requestBody(message, conversationId, modelChoice) {
   return JSON.stringify({
     message,
     ...(conversationId ? { conversation_id: conversationId } : {}),
+    ...(modelChoice ? { model_choice: modelChoice } : {}),
   });
 }
 
@@ -138,8 +149,8 @@ async function sendNonStreaming(body, onDelta, fetchImpl, signal) {
 // `onActivity(data)` is optional. When given, the request asks for the server's additive
 // `activity` events and each one's raw JSON text is passed on (parsing and validation belong to
 // activity-view.js). Anything wrong with an activity event is ignored: it can never fail a chat.
-export async function sendChat({ message, conversationId, onDelta, onActivity, signal, fetchImpl = fetch }) {
-  const body = requestBody(message, conversationId);
+export async function sendChat({ message, conversationId, modelChoice, onDelta, onActivity, signal, fetchImpl = fetch }) {
+  const body = requestBody(message, conversationId, modelChoice);
   const response = await fetchImpl("/api/chat/stream", {
     method: "POST",
     headers: {

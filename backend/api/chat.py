@@ -17,6 +17,7 @@ from backend.chat.memory_context import MemoryContextError
 from backend.chat.persistence import ConversationStorageError
 from backend.chat.service import ChatDelta, ChatService
 from backend.providers.base import ProviderError
+from backend.providers.choices import ModelUnavailable, UnknownModelChoice
 
 
 class _ClosingStreamingResponse(StreamingResponse):
@@ -32,6 +33,9 @@ class _ClosingStreamingResponse(StreamingResponse):
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     conversation_id: UUID | None = None
+    # Exactly one entry of the server's JARVIS_MODEL_CHOICES allowlist, or absent for the
+    # default model. Validated strictly in ``check_model``; never forwarded as given.
+    model_choice: str | None = Field(default=None, max_length=100)
 
 
 class ChatResponse(BaseModel):
@@ -62,12 +66,24 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
         if not request.message.strip():
             raise HTTPException(status_code=422, detail="message must contain text")
 
+    def check_model(chat_service: ChatService, request: ChatRequest) -> None:
+        """Refuse a bad choice with a fixed 400/503 before anything (a stream, a provider)."""
+        try:
+            chat_service.provider_for(request.model_choice)
+        except UnknownModelChoice:
+            raise HTTPException(status_code=400, detail="unknown model choice") from None
+        except ModelUnavailable:
+            raise HTTPException(status_code=503, detail="model choice unavailable") from None
+
     @router.post("/api/chat", response_model=ChatResponse)
     async def chat(request: ChatRequest) -> ChatResponse:
         validate_message(request)
         chat_service = require_service()
+        check_model(chat_service, request)
         try:
-            result = await chat_service.complete(request.message, request.conversation_id)
+            result = await chat_service.complete(
+                request.message, request.conversation_id, model_choice=request.model_choice
+            )
         except ConversationNotFound as exc:
             raise HTTPException(status_code=404, detail="conversation not found") from exc
         except ConversationCapacityError as exc:
@@ -92,6 +108,7 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
     ) -> StreamingResponse:
         validate_message(request)
         chat_service = require_service()
+        check_model(chat_service, request)
         with_activity = x_jarvis_activity == "1"
 
         async def events():
@@ -101,7 +118,13 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
                     if with_activity
                     else chat_service.stream
                 )
-                async with aclosing(turn(request.message, request.conversation_id)) as items:
+                async with aclosing(
+                    turn(
+                        request.message,
+                        request.conversation_id,
+                        model_choice=request.model_choice,
+                    )
+                ) as items:
                     async for item in items:
                         if isinstance(item, ActivityEvent):
                             yield _sse("activity", item.to_payload())
