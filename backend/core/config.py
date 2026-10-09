@@ -1,6 +1,7 @@
 """Runtime configuration sourced from environment variables."""
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -22,6 +23,9 @@ _ROUTER_MODES = frozenset({"off", "rule", "llm"})
 # The research level a routed chat turn starts. Quick is the cheaper one (and the default).
 _CHAT_RESEARCH_LEVELS = frozenset({"quick", "standard"})
 _MIN_SIGNING_KEY_CHARS = 32
+_SHELL_COMMAND_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}")
+_MAX_SHELL_COMMANDS = 16
+DEFAULT_SHELL_COMMANDS = ("ls", "cat", "git")
 _MAX_SESSION_HOURS = 24 * 365
 _TRUE = frozenset({"1", "true", "yes", "on"})
 _FALSE = frozenset({"0", "false", "no", "off"})
@@ -74,6 +78,13 @@ class Settings:
     # Which research a chat turn starts when the router chooses research (and a router, research,
     # a search provider and a chat provider are all configured). A fixed enum, not a free value.
     chat_research_level: str = "quick"
+    # Structured shell tool (docs/tool-shell.md). Off by default; it needs an execution root too.
+    # The command names pick entries of the fixed allowlist table, they are never command lines.
+    shell_enabled: bool = False
+    shell_root: Path | None = None
+    shell_timeout_seconds: float = 30.0
+    shell_max_output_bytes: int = 32_768
+    shell_commands: tuple[str, ...] = DEFAULT_SHELL_COMMANDS
 
     @property
     def auth_enabled(self) -> bool:
@@ -109,6 +120,30 @@ class Settings:
                 "JARVIS_CHAT_RESEARCH_LEVEL must be one of: "
                 f"{', '.join(sorted(_CHAT_RESEARCH_LEVELS))}"
             )
+        if not isinstance(self.shell_enabled, bool):
+            raise ConfigError("JARVIS_SHELL_ENABLED must be true or false")
+        if self.shell_root is not None and not str(self.shell_root).strip():
+            raise ConfigError("JARVIS_SHELL_ROOT must not be empty")
+        if (
+            isinstance(self.shell_timeout_seconds, bool)
+            or not isinstance(self.shell_timeout_seconds, int | float)
+            or not 1 <= self.shell_timeout_seconds <= 600
+        ):
+            raise ConfigError("JARVIS_SHELL_TIMEOUT_SECONDS must be between 1 and 600")
+        if (
+            isinstance(self.shell_max_output_bytes, bool)
+            or not isinstance(self.shell_max_output_bytes, int)
+            or not 1 <= self.shell_max_output_bytes <= 65_536
+        ):
+            raise ConfigError("JARVIS_SHELL_MAX_OUTPUT_BYTES must be between 1 and 65536")
+        names = tuple(self.shell_commands)
+        object.__setattr__(self, "shell_commands", names)
+        if (
+            not 1 <= len(names) <= _MAX_SHELL_COMMANDS
+            or len(set(names)) != len(names)
+            or not all(isinstance(n, str) and _SHELL_COMMAND_NAME.fullmatch(n) for n in names)
+        ):
+            raise ConfigError("JARVIS_SHELL_COMMANDS must list 1-16 distinct lowercase names")
         if self.router not in _ROUTER_MODES:
             raise ConfigError(f"JARVIS_ROUTER must be one of: {', '.join(sorted(_ROUTER_MODES))}")
         if self.memory_vault_path is not None and not str(self.memory_vault_path).strip():
@@ -156,7 +191,25 @@ class Settings:
         search_key = os.environ.get("JARVIS_SEARCH_API_KEY")
         if search_key is not None and not search_key.strip():
             raise ConfigError("JARVIS_SEARCH_API_KEY must not be empty")
+        shell_root = os.environ.get("JARVIS_SHELL_ROOT")
+        if shell_root is not None and not shell_root.strip():
+            raise ConfigError("JARVIS_SHELL_ROOT must not be empty")
+        raw_commands = os.environ.get("JARVIS_SHELL_COMMANDS")
+        shell_commands = (
+            tuple(p.strip().lower() for p in raw_commands.split(","))
+            if raw_commands is not None
+            else DEFAULT_SHELL_COMMANDS
+        )
+        try:
+            shell_timeout = float(os.environ.get("JARVIS_SHELL_TIMEOUT_SECONDS", "30").strip())
+        except ValueError:
+            raise ConfigError("JARVIS_SHELL_TIMEOUT_SECONDS must be a number") from None
         return cls(
+            shell_enabled=_env_bool("JARVIS_SHELL_ENABLED", False),
+            shell_root=Path(shell_root.strip()).expanduser() if shell_root is not None else None,
+            shell_timeout_seconds=shell_timeout,
+            shell_max_output_bytes=_env_int("JARVIS_SHELL_MAX_OUTPUT_BYTES", 32_768),
+            shell_commands=shell_commands,
             db_path=Path(raw_path).expanduser(),
             log_level=os.environ.get("JARVIS_LOG_LEVEL", "INFO").upper(),
             llm_provider=os.environ.get("JARVIS_LLM_PROVIDER", "none").lower(),

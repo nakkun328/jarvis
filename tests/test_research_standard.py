@@ -1036,3 +1036,14 @@ def test_the_network_guard_really_blocks_connections() -> None:
         socket.create_connection(("example.com", 80))
     with pytest.raises(AssertionError):
         socket.getaddrinfo("example.com", 80)
+
+
+@aio
+async def test_blocked_urls_are_not_pages_tried_and_take_no_slot(tmp_path: Path) -> None:
+    h = agreeing(tmp_path, limits=StandardLimits(max_pages=3, first_pass_pages=3))
+    blocked = [hit("http://169.254.169.254/x", "meta"), hit("http://localhost/y", "local")]
+    h.search.exact[QUESTION] = [*blocked, *AGREEING_HITS]
+    result = await h.run()
+    assert result.pages_tried == 3 and len(h.transport.requests) == 3
+    assert len(result.sources) == 3
+    assert sorted(f.reason for f in result.failed_reads) == ["blocked_host", "blocked_host"]
