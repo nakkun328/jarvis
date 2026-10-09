@@ -326,6 +326,10 @@ def test_evaluate_and_store_failure_leaves_the_source_unchanged(
 def _downgrade_to_v7(path: Path) -> None:
     with sqlite3.connect(path) as connection:
         connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("ALTER TABLE research_sessions DROP COLUMN reuse_prior_at")
+        connection.execute("ALTER TABLE research_sessions DROP COLUMN reuse_of")
+        connection.execute("ALTER TABLE research_sessions DROP COLUMN reuse_reason")
+        connection.execute("DELETE FROM schema_migrations WHERE version = 10")
         connection.execute("DROP TABLE tool_approvals")
         connection.execute("DELETE FROM schema_migrations WHERE version = 9")
         connection.execute("DROP TABLE research_conflicts")
@@ -357,7 +361,7 @@ def test_v7_database_with_research_data_upgrades_and_stays_valid(tmp_path: Path)
 
     assert database.is_ready()
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
         assert [r[0] for r in connection.execute("SELECT version FROM schema_migrations")] == [
             1,
             2,
@@ -368,6 +372,7 @@ def test_v7_database_with_research_data_upgrades_and_stays_valid(tmp_path: Path)
             7,
             8,
             9,
+            10,
         ]
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute(
