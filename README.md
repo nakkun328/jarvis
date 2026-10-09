@@ -21,14 +21,16 @@ See [.env.example](.env.example). Copy it to `.env` if useful, but export the va
 | `JARVIS_MEMORY_VAULT_PATH` | unset | Opt in to including matching approved vault notes in chat requests. The configured provider receives those excerpts. |
 | `JARVIS_PERSONALITY_PATH` | unset | Optional TOML file that selects personality levels; unset uses the documented initial values. An invalid file stops startup. See [personality settings](docs/personality.md). |
 | `JARVIS_ROUTER` | `off` | `off`, `rule` (offline keyword baseline) or `llm` (one extra short call to the configured chat provider per turn; the message goes to that provider). Shows the routing decision in the Activity View; every turn is still answered by the Main Agent, except that with research also enabled (below) a real `research` decision starts a research. See [router](docs/router.md). |
-| `JARVIS_MODEL_CHOICES` | unset | Comma list of `provider:model` (`openai` / `gemini`, at most 8) the owner may pick from in the chat header. Unset: no selector, exactly the single configured model. Keys stay in `OPENAI_API_KEY` / `GEMINI_API_KEY`. See [model selection](docs/model-select.md). |
+| `JARVIS_MODEL_CHOICES` | unset | Comma list of `provider:model` (`openai` / `gemini` / `groq`, at most 8) the owner may pick from in the chat header. Unset: no selector, exactly the single configured model. Keys stay in `OPENAI_API_KEY` / `GEMINI_API_KEY` / `GROQ_API_KEY`. See [model selection](docs/model-select.md). |
 | `JARVIS_CHAT_RESEARCH_LEVEL` | `quick` | `quick` or `standard`: the research a chat turn starts when the router chooses research. Needs `JARVIS_ROUTER`, `JARVIS_RESEARCH_ENABLED=1`, a search provider and a chat provider; the whole message is sent to the search service. See [research](docs/research.md#research-from-chat-off-by-default). |
 | `JARVIS_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Logs are JSON lines on stderr; see [logging](docs/logging.md). |
-| `JARVIS_LLM_PROVIDER` | `none` | Select `none`, `openai`, or `gemini`. |
+| `JARVIS_LLM_PROVIDER` | `none` | Select `none`, `openai`, `gemini`, or `groq`. |
 | `OPENAI_API_KEY` | unset | Server-side key for the optional OpenAI provider. |
 | `JARVIS_OPENAI_MODEL` | unset | Explicit model to use with the optional OpenAI provider. |
 | `GEMINI_API_KEY` | unset | Server-side key for the optional Gemini provider. |
 | `JARVIS_GEMINI_MODEL` | unset | Explicit model to use with the optional Gemini provider. |
+| `GROQ_API_KEY` | unset | Server-side key for the optional Groq provider. |
+| `JARVIS_GROQ_MODEL` | unset | Explicit model ID for the optional Groq provider (no default; see [Groq](docs/groq.md)). |
 | `JARVIS_AUTH_PASSPHRASE_HASH` | unset | Turns on the single-owner login. Create it with `python -m backend.auth.hash_password`. Required to bind a non-loopback address. See [auth](docs/auth.md). |
 | `JARVIS_AUTH_SIGNING_KEY` | random per start | At least 32 characters; signs session cookies. If unset, a random key is used and sessions reset on restart. |
 | `JARVIS_AUTH_SESSION_HOURS` | `168` | Absolute session lifetime in hours (1 to 8760). |
@@ -44,6 +46,8 @@ Install the optional provider with `.venv/bin/python -m pip install -e '.[openai
 For local vector indexing, install `.venv/bin/python -m pip install -e '.[vector]'` and use `backend.memory.chroma.ChromaVectorIndex`. It accepts caller-generated embeddings and is not yet connected to the chat API. See [vector search](docs/vector-search.md).
 
 For Gemini, install `.venv/bin/python -m pip install -e '.[gemini]'` and export `JARVIS_LLM_PROVIDER=gemini`, `GEMINI_API_KEY`, and `JARVIS_GEMINI_MODEL`. The separate adapter uses Google's documented `generateContent` and `streamGenerateContent` REST endpoints. It sends JARVIS's bounded text history on each request, passes `store: false`, and keeps the key in a server-side header. Gemini's newer Interactions API requires preserving all model steps for stateless follow-ups; JARVIS's provider contract stores text turns, so this adapter uses the still-supported content generation API to preserve restart continuity without changing that contract. If `JARVIS_MEMORY_VAULT_PATH` is set, matching reviewed memory excerpts are also sent to the selected provider.
+
+For Groq, install `.venv/bin/python -m pip install -e '.[groq]'` and export `JARVIS_LLM_PROVIDER=groq`, `GROQ_API_KEY`, and `JARVIS_GROQ_MODEL`. See [Groq provider](docs/groq.md).
 
 Set `JARVIS_MEMORY_VAULT_PATH` to an existing Obsidian vault to include matching approved notes in chat. The configured LLM provider receives bounded excerpts; see [chat memory behavior](docs/chat.md). With this variable unset, chat does not read or send long-term memory.
 

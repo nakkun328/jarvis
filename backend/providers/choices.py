@@ -2,7 +2,8 @@
 
 The allowlist is ``Settings.model_choices`` (``JARVIS_MODEL_CHOICES``). A client may only send one
 of its exact entries (``provider:model``); anything else is refused before any provider is
-touched. Credentials stay in the environment (``OPENAI_API_KEY`` / ``GEMINI_API_KEY``): an entry
+touched. Credentials stay in the environment (``OPENAI_API_KEY`` / ``GEMINI_API_KEY`` /
+``GROQ_API_KEY``): an entry
 is selectable only when its provider's key is present and its package importable. Providers are
 built lazily, once per entry, with the same classes the default provider uses. Only the research
 and router paths do not use this: they keep the default provider.
@@ -16,8 +17,8 @@ from dataclasses import dataclass
 from backend.core.config import ConfigError
 from backend.providers.base import LLMProvider
 
-_KEY_ENV = {"openai": "OPENAI_API_KEY", "gemini": "GEMINI_API_KEY"}
-_MODULE = {"openai": "openai", "gemini": "httpx"}
+_KEY_ENV = {"openai": "OPENAI_API_KEY", "gemini": "GEMINI_API_KEY", "groq": "GROQ_API_KEY"}
+_MODULE = {"openai": "openai", "gemini": "httpx", "groq": "httpx"}
 
 
 class ModelChoiceError(Exception):
@@ -78,6 +79,10 @@ def build_provider(provider: str, model: str, env: Mapping[str, str]) -> LLMProv
             from backend.providers.openai import OpenAIResponsesProvider
 
             return OpenAIResponsesProvider(model=model, client=AsyncOpenAI(api_key=key))
+        if provider == "groq":
+            from backend.providers.groq import GroqProvider
+
+            return GroqProvider(model=model, api_key=key)
         from backend.providers.gemini import GeminiProvider
 
         return GeminiProvider(model=model, api_key=key)

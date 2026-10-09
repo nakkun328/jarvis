@@ -64,6 +64,7 @@ def verify(args: argparse.Namespace) -> int:
     for key in (
         "OPENAI_API_KEY",
         "GEMINI_API_KEY",
+        "GROQ_API_KEY",
         "JARVIS_SEARCH_API_KEY",
         "JARVIS_MEMORY_VAULT_PATH",
     ):

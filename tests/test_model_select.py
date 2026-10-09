@@ -252,7 +252,8 @@ def clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> pytest.MonkeyP
     import os
 
     for name in list(os.environ):
-        if name.startswith("JARVIS_") or name in ("GEMINI_API_KEY", "OPENAI_API_KEY"):
+        keys = ("GEMINI_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY")
+        if name.startswith("JARVIS_") or name in keys:
             monkeypatch.delenv(name)
     monkeypatch.setenv("JARVIS_DB_PATH", str(tmp_path / "d.sqlite3"))
     return monkeypatch

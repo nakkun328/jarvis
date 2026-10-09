@@ -13,7 +13,7 @@ class ConfigError(ValueError):
 
 
 _LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
-_LLM_PROVIDERS = frozenset({"none", "openai", "gemini"})
+_LLM_PROVIDERS = frozenset({"none", "openai", "gemini", "groq"})
 _SEARCH_PROVIDERS = frozenset({"none", "tavily"})
 _DEFAULT_SEARCH_MONTHLY_LIMIT = 800
 _MAX_SEARCH_MONTHLY_LIMIT = 1_000_000
@@ -23,9 +23,12 @@ _ROUTER_MODES = frozenset({"off", "rule", "llm"})
 # The research level a routed chat turn starts. Quick is the cheaper one (and the default).
 _CHAT_RESEARCH_LEVELS = frozenset({"quick", "standard"})
 # Chat model allowlist (JARVIS_MODEL_CHOICES): at most this many `provider:model` entries.
-_MODEL_CHOICE_PROVIDERS = frozenset({"openai", "gemini"})
+_MODEL_CHOICE_PROVIDERS = frozenset({"openai", "gemini", "groq"})
 MAX_MODEL_CHOICES = 8
-_MODEL_CHOICE_ENTRY = re.compile(r"(openai|gemini):([A-Za-z0-9][A-Za-z0-9._-]{0,63})\Z")
+_MODEL_CHOICE_ENTRY = re.compile(
+    r"(?:(?:openai|gemini):[A-Za-z0-9][A-Za-z0-9._-]{0,63}"
+    r"|groq:[A-Za-z0-9][A-Za-z0-9._/-]{0,63})\Z"  # Groq model IDs may contain "/"
+)
 _MIN_SIGNING_KEY_CHARS = 32
 _SHELL_COMMAND_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}")
 _MAX_SHELL_COMMANDS = 16
