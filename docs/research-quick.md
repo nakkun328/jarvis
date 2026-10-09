@@ -6,7 +6,7 @@
 quick = QuickResearch(search, reader, repository, llm, QuickLimits())
 result = await quick.run("How does X work?")   # QuickResult
 result.session.status        # completed / failed / cancelled
-result.session.result_text   # answer + verified claims + source list (completed only)
+result.session.result_text   # header + verified claims + source list (completed only)
 ```
 
 `search` is a `SearchProvider`, `reader` a `PageReader`, `repository` a `ResearchRepository`, `llm` any `LLMProvider` from `backend/providers/base.py`. `await quick.resume(session_id)` continues a pending, waiting or running session and returns a finished one unchanged.
@@ -69,11 +69,13 @@ Search results and page text appear only in the user message, inside `<evidence 
 
 ## Citation manager
 
-A claim is kept only if its `source` is the number of a source read in this run and its `quote` (8 to 500 characters after whitespace normalisation) occurs verbatim, case-sensitively, in that source's extracted text. Runs of whitespace may differ. Otherwise the claim is dropped and counted with a fixed code: `malformed`, `unknown_source`, `quote_too_short`, `quote_too_long`, `quote_not_found`, `claim_too_long`, `duplicate`, `over_limit`. Verified claims are stored with `add_claim`; the stored quote is the whitespace-normalised form, and `quote_start`/`quote_end` are character offsets into the in-memory extracted page text of that run. Page text is not stored, so the offsets cannot be re-checked later without re-reading the page.
+A claim is kept only if its `source` is the number of a source read in this run and its `quote` (8 to 500 characters after whitespace normalisation) occurs verbatim, case-sensitively, in that source's extracted text. Runs of whitespace may differ. Otherwise the claim is dropped and counted with a fixed code: `malformed`, `unknown_source`, `quote_too_short`, `quote_too_long`, `quote_not_found`, `claim_too_long`, `duplicate`, `near_duplicate`, `over_limit`. Verified claims are stored with `add_claim`; the stored quote is the whitespace-normalised form, and `quote_start`/`quote_end` are character offsets into the in-memory extracted page text of that run. Page text is not stored, so the offsets cannot be re-checked later without re-reading the page.
 
-The stored result is the model's answer, the verified claims with their source numbers, a source list (title, final URL, retrieved date, published date when known) built only from stored source records, and a note when claims were removed. Any URL in the answer or claims that is not a stored source URL is replaced by `[link removed]`.
+The stored result is a fixed header, the verified claims with their source numbers, a source list (title, final URL, retrieved date, published date when known) built only from stored source records, and a note when claims were removed. The model's free-text answer is never shown. Any URL in the claims that is not a stored source URL is replaced by `[link removed]`.
 
-Only claims are verified. The free-text answer is written by the model and may contain statements no claim covers; the claim list under it is the checked part.
+Only claims are verified, and only verified claims are shown (Quick and Standard alike). Reworded copies of one fact from the same source are merged into one claim (same numbers and negation, at least 70% shared content words; the claim with the longer quote is kept; code `near_duplicate`). The same fact from two different sources is kept: that is corroboration.
+
+Page choice: hits the reader would block (internal addresses, bad schemes) are set aside before the result limit and the page limit, so they take no slot (they appear in `failed_reads`); and the best hit of each registrable domain is read before a second hit of the same domain (`domains.py`, a small heuristic, not the full public suffix list).
 
 ## Failure-code mapping
 

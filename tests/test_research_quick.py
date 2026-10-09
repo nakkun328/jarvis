@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import backend.research.quick as quick_module
 from backend.core.database import Database
 from backend.providers.base import CompletionRequest, CompletionResponse, ProviderError
 from backend.research.citations import DropReason, normalize_space
@@ -215,7 +216,7 @@ async def test_happy_path_stores_verified_citations_and_a_source_list(harness: H
     assert harness.repository.list_claims(session.id) == list(result.claims)
 
     text = session.result_text or ""
-    assert "The cache keeps entries briefly." in text
+    assert "The cache keeps entries briefly." not in text  # the model prose is never shown
     assert "Verified claims:" in text and "Sources:" in text
     assert f"[1] Foo Cache Docs - {URL_A} (retrieved 2026-10-07)" in text
     assert URL_C not in text  # only cited sources are listed
@@ -377,7 +378,8 @@ async def test_zero_verified_claims_completes_only_when_insufficiency_is_stated(
     assert result.session.status is ResearchStatus.COMPLETED
     assert result.claims == ()
     text = result.session.result_text or ""
-    assert "do not say" in text and "No claim could be verified" in text and "Sources:" not in text
+    assert "do not say" not in text and "No claim could be verified" in text
+    assert "Sources:" not in text
 
 
 @aio
@@ -422,7 +424,7 @@ async def test_model_obeying_an_injection_is_rejected_and_invented_links_are_rem
     result = await linking.run()
     text = result.session.result_text or ""
     assert "attacker.example.invalid" not in text and "evil.test" not in text
-    assert "[link removed]" in text and URL_A in text
+    assert "See http" not in text  # the model's prose is not shown at all
 
 
 @aio
@@ -530,12 +532,9 @@ async def test_oversized_model_reply_is_budget_exceeded(tmp_path: Path) -> None:
 
 
 @aio
-async def test_oversized_rendered_result_is_budget_exceeded(tmp_path: Path) -> None:
-    h = Harness(
-        tmp_path,
-        reply=answer_json([GOOD_CLAIMS[0]], answer="a" * 50_100),
-        limits=QuickLimits(max_response_chars=200_000),
-    )
+async def test_oversized_rendered_result_is_budget_exceeded(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(quick_module, "MAX_RESULT_CHARS", 100)
+    h = Harness(tmp_path, reply=answer_json([GOOD_CLAIMS[0]]))
     result = await h.run()
     assert result.session.failure_reason is FailureReason.BUDGET_EXCEEDED
     assert result.session.result_text is None
