@@ -9,6 +9,7 @@ export const BRAND = { name: "JARVIS", tagline: "Personal assistant", mark: "J" 
 export const PAGES = [
   { path: "/", label: "チャット" },
   { path: "/tasks", label: "タスク" },
+  { path: "/approvals", label: "承認" },
   { path: "/research", label: "リサーチ" },
   { path: "/memory", label: "記憶" },
 ];
