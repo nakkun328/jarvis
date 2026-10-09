@@ -11,7 +11,9 @@ TASK_TABLES = ("tasks", "task_steps")
 
 
 def _drop_v8(connection: sqlite3.Connection) -> None:
-    """Undo the additive v8 changes on a freshly migrated database (keeps user_version)."""
+    """Undo the additive v8 and v9 changes on a freshly migrated database."""
+    connection.execute("DROP TABLE tool_approvals")
+    connection.execute("DELETE FROM schema_migrations WHERE version = 9")
     connection.execute("DROP TABLE research_conflicts")
     connection.execute("DROP TABLE research_source_reasons")
     connection.execute("DROP INDEX research_claims_by_session_id")
@@ -43,12 +45,12 @@ def test_fresh_database_is_current_with_task_tables_and_guards(tmp_path: Path) -
     path = tmp_path / "fresh.sqlite3"
     database = Database(path)
     database.initialize()
-    assert SCHEMA_VERSION == 8
+    assert SCHEMA_VERSION == 9
     assert set(TASK_TABLES) <= _objects(path, "table")
     assert {"tasks_by_status", "tasks_by_retry_of"} <= _objects(path, "index")
     assert "tasks_terminal_is_immutable" in _objects(path, "trigger")
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
         columns = [row[1] for row in connection.execute("PRAGMA table_info(tasks)")]
     assert columns[:4] == ["id", "goal", "target_device", "status"]
     assert database.is_ready()
@@ -85,7 +87,7 @@ def test_v6_database_upgrades_and_keeps_existing_rows(tmp_path: Path) -> None:
     assert database.is_ready()
     assert set(TASK_TABLES) <= _objects(path, "table")
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
         assert [r[0] for r in connection.execute("SELECT version FROM schema_migrations")] == [
             1,
             2,
@@ -95,6 +97,7 @@ def test_v6_database_upgrades_and_keeps_existing_rows(tmp_path: Path) -> None:
             6,
             7,
             8,
+            9,
         ]
         assert connection.execute("SELECT content FROM conversation_messages").fetchall() == [
             ("hello",)
@@ -120,19 +123,19 @@ def test_migration_rerun_is_idempotent_and_keeps_tasks(tmp_path: Path) -> None:
     database.initialize()
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT id FROM tasks").fetchall() == [("t1",)]
-        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 8
+        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 9
 
 
 def test_database_from_a_newer_schema_is_refused_untouched(tmp_path: Path) -> None:
-    path = tmp_path / "v9.sqlite3"
+    path = tmp_path / "v10.sqlite3"
     Database(path).initialize()
     with sqlite3.connect(path) as connection:
-        connection.execute("INSERT INTO schema_migrations VALUES (9, 't')")
-        connection.execute("PRAGMA user_version = 9")
+        connection.execute("INSERT INTO schema_migrations VALUES (10, 't')")
+        connection.execute("PRAGMA user_version = 10")
     with pytest.raises(DatabaseError, match="newer than supported"):
         Database(path).initialize()
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
 
 
 def test_v6_with_broken_history_is_still_refused(tmp_path: Path) -> None:

@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.api.approvals import create_approvals_router
 from backend.api.chat import build_chat_router
 from backend.api.memory import create_memory_router
 from backend.api.request_logging import RequestLoggingMiddleware
@@ -46,6 +47,7 @@ from backend.research.search import SearchProvider
 from backend.research.search_factory import create_search_provider
 from backend.router import AuditedRouter, InMemoryAuditSink, LLMRouter, Router, RuleRouter
 from backend.tasks.repository import TaskRepository
+from backend.tools.approvals import ApprovalStore
 
 if TYPE_CHECKING:
     from backend.research.standard import PageFetcher
@@ -192,6 +194,9 @@ def create_app(
         )
     )
     app.include_router(create_tasks_router(TaskRepository(database)))
+    app.include_router(
+        create_approvals_router(ApprovalStore(database), trusted_proxy=settings.trusted_proxy)
+    )
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
     if auth.enabled:
@@ -206,6 +211,10 @@ def create_app(
         @app.get("/tasks", include_in_schema=False)
         def tasks_client() -> FileResponse:
             return FileResponse(frontend_dir / "tasks.html")
+
+        @app.get("/approvals", include_in_schema=False)
+        def approvals_client() -> FileResponse:
+            return FileResponse(frontend_dir / "approvals.html")
 
         @app.get("/research", include_in_schema=False)
         def research_client() -> FileResponse:

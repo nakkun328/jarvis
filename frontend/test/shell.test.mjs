@@ -51,7 +51,7 @@ function fakeDocument({ withMain = true } = {}) {
 }
 
 test("one page list defines every screen, with unique root-relative paths", () => {
-  assert.deepEqual(PAGES.map((page) => page.path), ["/", "/tasks", "/research", "/memory"]);
+  assert.deepEqual(PAGES.map((page) => page.path), ["/", "/tasks", "/approvals", "/research", "/memory"]);
   assert.equal(new Set(PAGES.map((page) => page.path)).size, PAGES.length);
   for (const page of PAGES) {
     assert.match(page.path, /^\/[a-z]*$/);
@@ -92,7 +92,7 @@ test("the shell builds brand, nav and skip link while keeping the page's own act
   assert.equal(nav.getAttribute("aria-label"), NAV_LABEL);
   assert.equal(action, doc.action);
   assert.deepEqual(nav.children.map((link) => link.textContent), PAGES.map((page) => page.label));
-  assert.deepEqual(nav.children.map((link) => link.getAttribute("aria-current")), [null, null, "page", null]);
+  assert.deepEqual(nav.children.map((link) => link.getAttribute("aria-current")), [null, null, null, "page", null]);
   const skip = doc.body.children[0];
   assert.equal(skip.className, "skip-link");
   assert.equal(skip.textContent, SKIP_LABEL);

@@ -80,6 +80,7 @@ node --test frontend/test/*.test.mjs
 - [Standard Research and follow-up queries](docs/research-standard.md)
 - [Tools](docs/tools.md)
 - [Read-only filesystem tools](docs/tools-filesystem.md)
+- [Tool confirmation (human approval)](docs/tool-confirmation.md)
 - [Login and remote access](docs/auth.md)
 - [Security](docs/security.md)
 - [Development plan](docs/development.md)

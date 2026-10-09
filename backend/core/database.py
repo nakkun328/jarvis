@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 _HISTORY_MISMATCH = "SQLite schema version and migration history disagree"
 
 
@@ -200,6 +200,10 @@ class Database:
                         self._extend_research_tables(connection)
                         self._record_migration(connection, 8)
                         connection.execute("PRAGMA user_version = 8")
+                    if version < 9:
+                        self._create_approval_tables(connection)
+                        self._record_migration(connection, 9)
+                        connection.execute("PRAGMA user_version = 9")
                     if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
                         raise DatabaseError("SQLite foreign key check failed during migration")
         except (OSError, sqlite3.Error) as exc:
@@ -333,6 +337,45 @@ class Database:
         )
         connection.execute(
             "CREATE INDEX research_conflicts_by_session ON research_conflicts(session_id, status)"
+        )
+
+    @staticmethod
+    def _create_approval_tables(connection: sqlite3.Connection) -> None:
+        """v9: human approvals for tool calls that need confirmation.
+
+        See docs/tool-confirmation.md.
+
+        A row binds one decision to one tool name and the SHA-256 of the normalized arguments.
+        `consumed_at` is write-once; the trigger refuses every change that would let a decided
+        row be re-decided, re-bound to other arguments, or consumed twice.
+        """
+        connection.execute(
+            "CREATE TABLE tool_approvals ("
+            "id TEXT PRIMARY KEY, "
+            "tool_name TEXT NOT NULL CHECK(length(tool_name) BETWEEN 1 AND 64), "
+            "args_digest TEXT NOT NULL CHECK(length(args_digest) = 64), "
+            "summary TEXT NOT NULL CHECK(length(summary) <= 4000), "
+            "state TEXT NOT NULL CHECK(state IN ('pending', 'approved', 'denied', 'expired')), "
+            "requested_at TEXT NOT NULL, expires_at TEXT NOT NULL, "
+            "resolved_at TEXT, consumed_at TEXT, "
+            "CHECK ((resolved_at IS NOT NULL) = (state IN ('approved', 'denied'))), "
+            "CHECK (consumed_at IS NULL OR state = 'approved'))"
+        )
+        connection.execute(
+            "CREATE INDEX tool_approvals_by_state ON tool_approvals(state, expires_at)"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX tool_approvals_one_pending ON "
+            "tool_approvals(tool_name, args_digest) WHERE state = 'pending'"
+        )
+        connection.execute(
+            "CREATE TRIGGER tool_approvals_final_once_resolved BEFORE UPDATE ON tool_approvals "
+            "WHEN NEW.id != OLD.id OR NEW.tool_name != OLD.tool_name "
+            "OR NEW.args_digest != OLD.args_digest OR NEW.requested_at != OLD.requested_at "
+            "OR NEW.expires_at != OLD.expires_at "
+            "OR (OLD.state != 'pending' AND NEW.state != OLD.state) "
+            "OR (OLD.consumed_at IS NOT NULL AND NEW.consumed_at IS NOT OLD.consumed_at) "
+            "BEGIN SELECT RAISE(ABORT, 'approval is final'); END"
         )
 
     @staticmethod

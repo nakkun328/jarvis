@@ -1,6 +1,6 @@
 # Web shell, Memory screen and PWA
 
-The browser client is plain HTML and JavaScript with no build step and no inline script or style, so a strict Content-Security-Policy would work. Four pages share one shell: chat (`/`), [Tasks](tasks.md) (`/tasks`), [Research](research.md) (`/research`) and Memory (`/memory`). Without the [login layer](auth.md) the app is served without authentication, so keep it on `127.0.0.1`; with it, a logout button appears in the header (below).
+The browser client is plain HTML and JavaScript with no build step and no inline script or style, so a strict Content-Security-Policy would work. Five pages share one shell: chat (`/`), [Tasks](tasks.md) (`/tasks`), [Approvals](tool-confirmation.md) (`/approvals`), [Research](research.md) (`/research`) and Memory (`/memory`). Without the [login layer](auth.md) the app is served without authentication, so keep it on `127.0.0.1`; with it, a logout button appears in the header (below).
 
 ## Shared layout
 
@@ -18,7 +18,7 @@ At 600 px and below the header becomes two rows (brand and page actions, then th
 `frontend/session.js` (loaded by `shell.js`, never by the login page) does two things, both inert when login is off:
 
 - It asks `GET /api/auth/status`. Only when the answer is `{"authenticated": true}` it adds a **ログアウト** button to the header; the button sends `POST /api/auth/logout` and goes to `/login`. With login off the route does not exist (404), so there is no button.
-- Fetch helpers (`chat-api.js`, `tasks-api.js`, `research-api.js`, `research-run-api.js`, `memory-api.js`, `tasks-stream.js`) call `sessionEnded()` when a response is `401`: the page goes to `/login` once (never from `/login` itself, never a second time) and the screen shows a fixed "session ended" message while it leaves. A task event stream stops instead of reconnecting.
+- Fetch helpers (`chat-api.js`, `tasks-api.js`, `approvals-api.js`, `research-api.js`, `research-run-api.js`, `memory-api.js`, `tasks-stream.js`) call `sessionEnded()` when a response is `401`: the page goes to `/login` once (never from `/login` itself, never a second time) and the screen shows a fixed "session ended" message while it leaves. A task event stream stops instead of reconnecting.
 
 ## Memory screen (read-only)
 
