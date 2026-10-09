@@ -38,6 +38,8 @@ REASONS: dict[str, str] = {
     "ROUTER_OFF": "ルーターが off です",
     "RESEARCH_NOT_READY": "リサーチの準備ができていません",
     "ROUTER_NEEDS_CHAT_PROVIDER": "llm ルーターにはチャットプロバイダが必要です",
+    "CASUAL_NEEDS_ROUTER": "雑談経路にはルーター(JARVIS_ROUTER)が必要です",
+    "CASUAL_NEEDS_CHAT_PROVIDER": "雑談経路にはチャットプロバイダが必要です",
     "CHAT_RESEARCH_OFF": "チャットからのリサーチは無効です",
     "AUTH_DISABLED": "ログインは無効です(ループバック専用)",
     "BIND_REQUIRES_AUTH": "非ループバック待受にはログインが必要です",
@@ -165,6 +167,17 @@ def _router(settings: Settings, chat: Check) -> Check:
     return Check("router", "ルーター", OK, "READY", detail)
 
 
+def _casual(settings: Settings, router: Check, chat: Check) -> Check:
+    detail = "casual=" + ("on" if settings.casual else "off")
+    if not settings.casual:
+        return Check("casual", "雑談経路", OFF, "NOT_CONFIGURED", detail)
+    if settings.router == "off" or router.status != OK:
+        return Check("casual", "雑談経路", INCOMPLETE, "CASUAL_NEEDS_ROUTER", detail)
+    if chat.status != OK:
+        return Check("casual", "雑談経路", INCOMPLETE, "CASUAL_NEEDS_CHAT_PROVIDER", detail)
+    return Check("casual", "雑談経路", OK, "READY", detail)
+
+
 def _chat_research(settings: Settings, router: Check, research: Check) -> Check:
     detail = f"level={settings.chat_research_level}"
     if settings.router == "off":
@@ -262,6 +275,7 @@ def run_checks(host: str = "127.0.0.1") -> list[Check]:
         _models(settings, environment, chat),
         research,
         router,
+        _casual(settings, router, chat),
         _chat_research(settings, router, research),
         _login(settings, environment, host),
         _shell(settings),

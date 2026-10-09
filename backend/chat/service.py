@@ -13,9 +13,11 @@ from backend.chat.activity import (
     ActivityErrorCode,
     ActivityEvent,
     ActivityRoute,
+    CasualSkip,
     ResearchSkip,
     ResearchStep,
 )
+from backend.chat.casual import CasualService
 from backend.chat.context import (
     ConversationCapacityError,
     ConversationNotFound,
@@ -123,6 +125,17 @@ class _Routed:
 
     selected: ActivityEvent
     research_session: UUID | None = None
+    # The casual path is to answer this turn. ``selected`` then says ``casual``; if the provider
+    # fails before the first token, ``casual_failed()`` replaces it.
+    casual: bool = False
+
+
+def casual_failed() -> ActivityEvent:
+    """``route_selected`` for a casual turn whose provider failed before any text: the Main
+    Agent answers, and the event says so instead of claiming the casual path ran."""
+    return ActivityEvent.route_selected(
+        ActivityRoute.MAIN, ActivityRoute.CASUAL, False, casual_skip=CasualSkip.PROVIDER
+    )
 
 
 @dataclass(frozen=True)
@@ -156,6 +169,7 @@ class ChatService:
         router: Router | None = None,
         research_starter: ResearchStarter | None = None,
         models: ModelRegistry | None = None,
+        casual: CasualService | None = None,
     ) -> None:
         # The default provider. Router and research use this one only; a per-request model
         # choice (see ``provider_for``) affects just the chat answer.
@@ -166,6 +180,9 @@ class ChatService:
         # Off by default. Only used with a router: a real research decision then starts a
         # research instead of answering from memory (see _route).
         self.research_starter = research_starter
+        # Off by default. Only used with a router: a confident casual decision is then answered
+        # by the casual path (personality and recent turns only) instead of the Main Agent.
+        self.casual = casual
         self.store = store or ConversationStore()
         self.memory_context = memory_context
         self._system_prompt = (
@@ -229,6 +246,23 @@ class ChatService:
         """
         decision = await self._decide(message)
         decided = _DECIDED[decision.route]
+        casual_wanted = decision.route is Route.casual and not decision.used_fallback
+        if self.casual is not None and casual_wanted:
+            if decision.confidence < DEFAULT_CONFIDENCE_THRESHOLD:
+                skip_casual = CasualSkip.LOW_CONFIDENCE
+            elif not self.casual.reserve():
+                skip_casual = CasualSkip.OVER_BUDGET
+            else:
+                _LOG.info("chat.casual_selected")
+                return _Routed(
+                    ActivityEvent.route_selected(ActivityRoute.CASUAL, decided, False),
+                    casual=True,
+                )
+            return _Routed(
+                ActivityEvent.route_selected(
+                    ActivityRoute.MAIN, decided, False, casual_skip=skip_casual
+                )
+            )
         if (
             self.research_starter is None
             or decision.route is not Route.research
@@ -310,6 +344,25 @@ class ChatService:
                 if self.router is not None:
                     emit(ActivityEvent.routing())
                     routed = await self._route(message)
+                    if routed.casual:
+                        assert self.casual is not None
+                        casual_reply = await self.casual.complete(
+                            provider, self.casual.request(conversation.messages, message)
+                        )
+                        if casual_reply is not None:
+                            emit(routed.selected)
+                            emit(ActivityEvent.generating())
+                            await self.store.remember(
+                                current_id, conversation, message, casual_reply.text
+                            )
+                            emit(ActivityEvent.done())
+                            return ChatResult(
+                                current_id,
+                                casual_reply.text,
+                                casual_reply.provider,
+                                casual_reply.model,
+                            )
+                        routed = _Routed(casual_failed())
                     emit(routed.selected)
                     if routed.research_session is not None:
                         emit(ActivityEvent.researching(ResearchStep.STARTED))
@@ -386,6 +439,32 @@ class ChatService:
                     if activity:
                         yield ActivityEvent.routing()
                     routed = await self._route(message)
+                    if routed.casual:
+                        assert self.casual is not None
+                        opened = await self.casual.start(
+                            provider, self.casual.request(conversation.messages, message)
+                        )
+                        if opened is not None:
+                            if activity:
+                                yield routed.selected
+                                yield ActivityEvent.generating()
+                            async with AsyncExitStack() as resources:
+                                casual_deltas = opened.deltas()
+                                resources.push_async_callback(casual_deltas.aclose)
+                                async for delta in casual_deltas:
+                                    chunks.append(delta)
+                                    yield ChatDelta(delta)
+                            reply = "".join(chunks)
+                            await self.store.remember(current_id, conversation, message, reply)
+                            if activity:
+                                yield ActivityEvent.done()
+                            yield ChatDone(
+                                conversation_id=current_id,
+                                provider=str(getattr(provider, "name", "custom")),
+                                model=str(getattr(provider, "model", "unknown")),
+                            )
+                            return
+                        routed = _Routed(casual_failed())
                     if activity:
                         yield routed.selected
                     if routed.research_session is not None:

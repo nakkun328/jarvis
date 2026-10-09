@@ -21,6 +21,7 @@ from backend.api.tasks import create_tasks_router
 from backend.auth.middleware import AuthMiddleware
 from backend.auth.routes import create_auth_router
 from backend.auth.service import AuthService
+from backend.chat.casual import CasualService
 from backend.chat.memory_context import MemoryContext
 from backend.chat.persistence import SQLiteConversationStore
 from backend.chat.research_start import RunServiceStarter
@@ -35,6 +36,7 @@ from backend.memory.repository import MemoryRepository
 from backend.memory.retrieval import MemoryRetriever
 from backend.memory.semantic import SemanticMemorySearcher
 from backend.memory.vector import VectorIndex
+from backend.personality.prompt import render_system_prompt
 from backend.personality.settings import PersonalityError, load_personality
 from backend.providers.base import LLMProvider
 from backend.providers.choices import ModelRegistry
@@ -129,6 +131,16 @@ def create_app(
             personality=personality,
             models=models,
             router=router,
+            # The casual path needs the switch, a router and a chat provider; any one missing
+            # leaves every turn on the Main Agent path as before.
+            casual=(
+                CasualService(
+                    system_prompt=render_system_prompt(personality),
+                    daily_call_limit=settings.casual_daily_call_limit,
+                )
+                if settings.casual and router is not None
+                else None
+            ),
             # A routed research decision starts a research only when there is a router AND the
             # research run service exists (switch, search provider and chat provider all set).
             research_starter=(

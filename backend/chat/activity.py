@@ -13,10 +13,13 @@ and a research really was started), ``generating``, ``done`` and ``error``.
 
 ``route_selected`` says two different things and never mixes them up: ``route`` is the path that
 actually runs and ``decided`` is what the router chose. ``route`` is ``main`` unless a research was
-really started for the turn (then ``research``); the casual path is not wired. ``fallback`` says the
+really started for the turn (then ``research``) or the casual path really answered it (then
+``casual``, only with ``JARVIS_CASUAL`` on and never after a router fallback). ``fallback`` says the
 router could not decide and the safe default was used. When the router chose research but none was
 started, the optional ``research_skip`` carries the fixed reason (research busy, not available, over
-budget, refused, or too uncertain) and the turn runs on ``main``.
+budget, refused, or too uncertain) and the turn runs on ``main``. Likewise ``casual_skip`` (over
+the daily cap, provider failure before the first token, or too uncertain), present only with the
+casual path on. A casual turn emits no ``memory_lookup``.
 
 In the vocabulary but NOT emitted yet, because the feature does not exist: ``speaking``, and the
 ``researching`` steps after ``started`` (the chat does not follow a research run; the Research
@@ -70,6 +73,15 @@ class ResearchSkip(StrEnum):
     LOW_CONFIDENCE = "low_confidence"
 
 
+class CasualSkip(StrEnum):
+    """Why a turn the router decided as casual ran on the Main Agent. Fixed codes. Only present
+    when the casual path is switched on (``JARVIS_CASUAL``)."""
+
+    OVER_BUDGET = "over_budget"
+    PROVIDER = "provider"
+    LOW_CONFIDENCE = "low_confidence"
+
+
 class ActivityErrorCode(StrEnum):
     """Why a turn ended without a reply. Fixed codes; never an exception message."""
 
@@ -99,13 +111,14 @@ _FIELDS_BY_STAGE: dict[ActivityStage, tuple[str, ...]] = {
 }
 # Fields a stage may carry but need not. ``to_payload`` leaves them out when unset.
 _OPTIONAL_FIELDS_BY_STAGE: dict[ActivityStage, tuple[str, ...]] = {
-    ActivityStage.ROUTE_SELECTED: ("research_skip",),
+    ActivityStage.ROUTE_SELECTED: ("research_skip", "casual_skip"),
 }
 _FIELD_TYPES: dict[str, type] = {
     "route": ActivityRoute,
     "decided": ActivityRoute,
     "fallback": bool,
     "research_skip": ResearchSkip,
+    "casual_skip": CasualSkip,
     "count": int,
     "step": ResearchStep,
     "code": ActivityErrorCode,
@@ -119,6 +132,7 @@ class ActivityEvent:
     decided: ActivityRoute | None = None
     fallback: bool | None = None
     research_skip: ResearchSkip | None = None
+    casual_skip: CasualSkip | None = None
     count: int | None = None
     step: ResearchStep | None = None
     code: ActivityErrorCode | None = None
@@ -157,6 +171,16 @@ class ActivityEvent:
                 or self.fallback
             ):
                 raise ValueError("research_skip needs a research decision that ran on main")
+            if self.route is ActivityRoute.CASUAL and (
+                self.decided is not ActivityRoute.CASUAL or self.fallback
+            ):
+                raise ValueError("casual ran without a casual decision")
+            if self.casual_skip is not None and (
+                self.route is not ActivityRoute.MAIN
+                or self.decided is not ActivityRoute.CASUAL
+                or self.fallback
+            ):
+                raise ValueError("casual_skip needs a casual decision that ran on main")
 
     @classmethod
     def received(cls) -> "ActivityEvent":
@@ -173,11 +197,13 @@ class ActivityEvent:
         decided: ActivityRoute,
         fallback: bool,
         research_skip: ResearchSkip | None = None,
+        casual_skip: CasualSkip | None = None,
     ) -> "ActivityEvent":
         """``route``: the path that actually runs. ``decided``: what the router chose.
 
         ``research_skip``: why a research the router asked for was not started (the turn ran
-        on ``main``).
+        on ``main``). ``casual_skip``: the same for a casual decision, only with the casual path
+        switched on.
         """
         return cls(
             ActivityStage.ROUTE_SELECTED,
@@ -185,6 +211,7 @@ class ActivityEvent:
             decided=decided,
             fallback=fallback,
             research_skip=research_skip,
+            casual_skip=casual_skip,
         )
 
     @classmethod

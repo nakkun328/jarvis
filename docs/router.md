@@ -1,6 +1,6 @@
 # Router contract and evaluation
 
-Status: **library, plus an opt-in first wiring slice (off by default).** With the router on, each chat turn asks it for a decision and shows it in the Activity View, and every turn runs on the Main Agent path, with one opt-in exception: a real `research` decision starts a web research when research is enabled and fully configured (see [Research from chat](#research-from-chat-opt-in)). The casual path is not wired. Nothing here calls a live model; all tests use fakes. See [conversation-routing-plan.md](conversation-routing-plan.md) for the plan this implements (components 3 and 4) and [Wiring](#wiring-opt-in-first-slice) below.
+Status: **library, plus an opt-in first wiring slice (off by default).** With the router on, each chat turn asks it for a decision and shows it in the Activity View, and every turn runs on the Main Agent path, with one opt-in exception: a real `research` decision starts a web research when research is enabled and fully configured (see [Research from chat](#research-from-chat-opt-in)). The casual path is an opt-in, separate switch (`JARVIS_CASUAL`, see [casual-path.md](casual-path.md)); without it a `casual` decision runs on the Main Agent. Nothing here calls a live model; all tests use fakes. See [conversation-routing-plan.md](conversation-routing-plan.md) for the plan this implements (components 3 and 4) and [Wiring](#wiring-opt-in-first-slice) below.
 
 ## What it is
 

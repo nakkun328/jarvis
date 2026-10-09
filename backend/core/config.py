@@ -20,6 +20,9 @@ _MAX_SEARCH_MONTHLY_LIMIT = 1_000_000
 # off: no router (default). rule: the offline keyword baseline. llm: one extra short call to
 # the configured chat provider per turn (docs/router.md "Wiring").
 _ROUTER_MODES = frozenset({"off", "rule", "llm"})
+# The text-only casual path (docs/casual-path.md): a daily cap on its model calls.
+DEFAULT_CASUAL_DAILY_CALL_LIMIT = 200
+_MAX_CASUAL_DAILY_CALL_LIMIT = 10_000
 # The research level a routed chat turn starts. Quick is the cheaper one (and the default).
 _CHAT_RESEARCH_LEVELS = frozenset({"quick", "standard"})
 # Chat model allowlist (JARVIS_MODEL_CHOICES): at most this many `provider:model` entries.
@@ -93,6 +96,10 @@ class Settings:
     memory_vault_path: Path | None = None
     personality_path: Path | None = None
     router: str = "off"
+    # The casual path answers a confident `casual` router decision from the personality and the
+    # last few turns only. Off by default and independent of JARVIS_ROUTER, which it needs too.
+    casual: bool = False
+    casual_daily_call_limit: int = DEFAULT_CASUAL_DAILY_CALL_LIMIT
     # Single-owner login. Setting the passphrase hash turns authentication on. The credentials
     # are excluded from repr so they cannot leak through logs or assertion messages.
     auth_passphrase_hash: str | None = field(default=None, repr=False)
@@ -189,6 +196,17 @@ class Settings:
             raise ConfigError("JARVIS_SHELL_COMMANDS must list 1-16 distinct lowercase names")
         if self.router not in _ROUTER_MODES:
             raise ConfigError(f"JARVIS_ROUTER must be one of: {', '.join(sorted(_ROUTER_MODES))}")
+        if not isinstance(self.casual, bool):
+            raise ConfigError("JARVIS_CASUAL must be true or false")
+        if (
+            isinstance(self.casual_daily_call_limit, bool)
+            or not isinstance(self.casual_daily_call_limit, int)
+            or not 1 <= self.casual_daily_call_limit <= _MAX_CASUAL_DAILY_CALL_LIMIT
+        ):
+            raise ConfigError(
+                "JARVIS_CASUAL_DAILY_CALL_LIMIT must be between 1 and "
+                f"{_MAX_CASUAL_DAILY_CALL_LIMIT}"
+            )
         if self.memory_vault_path is not None and not str(self.memory_vault_path).strip():
             raise ConfigError("JARVIS_MEMORY_VAULT_PATH must not be empty")
         if self.personality_path is not None and not str(self.personality_path).strip():
@@ -257,6 +275,10 @@ class Settings:
             log_level=os.environ.get("JARVIS_LOG_LEVEL", "INFO").upper(),
             llm_provider=os.environ.get("JARVIS_LLM_PROVIDER", "none").lower(),
             router=os.environ.get("JARVIS_ROUTER", "off").strip().lower(),
+            casual=_env_bool("JARVIS_CASUAL", False),
+            casual_daily_call_limit=_env_int(
+                "JARVIS_CASUAL_DAILY_CALL_LIMIT", DEFAULT_CASUAL_DAILY_CALL_LIMIT
+            ),
             memory_vault_path=Path(vault_path).expanduser() if vault_path is not None else None,
             personality_path=(
                 Path(personality_path).expanduser() if personality_path is not None else None
