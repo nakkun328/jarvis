@@ -136,6 +136,10 @@ class FilesystemReason(StrEnum):
     IO_ERROR = "io_error"
     CANCELLED = "cancelled"
     UNSUPPORTED = "unsupported_platform"
+    ALREADY_EXISTS = "already_exists"
+    TOO_LARGE = "too_large"
+    CONTENT_UNAVAILABLE = "content_unavailable"
+    UNCONFIRMED = "unconfirmed"
 
 
 _ERROR_CODES: Mapping[FilesystemReason, ToolErrorCode] = {
@@ -155,6 +159,10 @@ _ERROR_CODES: Mapping[FilesystemReason, ToolErrorCode] = {
     FilesystemReason.IO_ERROR: ToolErrorCode.INTERNAL_ERROR,
     FilesystemReason.CANCELLED: ToolErrorCode.CANCELLED,
     FilesystemReason.UNSUPPORTED: ToolErrorCode.TOOL_UNAVAILABLE,
+    FilesystemReason.ALREADY_EXISTS: ToolErrorCode.INVALID_ARGUMENTS,
+    FilesystemReason.TOO_LARGE: ToolErrorCode.INVALID_ARGUMENTS,
+    FilesystemReason.CONTENT_UNAVAILABLE: ToolErrorCode.INVALID_ARGUMENTS,
+    FilesystemReason.UNCONFIRMED: ToolErrorCode.CONFIRMATION_REQUIRED,
 }
 
 
