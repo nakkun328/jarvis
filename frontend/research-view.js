@@ -77,6 +77,19 @@ export const sourceTypeLabel = (type) => lookup(SOURCE_TYPE_LABELS, type) ?? OTH
 export const failureLabel = (code) => lookup(FAILURE_LABELS, code) ?? OTHER_LABEL;
 export const isTerminal = (session) => Boolean(session) && TERMINAL.has(session.status);
 
+// Fixed codes of the past-research reuse decision (backend/research/reuse.py). A code that is
+// not listed (or "no_prior_research") shows nothing.
+const REUSE_LABELS = {
+  reused_fresh: "過去の調査を再利用",
+  prior_stale: "古いので再検索",
+  time_sensitive_topic: "古いので再検索",
+};
+const REUSE_NOTES = {
+  reused_fresh: "新しく検索せず、過去の調査の引用をそのまま表示しています。取得日: ",
+  prior_stale: "前回の調査は古いため、あらためて検索しました。前回の取得日: ",
+  time_sensitive_topic: "最新情報が必要な話題のため、あらためて検索しました。前回の取得日: ",
+};
+
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 const text = (value) => (typeof value === "string" ? value : null);
 const integer = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
@@ -139,6 +152,28 @@ function normalizeQuery(raw, position) {
   };
 }
 
+function normalizeReuse(raw) {
+  if (!isRecord(raw) || typeof raw.reason !== "string") return null;
+  return {
+    reason: raw.reason,
+    previous_session_id: text(raw.previous_session_id),
+    prior_at: text(raw.prior_at),
+  };
+}
+
+// Label and plain-text note for the reuse decision, or null when there is nothing to say.
+export function reuseInfo(reuse, { timeZone } = {}) {
+  if (!reuse || !Object.hasOwn(REUSE_LABELS, reuse.reason)) return null;
+  const date = reuse.prior_at ? formatTimestamp(reuse.prior_at, { timeZone }) : "不明";
+  return {
+    reason: reuse.reason,
+    label: REUSE_LABELS[reuse.reason],
+    note: `${REUSE_NOTES[reuse.reason]}${date}`,
+    previousSessionId: reuse.previous_session_id,
+    reused: reuse.reason === "reused_fresh",
+  };
+}
+
 // Accepts a decoded API object and returns a session with only the fields this screen reads,
 // or null when it is not a session. Unknown extra fields are dropped, never interpreted.
 export function normalizeSession(raw) {
@@ -152,6 +187,7 @@ export function normalizeSession(raw) {
     status: raw.status,
     failure_reason: text(raw.failure_reason),
     has_result: raw.has_result === true,
+    reuse: normalizeReuse(raw.reuse),
     created_at: text(raw.created_at),
     updated_at: text(raw.updated_at),
   };
@@ -303,6 +339,7 @@ export function detailViewModel(session, { timeZone } = {}) {
     question: session.question,
     status: statusInfo(session.status),
     levelText: levelLabel(session.level),
+    reuse: reuseInfo(session.reuse, { timeZone }),
     failure: session.failure_reason === null ? null : failureLabel(session.failure_reason),
     resultText: session.result_text ?? null,
     hasResult: session.has_result,

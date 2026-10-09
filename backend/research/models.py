@@ -239,6 +239,12 @@ class ResearchSession:
     updated_at: datetime
     result_text: str | None = None
     failure_reason: FailureReason | None = None
+    #: Past-research reuse decision (a ``reuse.ReuseReason`` value), the earlier session it
+    #: concerns, and the retrieval date of that session's oldest source. All ``None`` when
+    #: no decision was recorded.
+    reuse_reason: str | None = None
+    reuse_of: UUID | None = None
+    reuse_prior_at: datetime | None = None
 
 
 @dataclass(frozen=True)

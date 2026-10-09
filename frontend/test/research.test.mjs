@@ -21,6 +21,7 @@ import {
   levelLabel,
   listViewModel,
   normalizeSession,
+  reuseInfo,
   safeHref,
   sourceTypeLabel,
   statusChangeMessage,
@@ -111,7 +112,7 @@ test("normalizeSession keeps only known fields and rejects non-sessions", () => 
   assert.equal(normalizeSession({ status: "pending" }), null);
   const session = normalizeSession({ ...summary(), extra: "<b>x</b>", toString: "y" });
   assert.deepEqual(Object.keys(session).sort(), [
-    "created_at", "failure_reason", "has_result", "id", "level", "question", "status", "updated_at",
+    "created_at", "failure_reason", "has_result", "id", "level", "question", "reuse", "status", "updated_at",
   ]);
   assert.ok(!("sources" in session));
 });
@@ -411,4 +412,38 @@ test("loadSession returns a full session", async () => {
   const session = await loadSession(ID, { fetchImpl: respond(detail()) });
   assert.equal(session.sources.length, 1);
   assert.equal(session.claims[0].quote, "exact quote");
+});
+
+test("reuse decision shows a fixed Japanese label and the prior date as plain text", () => {
+  const base = { prior_at: "2026-10-07T12:00:00.000000Z", previous_session_id: ID2 };
+  const fresh = normalizeSession(summary({ reuse: { reason: "reused_fresh", ...base } }));
+  const info = reuseInfo(fresh.reuse, { timeZone: "UTC" });
+  assert.equal(info.label, "過去の調査を再利用");
+  assert.equal(info.reused, true);
+  assert.ok(info.note.includes("2026/10/07"));
+  for (const reason of ["prior_stale", "time_sensitive_topic"]) {
+    const stale = reuseInfo({ reason, ...base }, { timeZone: "UTC" });
+    assert.equal(stale.label, "古いので再検索");
+    assert.equal(stale.reused, false);
+    assert.equal(stale.previousSessionId, ID2);
+  }
+  assert.equal(reuseInfo({ reason: "no_prior_research", ...base }), null);
+  assert.equal(reuseInfo({ reason: "constructor", ...base }), null);
+  assert.equal(reuseInfo(null), null);
+  assert.equal(normalizeSession(summary({ reuse: "x" })).reuse, null);
+  const hostile = normalizeSession(summary({ reuse: { reason: HOSTILE, prior_at: HOSTILE } }));
+  assert.equal(reuseInfo(hostile.reuse), null);
+});
+
+test("detailViewModel carries the reuse info", () => {
+  const session = normalizeSession({
+    ...summary({ reuse: { reason: "prior_stale", prior_at: null, previous_session_id: null } }),
+    result_text: null,
+    queries: [],
+    sources: [],
+    claims: [],
+    conflicts: [],
+  });
+  assert.equal(detailViewModel(session).reuse.label, "古いので再検索");
+  assert.ok(detailViewModel(session).reuse.note.endsWith("不明"));
 });

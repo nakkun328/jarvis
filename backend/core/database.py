@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 _HISTORY_MISMATCH = "SQLite schema version and migration history disagree"
 
 
@@ -204,6 +204,10 @@ class Database:
                         self._create_approval_tables(connection)
                         self._record_migration(connection, 9)
                         connection.execute("PRAGMA user_version = 9")
+                    if version < 10:
+                        self._add_research_reuse_columns(connection)
+                        self._record_migration(connection, 10)
+                        connection.execute("PRAGMA user_version = 10")
                     if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
                         raise DatabaseError("SQLite foreign key check failed during migration")
         except (OSError, sqlite3.Error) as exc:
@@ -275,6 +279,25 @@ class Database:
         )
         connection.execute("CREATE INDEX research_claims_by_session ON research_claims(session_id)")
         connection.execute("CREATE INDEX research_claims_by_source ON research_claims(source_id)")
+
+    @staticmethod
+    def _add_research_reuse_columns(connection: sqlite3.Connection) -> None:
+        """v10 (additive): the past-research reuse decision of a session.
+
+        All three columns are nullable, so every existing session stays valid with "no
+        decision recorded". ``reuse_of`` points at the earlier session that was reused, or
+        shown as the stale previous result; deleting that session clears the pointer.
+        """
+        connection.execute(
+            "ALTER TABLE research_sessions ADD COLUMN reuse_reason TEXT "
+            "CHECK(reuse_reason IS NULL OR reuse_reason IN "
+            "('reused_fresh', 'no_prior_research', 'prior_stale', 'time_sensitive_topic'))"
+        )
+        connection.execute(
+            "ALTER TABLE research_sessions ADD COLUMN reuse_of TEXT "
+            "REFERENCES research_sessions(id) ON DELETE SET NULL"
+        )
+        connection.execute("ALTER TABLE research_sessions ADD COLUMN reuse_prior_at TEXT")
 
     @staticmethod
     def _extend_research_tables(connection: sqlite3.Connection) -> None:
