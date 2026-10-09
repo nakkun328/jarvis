@@ -14,6 +14,8 @@ If SQLite becomes unavailable while serving chat, the regular endpoint returns H
 
 Set `JARVIS_LLM_PROVIDER=openai` plus the adapter's server-side key and model variables to enable live chat. With the default `none`, chat returns 503 while health checks and the web client remain available. The UI is served from `/` when `frontend/index.html` is present. This release has no login or remote access control; bind the server to `127.0.0.1`.
 
+Groq is also supported (`JARVIS_LLM_PROVIDER=groq`; see [Groq provider](groq.md)).
+
 Alternatively, set `JARVIS_LLM_PROVIDER=gemini` with `GEMINI_API_KEY` and `JARVIS_GEMINI_MODEL`. The Gemini adapter maps the same provider messages to Google's text `generateContent` request and streams response deltas through the existing SSE route. It sends `store: false`; conversation history remains in JARVIS's SQLite database. Opted-in approved memory references are sent to Gemini under the same review and freshness checks as other providers.
 
 ## Web UI behaviour

@@ -90,9 +90,12 @@ def _installed(module: str) -> bool:
         return False
 
 
-def _gemini_model_valid(model: str) -> bool:
+def _model_valid(provider: str, model: str) -> bool:
     try:
-        from backend.providers.gemini import _MODEL_ID
+        if provider == "groq":
+            from backend.providers.groq import _MODEL_ID
+        else:
+            from backend.providers.gemini import _MODEL_ID
     except ImportError:
         return bool(model.strip())
     return bool(_MODEL_ID.fullmatch(model.strip()))
@@ -104,6 +107,8 @@ def _chat(settings: Settings, env: Mapping[str, str]) -> Check:
         return Check("chat", "チャット", OFF, "NOT_CONFIGURED", "provider=none")
     if provider == "gemini":
         key, model_name, module = "GEMINI_API_KEY", "JARVIS_GEMINI_MODEL", "httpx"
+    elif provider == "groq":
+        key, model_name, module = "GROQ_API_KEY", "JARVIS_GROQ_MODEL", "httpx"
     else:
         key, model_name, module = "OPENAI_API_KEY", "JARVIS_OPENAI_MODEL", "openai"
     detail = f"provider={provider}, {key}={_word(_set(env, key))}, " + (
@@ -112,7 +117,7 @@ def _chat(settings: Settings, env: Mapping[str, str]) -> Check:
     if not _set(env, key):
         return Check("chat", "チャット", INCOMPLETE, "API_KEY_MISSING", detail)
     model = env.get(model_name, "")
-    if not model.strip() or (provider == "gemini" and not _gemini_model_valid(model)):
+    if not model.strip() or (provider in {"gemini", "groq"} and not _model_valid(provider, model)):
         return Check("chat", "チャット", INCOMPLETE, "MODEL_MISSING", detail)
     if not _installed(module):
         return Check("chat", "チャット", INCOMPLETE, "DEPENDENCY_MISSING", detail)

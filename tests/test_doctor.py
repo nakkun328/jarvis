@@ -16,7 +16,8 @@ SECRETS = {
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch, tmp_path):
     for name in list(os.environ):
-        if name.startswith("JARVIS_") or name in ("GEMINI_API_KEY", "OPENAI_API_KEY"):
+        keys = ("GEMINI_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY")
+        if name.startswith("JARVIS_") or name in keys:
             monkeypatch.delenv(name)
     monkeypatch.setenv("JARVIS_DB_PATH", str(tmp_path / "x.sqlite3"))
 
@@ -46,6 +47,19 @@ def test_gemini_complete_and_incomplete(monkeypatch):
     assert by_area()["chat"].code == "MODEL_MISSING"
     monkeypatch.setenv("JARVIS_GEMINI_MODEL", "gemini-test-model")
     assert (by_area()["chat"].status, by_area()["chat"].code) == ("OK", "READY")
+
+
+def test_groq_complete_and_incomplete(monkeypatch):
+    monkeypatch.setenv("JARVIS_LLM_PROVIDER", "groq")
+    assert by_area()["chat"].code == "API_KEY_MISSING"
+    monkeypatch.setenv("GROQ_API_KEY", "fake-key")
+    assert by_area()["chat"].code == "MODEL_MISSING"
+    monkeypatch.setenv("JARVIS_GROQ_MODEL", "bad model!")
+    assert by_area()["chat"].code == "MODEL_MISSING"
+    monkeypatch.setenv("JARVIS_GROQ_MODEL", "vendor/model-x")
+    chat = by_area()["chat"]
+    assert (chat.status, chat.code) == ("OK", "READY")
+    assert "fake-key" not in chat.detail and "vendor/model-x" not in chat.detail
 
 
 def test_research_requirements(monkeypatch):

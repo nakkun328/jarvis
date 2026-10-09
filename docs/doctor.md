@@ -22,7 +22,7 @@ The exit code is `0` when nothing is `INCOMPLETE`, otherwise `1`.
 
 | Area | Checks |
 | --- | --- |
-| chat | `JARVIS_LLM_PROVIDER`; `gemini` needs `GEMINI_API_KEY` and `JARVIS_GEMINI_MODEL`, `openai` needs `OPENAI_API_KEY` and `JARVIS_OPENAI_MODEL`; the optional package must be installed |
+| chat | `JARVIS_LLM_PROVIDER`; `gemini` needs `GEMINI_API_KEY` and `JARVIS_GEMINI_MODEL`, `groq` needs `GROQ_API_KEY` and `JARVIS_GROQ_MODEL`, `openai` needs `OPENAI_API_KEY` and `JARVIS_OPENAI_MODEL`; the optional package must be installed |
 | models | `JARVIS_MODEL_CHOICES` ([model-select.md](model-select.md)): `OFF` when unset; `INCOMPLETE` when the default chat provider is not ready or an entry's provider key/package is missing (`MODEL_CHOICE_UNAVAILABLE`); shows only counts |
 | research | `JARVIS_RESEARCH_ENABLED`, `JARVIS_SEARCH_PROVIDER` with `JARVIS_SEARCH_API_KEY`, a ready chat provider |
 | router | `JARVIS_ROUTER` is `off`, `rule` or `llm`; `llm` needs a ready chat provider |

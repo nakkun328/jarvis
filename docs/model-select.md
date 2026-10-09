@@ -8,10 +8,10 @@ The owner can pick the chat model from a small selector (label "モデル") in t
 JARVIS_MODEL_CHOICES=openai:gpt-6-luna,gemini:gemini-2.5-flash
 ```
 
-- A comma list of `provider:model`. `provider` is `openai` or `gemini` (lowercase); `model` is a model ID (letters, digits, `.`, `_`, `-`, at most 64 characters). At most 8 entries, no duplicates. A malformed entry, unknown provider or duplicate makes the server refuse to start (`ConfigError`, without echoing the value).
+- A comma list of `provider:model`. `provider` is `openai`, `gemini` or `groq` (lowercase); `model` is a model ID (letters, digits, `.`, `_`, `-`, at most 64 characters; `groq` IDs may also contain `/`, e.g. `owner/model`). At most 8 entries, no duplicates. A malformed entry, unknown provider or duplicate makes the server refuse to start (`ConfigError`, without echoing the value).
 - Unset or blank: no selector, `GET /api/models` returns `[]`, and chat behaves exactly as before.
-- Credentials stay in the environment only (`OPENAI_API_KEY`, `GEMINI_API_KEY`). An entry is selectable only when its provider's key is present and its package is installed. Nothing about keys is ever returned.
-- The default stays what `JARVIS_LLM_PROVIDER` and `JARVIS_OPENAI_MODEL` / `JARVIS_GEMINI_MODEL` say. The list needs a configured default provider; without one it is ignored (the doctor reports it).
+- Credentials stay in the environment only (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`). An entry is selectable only when its provider's key is present and its package is installed. Nothing about keys is ever returned.
+- The default stays what `JARVIS_LLM_PROVIDER` and `JARVIS_OPENAI_MODEL` / `JARVIS_GEMINI_MODEL` / `JARVIS_GROQ_MODEL` say. The list needs a configured default provider; without one it is ignored (the doctor reports it).
 
 ## Behavior
 
