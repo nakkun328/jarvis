@@ -103,6 +103,23 @@ def _clip(text: str, limit: int) -> str:
     return cleaned if len(cleaned) <= limit else cleaned[: limit - 1] + "…"
 
 
+def _readable_container(value: Any) -> str | None:
+    """Short all-string lists and objects (a shell argv, a cwd) are shown, so a human can see
+    what they approve. Anything else, or anything credential-like, stays type and size only."""
+    if isinstance(value, list | tuple) and 0 < len(value) <= 8:
+        items = value
+        if all(isinstance(i, str) for i in items):
+            if any(_SECRET_VALUE.search(i.strip()) for i in items):
+                return None
+            return _clip("[" + ", ".join(items) + "]", MAX_PREVIEW_CHARS)
+    elif isinstance(value, Mapping) and 0 < len(value) <= 4:
+        if all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()) and not any(
+            _SECRET_NAME.search(k) or _SECRET_VALUE.search(v.strip()) for k, v in value.items()
+        ):
+            return _clip(", ".join(f"{k}={v}" for k, v in sorted(value.items())), MAX_PREVIEW_CHARS)
+    return None
+
+
 def _preview(name: str, value: Any) -> str:
     if _SECRET_NAME.search(name):
         return REDACTED
@@ -114,6 +131,9 @@ def _preview(name: str, value: Any) -> str:
         if _SECRET_VALUE.search(value.strip()):
             return REDACTED
         return _clip(value, MAX_PREVIEW_CHARS)
+    shown = _readable_container(value)
+    if shown is not None:
+        return shown
     if isinstance(value, Mapping):
         return f"object({len(value)} keys)"
     try:

@@ -47,6 +47,12 @@ REASONS: dict[str, str] = {
     "PATH_INVALID": "指定された内容が不正です",
     "DB_WILL_BE_CREATED": "DB は未作成です(初回起動時に作成されます)",
     "EXISTS": "存在します",
+    "SHELL_ROOT_MISSING": "JARVIS_SHELL_ROOT が未設定です",
+    "SHELL_ROOT_INVALID": "シェルの実行ルートが使えません(存在しない、/ やホームを含む等)",
+    "SHELL_COMMAND_UNKNOWN": "JARVIS_SHELL_COMMANDS に許可表にない名前があります",
+    "SHELL_NO_COMMANDS": "許可表のコマンドが実行環境に見つかりません",
+    "SHELL_UNSUPPORTED": "このOSではシェルツールを使えません",
+    "SHELL_POLICY_INVALID": "シェル許可表の内容が不正です",
 }
 
 
@@ -168,6 +174,19 @@ def _login(settings: Settings, env: Mapping[str, str], host: str) -> Check:
     return Check("login", "ログイン", OK, "READY", detail)
 
 
+def _shell(settings: Settings) -> Check:
+    # Same rules as backend.tools.shell_policy.build_shell_wiring; only fixed words are printed.
+    from backend.tools.shell_policy import inspect_shell
+
+    result = inspect_shell(settings)
+    detail = f"JARVIS_SHELL_ENABLED={_word(settings.shell_enabled)}, " + (
+        f"JARVIS_SHELL_ROOT={_word(settings.shell_root is not None)}"
+    )
+    if result.commands:
+        detail += ", commands=" + ",".join(result.commands)
+    return Check("shell", "シェルツール", result.status.value, result.code, detail)
+
+
 def _paths(settings: Settings) -> list[Check]:
     checks: list[Check] = []
     db = settings.db_path
@@ -221,6 +240,7 @@ def run_checks(host: str = "127.0.0.1") -> list[Check]:
         router,
         _chat_research(settings, router, research),
         _login(settings, environment, host),
+        _shell(settings),
         *_paths(settings),
     ]
 
