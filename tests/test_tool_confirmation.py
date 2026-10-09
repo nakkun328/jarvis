@@ -510,7 +510,10 @@ def test_v8_database_upgrades_to_approvals_without_losing_rows(tmp_path: Path) -
             "VALUES ('t1', 'goal', 'pending', 't', 't')"
         )
         connection.execute("DROP TABLE tool_approvals")
-        connection.execute("DELETE FROM schema_migrations WHERE version = 9")
+        connection.execute("DELETE FROM schema_migrations WHERE version IN (9, 10)")
+        connection.execute("ALTER TABLE research_sessions DROP COLUMN reuse_reason")
+        connection.execute("ALTER TABLE research_sessions DROP COLUMN reuse_of")
+        connection.execute("ALTER TABLE research_sessions DROP COLUMN reuse_prior_at")
         connection.execute("PRAGMA user_version = 8")
     assert not database.is_ready()
     database.initialize()

@@ -193,6 +193,7 @@ class Harness:
         queue_timeout: float = 30.0,
         quick_limits=None,
         standard_limits=None,
+        clock=None,
     ) -> None:
         self.database = Database(tmp_path / "run.sqlite3")
         self.database.initialize()
@@ -212,6 +213,7 @@ class Harness:
             poll_seconds=0.02,
             quick_limits=quick_limits,
             standard_limits=standard_limits,
+            clock=clock,
         )
 
     def task_of(self, session_id):

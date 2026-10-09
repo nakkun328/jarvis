@@ -333,6 +333,11 @@ function renderDetail() {
   const parts = [summary];
   if (state.detailError) parts.push(el("p", "error-text", apiErrorMessage(state.detailError)));
   parts.push(section("質問", el("p", "question", model.question)));
+  if (model.reuse !== null) {
+    const reuse = el("p", "reuse", model.reuse.label);
+    reuse.append(el("span", "reuse-note", ` — ${model.reuse.note}`));
+    parts.push(reuse);
+  }
   if (model.failure !== null) parts.push(el("p", "reason", `失敗の理由: ${model.failure}`));
   if (model.resultText) {
     parts.push(section("結果", el("p", "result", model.resultText)));

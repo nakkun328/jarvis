@@ -36,8 +36,8 @@ SOURCE_KEYS = {
     "source_type", "classification", "evaluation", "reasons",
 }
 SUMMARY_KEYS = {
-    "id", "question", "level", "status", "failure_reason", "has_result", "created_at",
-    "updated_at",
+    "id", "question", "level", "status", "failure_reason", "has_result", "reuse",
+    "created_at", "updated_at",
 }
 
 
@@ -142,6 +142,7 @@ def test_list_returns_allowlisted_summaries_newest_first(
         "status": "pending",
         "failure_reason": None,
         "has_result": False,
+        "reuse": None,
         "created_at": "2026-10-07T12:00:01.000000Z",
         "updated_at": "2026-10-07T12:00:01.000000Z",
     }

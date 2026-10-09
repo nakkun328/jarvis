@@ -67,6 +67,21 @@ def _iso(value: datetime | None) -> str | None:
     return None if value is None else value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
+def _reuse_dto(session: ResearchSession) -> dict[str, Any] | None:
+    """The past-research reuse decision: a fixed code, the earlier session and its date.
+
+    ``prior_at`` is when the earlier research retrieved its oldest source; for a reused
+    result it is the date of the shown citations, not of this run.
+    """
+    if session.reuse_reason is None:
+        return None
+    return {
+        "reason": session.reuse_reason,
+        "previous_session_id": str(session.reuse_of) if session.reuse_of else None,
+        "prior_at": _iso(session.reuse_prior_at),
+    }
+
+
 def session_summary(session: ResearchSession) -> dict[str, Any]:
     return {
         "id": str(session.id),
@@ -75,6 +90,7 @@ def session_summary(session: ResearchSession) -> dict[str, Any]:
         "status": session.status.value,
         "failure_reason": session.failure_reason.value if session.failure_reason else None,
         "has_result": session.result_text is not None,
+        "reuse": _reuse_dto(session),
         "created_at": _iso(session.created_at),
         "updated_at": _iso(session.updated_at),
     }

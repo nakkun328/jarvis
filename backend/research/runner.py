@@ -28,6 +28,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from uuid import UUID
 
 from backend.providers.base import CompletionRequest, CompletionResponse, LLMProvider
@@ -44,6 +45,7 @@ from backend.research.repository import (
     ResearchRepositoryError,
     ResearchStateChanged,
 )
+from backend.research.reuse import ReuseDecision, copy_prior_into, decide_reuse
 from backend.research.run_control import (
     REQUESTABLE_LEVELS,
     BudgetExhausted,
@@ -262,6 +264,7 @@ class ResearchRunService:
         poll_seconds: float = DEFAULT_POLL_SECONDS,
         quick_limits: QuickLimits | None = None,
         standard_limits: StandardLimits | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         if poll_seconds <= 0:
             raise ValueError("poll_seconds must be positive")
@@ -274,6 +277,7 @@ class ResearchRunService:
         self._poll = poll_seconds
         self._quick_limits = quick_limits
         self._standard_limits = standard_limits
+        self._clock = clock or (lambda: datetime.now(UTC))
         self._lock = threading.Lock()
         self._progress: dict[UUID, _Counters] = {}
         self._executor = _ResearchExecutor(self)
@@ -389,6 +393,9 @@ class ResearchRunService:
         self._progress[session.id] = counters
         steps = _Steps(reporter)
         steps.advance(0)
+        reused = self._try_reuse(session, counters, steps)
+        if reused is not None:
+            return reused
         if session.level is ResearchLevel.STANDARD:
 
             def on_progress(event: ProgressEvent) -> None:
@@ -420,6 +427,61 @@ class ResearchRunService:
         result = await quick.resume(session.id)
         steps.finish()
         return result.session
+
+    def _try_reuse(
+        self, session: ResearchSession, counters: _Counters, steps: _Steps
+    ) -> ResearchSession | None:
+        """Decide about past research; complete from it when it is fresh enough.
+
+        Returns the completed session when a verified prior result was reused, else ``None``
+        and the run searches as usual. The decision is stored on the session either way.
+        A stale or time-sensitive prior result is only linked as "previous result" context;
+        it never becomes this run's result.
+        """
+        try:
+            decision = decide_reuse(
+                self.repository,
+                session.question,
+                session.level,
+                self._clock(),
+                exclude=session.id,
+            )
+            self.repository.set_reuse_decision(
+                session.id,
+                decision.reason.value,
+                reuse_of=decision.prior.id if decision.prior else None,
+                prior_at=decision.prior_at,
+            )
+        except (ResearchRepositoryError, ValueError) as error:
+            logger.info("research reuse skipped type=%s", type(error).__name__)
+            return None
+        if not decision.reuse or decision.prior is None:
+            return None
+        # Past this point a storage error fails the run: a half-copied result must not
+        # fall through to a normal search.
+        return self._complete_from_prior(session, decision, counters, steps)
+
+    def _complete_from_prior(
+        self,
+        session: ResearchSession,
+        decision: ReuseDecision,
+        counters: _Counters,
+        steps: _Steps,
+    ) -> ResearchSession | None:
+        prior = decision.prior
+        assert prior is not None and prior.result_text is not None
+        current = self.repository.get_session(session.id)
+        if current is None:
+            return None
+        if current.status is ResearchStatus.PENDING:
+            self.repository.transition(session.id, ResearchStatus.PENDING, ResearchStatus.RUNNING)
+        counters.claims = copy_prior_into(self.repository, prior.id, session.id)
+        counters.sources = len(self.repository.list_sources(session.id))
+        counters.stage = Stage.WRITING.value
+        steps.advance(_STAGE_INDEX[Stage.WRITING])
+        finished = self.repository.set_result(session.id, prior.result_text)
+        steps.finish()
+        return finished
 
     # ----- helpers -----
 
@@ -464,9 +526,7 @@ class ResearchRunService:
                 if session is None or session.status in _TERMINAL:
                     return
                 if cancel:
-                    self.repository.transition(
-                        session_id, session.status, ResearchStatus.CANCELLED
-                    )
+                    self.repository.transition(session_id, session.status, ResearchStatus.CANCELLED)
                     return
                 if session.status is ResearchStatus.PENDING:
                     self.repository.transition(

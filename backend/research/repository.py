@@ -225,6 +225,40 @@ class ResearchRepository:
             row = _fetch_session_row(connection, session_id)
         return _session(row)
 
+    def set_reuse_decision(
+        self,
+        session_id: UUID,
+        reason: str,
+        *,
+        reuse_of: UUID | None = None,
+        prior_at: datetime | None = None,
+    ) -> ResearchSession:
+        """Record the past-research reuse decision of an unfinished session.
+
+        ``reason`` is one of the fixed codes of ``reuse.ReuseReason`` (the schema rejects any
+        other). Only a session that is not yet in a terminal state accepts it.
+        """
+        _require_uuid(session_id, "session_id")
+        if reuse_of is not None:
+            _require_uuid(reuse_of, "reuse_of")
+        with self._write() as connection:
+            self._require_open_session(connection, session_id)
+            try:
+                connection.execute(
+                    "UPDATE research_sessions SET reuse_reason = ?, reuse_of = ?, "
+                    "reuse_prior_at = ? WHERE id = ?",
+                    (
+                        reason,
+                        str(reuse_of) if reuse_of is not None else None,
+                        _ts(prior_at) if prior_at is not None else None,
+                        str(session_id),
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                raise ValueError("unknown reuse reason or session") from None
+            row = _fetch_session_row(connection, session_id)
+        return _session(row)
+
     # ----- queries -----
 
     def add_query(self, session_id: UUID, text: str) -> ResearchQueryRecord:
@@ -810,6 +844,11 @@ def _session(row: sqlite3.Row) -> ResearchSession:
             result_text=row["result_text"],
             failure_reason=FailureReason(row["failure_reason"])
             if row["failure_reason"] is not None
+            else None,
+            reuse_reason=row["reuse_reason"],
+            reuse_of=UUID(row["reuse_of"]) if row["reuse_of"] is not None else None,
+            reuse_prior_at=_parse_ts(row["reuse_prior_at"])
+            if row["reuse_prior_at"] is not None
             else None,
         )
     except ValueError as exc:
