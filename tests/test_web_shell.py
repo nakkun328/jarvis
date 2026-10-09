@@ -14,7 +14,14 @@ from backend.core.config import Settings
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-PAGE_FILES = ["index.html", "tasks.html", "approvals.html", "research.html", "memory.html"]
+PAGE_FILES = [
+    "index.html",
+    "tasks.html",
+    "approvals.html",
+    "research.html",
+    "memory.html",
+    "devices.html",
+]
 
 
 @pytest.fixture
@@ -90,7 +97,14 @@ def shell_files() -> list[str]:
 
 def test_every_declared_page_is_a_served_html_route(client: TestClient) -> None:
     pages = declared_pages()
-    assert [path for path, _ in pages] == ["/", "/tasks", "/approvals", "/research", "/memory"]
+    assert [path for path, _ in pages] == [
+        "/",
+        "/tasks",
+        "/approvals",
+        "/research",
+        "/memory",
+        "/devices",
+    ]
     for path, _label in pages:
         response = client.get(path)
         assert response.status_code == 200, path
@@ -139,7 +153,14 @@ def test_shared_components_are_defined_once() -> None:
     shared = (FRONTEND / "shell.css").read_text()
     for selector in (".readonly-note {", ".badge {", ".filters {", ".app-header {", ".nav-link {"):
         assert selector in shared
-        for name in ("style.css", "tasks.css", "approvals.css", "research.css", "memory.css"):
+        for name in (
+            "style.css",
+            "tasks.css",
+            "approvals.css",
+            "research.css",
+            "memory.css",
+            "devices.css",
+        ):
             assert selector not in (FRONTEND / name).read_text(), (selector, name)
 
 
@@ -270,6 +291,7 @@ def test_every_background_fetch_helper_handles_a_refused_session() -> None:
         "research-api.js",
         "research-run-api.js",
         "memory-api.js",
+        "devices-api.js",
         "tasks-stream.js",
     )
     for name in helpers:

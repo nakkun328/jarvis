@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b1420" />
+    <title>JARVIS · 端末</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+    <link rel="stylesheet" href="/static/shell.css" />
+    <link rel="stylesheet" href="/static/devices.css" />
+    <script type="module" src="/static/shell.js"></script>
+    <script type="module" src="/static/devices.js"></script>
+  </head>
+  <body class="devices-page">
+    <div class="app-shell">
+      <header class="app-header" data-app-header></header>
+
+      <main class="devices-main">
+        <h1 id="devices-heading" tabindex="-1">端末</h1>
+        <p class="readonly-note">
+          <strong>読み取り専用</strong>
+          サーバーが実際に把握していることだけを表示します。端末の登録や接続履歴はまだありません。
+        </p>
+        <p class="list-status" id="status" role="status" aria-live="polite"></p>
+
+        <section class="device-card" aria-labelledby="current-title">
+          <h2 id="current-title">この端末（現在の接続）</h2>
+          <dl class="device-fields" id="current-fields"></dl>
+        </section>
+
+        <section class="device-card" aria-labelledby="server-title">
+          <h2 id="server-title">サーバーの状態</h2>
+          <dl class="device-fields" id="server-fields"></dl>
+        </section>
+
+        <section class="device-card" aria-labelledby="registered-title">
+          <h2 id="registered-title"></h2>
+          <p class="not-connected" id="registered-text"></p>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.api.approvals import create_approvals_router
 from backend.api.chat import build_chat_router
+from backend.api.devices import create_devices_router
 from backend.api.memory import create_memory_router
 from backend.api.models import create_models_router
 from backend.api.request_logging import RequestLoggingMiddleware
@@ -208,6 +209,11 @@ def create_app(
     app.include_router(
         create_approvals_router(ApprovalStore(database), trusted_proxy=settings.trusted_proxy)
     )
+    app.include_router(
+        create_devices_router(
+            settings, login_enabled=auth.enabled, trusted_proxy=settings.trusted_proxy
+        )
+    )
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
     if auth.enabled:
@@ -226,6 +232,10 @@ def create_app(
         @app.get("/approvals", include_in_schema=False)
         def approvals_client() -> FileResponse:
             return FileResponse(frontend_dir / "approvals.html")
+
+        @app.get("/devices", include_in_schema=False)
+        def devices_client() -> FileResponse:
+            return FileResponse(frontend_dir / "devices.html")
 
         @app.get("/research", include_in_schema=False)
         def research_client() -> FileResponse:

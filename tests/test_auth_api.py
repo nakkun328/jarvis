@@ -147,10 +147,11 @@ def app_log(captured: str) -> str:
 
 # --- enforcement matrix ------------------------------------------------------------------------
 
-PAGES = ["/", "/tasks", "/research", "/missing-page"]
+PAGES = ["/", "/tasks", "/research", "/devices", "/missing-page"]
 API_GET = [
     "/health/ready",
     "/api/tasks",
+    "/api/devices",
     "/api/research/sessions",
     f"/api/tasks/{uuid4()}",
     f"/api/tasks/{uuid4()}/events",
