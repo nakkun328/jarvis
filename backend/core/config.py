@@ -22,6 +22,10 @@ _MAX_SEARCH_MONTHLY_LIMIT = 1_000_000
 _ROUTER_MODES = frozenset({"off", "rule", "llm"})
 # The research level a routed chat turn starts. Quick is the cheaper one (and the default).
 _CHAT_RESEARCH_LEVELS = frozenset({"quick", "standard"})
+# Chat model allowlist (JARVIS_MODEL_CHOICES): at most this many `provider:model` entries.
+_MODEL_CHOICE_PROVIDERS = frozenset({"openai", "gemini"})
+MAX_MODEL_CHOICES = 8
+_MODEL_CHOICE_ENTRY = re.compile(r"(openai|gemini):([A-Za-z0-9][A-Za-z0-9._-]{0,63})\Z")
 _MIN_SIGNING_KEY_CHARS = 32
 _SHELL_COMMAND_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}")
 _MAX_SHELL_COMMANDS = 16
@@ -53,6 +57,31 @@ def _env_int(name: str, default: int) -> int:
         raise ConfigError(f"{name} must be a whole number") from None
 
 
+def parse_model_choices(raw: str) -> tuple[str, ...]:
+    """The allowlist from a comma list of ``provider:model``. Blank means no choices.
+
+    Raises ConfigError for a malformed or empty entry, an unknown provider, a duplicate or more
+    than MAX_MODEL_CHOICES entries. The message never repeats the offending value.
+    """
+    if not raw.strip():
+        return ()
+    entries: list[str] = []
+    for part in raw.split(","):
+        candidate = part.strip()
+        match = _MODEL_CHOICE_ENTRY.fullmatch(candidate)
+        if match is None:
+            raise ConfigError(
+                "JARVIS_MODEL_CHOICES entries must be provider:model with provider one of: "
+                f"{', '.join(sorted(_MODEL_CHOICE_PROVIDERS))}"
+            )
+        entries.append(candidate)
+    if len(entries) != len(set(entries)):
+        raise ConfigError("JARVIS_MODEL_CHOICES must not contain duplicates")
+    if len(entries) > MAX_MODEL_CHOICES:
+        raise ConfigError(f"JARVIS_MODEL_CHOICES allows at most {MAX_MODEL_CHOICES} entries")
+    return tuple(entries)
+
+
 @dataclass(frozen=True)
 class Settings:
     db_path: Path
@@ -78,6 +107,9 @@ class Settings:
     # Which research a chat turn starts when the router chooses research (and a router, research,
     # a search provider and a chat provider are all configured). A fixed enum, not a free value.
     chat_research_level: str = "quick"
+    # The owner-selectable chat models (JARVIS_MODEL_CHOICES): an allowlist of `provider:model`
+    # strings. Empty (the default) means no selector and exactly the single configured model.
+    model_choices: tuple[str, ...] = ()
     # Structured shell tool (docs/tool-shell.md). Off by default; it needs an execution root too.
     # The command names pick entries of the fixed allowlist table, they are never command lines.
     shell_enabled: bool = False
@@ -120,6 +152,14 @@ class Settings:
                 "JARVIS_CHAT_RESEARCH_LEVEL must be one of: "
                 f"{', '.join(sorted(_CHAT_RESEARCH_LEVELS))}"
             )
+        if not isinstance(self.model_choices, tuple) or any(
+            not isinstance(entry, str) for entry in self.model_choices
+        ):
+            raise ConfigError("JARVIS_MODEL_CHOICES is invalid")
+        if self.model_choices and parse_model_choices(",".join(self.model_choices)) != (
+            self.model_choices
+        ):
+            raise ConfigError("JARVIS_MODEL_CHOICES is invalid")
         if not isinstance(self.shell_enabled, bool):
             raise ConfigError("JARVIS_SHELL_ENABLED must be true or false")
         if self.shell_root is not None and not str(self.shell_root).strip():
@@ -232,4 +272,5 @@ class Settings:
             chat_research_level=(
                 os.environ.get("JARVIS_CHAT_RESEARCH_LEVEL", "quick").strip().lower()
             ),
+            model_choices=parse_model_choices(os.environ.get("JARVIS_MODEL_CHOICES", "")),
         )

@@ -32,6 +32,7 @@ from backend.providers.base import (
     LLMProvider,
     ProviderError,
 )
+from backend.providers.choices import ModelRegistry, UnknownModelChoice
 from backend.router import (
     DEFAULT_CONFIDENCE_THRESHOLD,
     Route,
@@ -154,8 +155,12 @@ class ChatService:
         personality: PersonalityProfile | None = None,
         router: Router | None = None,
         research_starter: ResearchStarter | None = None,
+        models: ModelRegistry | None = None,
     ) -> None:
+        # The default provider. Router and research use this one only; a per-request model
+        # choice (see ``provider_for``) affects just the chat answer.
         self.provider = provider
+        self.models = models if models else None
         # Off by default. With a router, each turn first asks it for a decision (see _route).
         self.router = router
         # Off by default. Only used with a router: a real research decision then starts a
@@ -166,6 +171,15 @@ class ChatService:
         self._system_prompt = (
             SYSTEM_PROMPT if personality is None else render_system_prompt(personality)
         )
+
+    def provider_for(self, model_choice: str | None) -> LLMProvider:
+        """The provider that answers one turn. Raises ``ModelChoiceError`` for a choice that is
+        not in the allowlist or not available; without a registry only ``None`` is accepted."""
+        if model_choice is None:
+            return self.provider
+        if self.models is None:
+            raise UnknownModelChoice("model choice is not allowed")
+        return self.models.provider_for(model_choice)
 
     async def _decide(self, message: str) -> RouteDecision:
         """The router's decision. A router that fails, hangs or returns something else is the
@@ -278,6 +292,7 @@ class ChatService:
         conversation_id: UUID | None = None,
         *,
         on_activity: Callable[[ActivityEvent], None] | None = None,
+        model_choice: str | None = None,
     ) -> ChatResult:
         """One full reply. ``on_activity`` observes the turn's stages (the HTTP endpoint has no
         channel for them and leaves it unset, so its response is unchanged)."""
@@ -286,6 +301,8 @@ class ChatService:
             if on_activity is not None:
                 on_activity(event)
 
+        provider = self.provider_for(model_choice)
+        self._log_choice(model_choice)
         started = perf_counter()
         try:
             emit(ActivityEvent.received())
@@ -306,7 +323,7 @@ class ChatService:
                 if notes is not None:
                     emit(ActivityEvent.memory_lookup(notes))
                 emit(ActivityEvent.generating())
-                response = await self.provider.complete(request)
+                response = await provider.complete(request)
                 if not response.text.strip():
                     raise ProviderError("Provider returned no text")
                 await self.store.remember(current_id, conversation, message, response.text)
@@ -317,27 +334,48 @@ class ChatService:
             emit(ActivityEvent.error(_error_code(exc)))
             raise
 
+    @staticmethod
+    def _log_choice(model_choice: str | None) -> None:
+        # Only the validated allowlist string is ever logged, never a client-supplied value.
+        if model_choice is not None:
+            _LOG.info("chat.model_selected", extra={"model_choice": model_choice})
+
     def stream(
-        self, message: str, conversation_id: UUID | None = None
+        self,
+        message: str,
+        conversation_id: UUID | None = None,
+        *,
+        model_choice: str | None = None,
     ) -> AsyncIterator[ChatDelta | ChatDone]:
         """The reply as deltas, then ``ChatDone``. Yields no activity events."""
         return cast(
-            AsyncIterator[ChatDelta | ChatDone], self._stream(message, conversation_id, False)
+            AsyncIterator[ChatDelta | ChatDone],
+            self._stream(message, conversation_id, False, model_choice),
         )
 
     def stream_with_activity(
-        self, message: str, conversation_id: UUID | None = None
+        self,
+        message: str,
+        conversation_id: UUID | None = None,
+        *,
+        model_choice: str | None = None,
     ) -> AsyncIterator[ActivityEvent | ChatDelta | ChatDone]:
         """``stream`` plus the turn's ``ActivityEvent``s, in the order things happen.
 
         A failure yields ``error`` activity and then raises, as ``stream`` does. A cancelled or
         abandoned stream yields nothing further: the client already went away.
         """
-        return self._stream(message, conversation_id, True)
+        return self._stream(message, conversation_id, True, model_choice)
 
     async def _stream(
-        self, message: str, conversation_id: UUID | None, activity: bool
+        self,
+        message: str,
+        conversation_id: UUID | None,
+        activity: bool,
+        model_choice: str | None = None,
     ) -> AsyncIterator[ActivityEvent | ChatDelta | ChatDone]:
+        provider = self.provider_for(model_choice)
+        self._log_choice(model_choice)
         started = perf_counter()
         try:
             if activity:
@@ -369,7 +407,7 @@ class ChatService:
                     if notes is not None:
                         yield ActivityEvent.memory_lookup(notes)
                     yield ActivityEvent.generating()
-                deltas = self.provider.stream(request)
+                deltas = provider.stream(request)
                 async with AsyncExitStack() as resources:
                     close = getattr(deltas, "aclose", None)
                     if close is not None:
@@ -386,8 +424,8 @@ class ChatService:
                     yield ActivityEvent.done()
                 yield ChatDone(
                     conversation_id=current_id,
-                    provider=str(getattr(self.provider, "name", "custom")),
-                    model=str(getattr(self.provider, "model", "unknown")),
+                    provider=str(getattr(provider, "name", "custom")),
+                    model=str(getattr(provider, "model", "unknown")),
                 )
         except Exception as exc:
             _log_failure(exc, started, streaming=True)

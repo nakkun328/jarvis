@@ -34,6 +34,7 @@ REASONS: dict[str, str] = {
     "RESEARCH_DISABLED": "JARVIS_RESEARCH_ENABLED が無効です",
     "SEARCH_PROVIDER_MISSING": "検索プロバイダが未設定です",
     "CHAT_PROVIDER_MISSING": "チャットプロバイダが未設定です",
+    "MODEL_CHOICE_UNAVAILABLE": "選択肢のうち、キーまたはパッケージが揃っていないものがあります",
     "ROUTER_OFF": "ルーターが off です",
     "RESEARCH_NOT_READY": "リサーチの準備ができていません",
     "ROUTER_NEEDS_CHAT_PROVIDER": "llm ルーターにはチャットプロバイダが必要です",
@@ -116,6 +117,23 @@ def _chat(settings: Settings, env: Mapping[str, str]) -> Check:
     if not _installed(module):
         return Check("chat", "チャット", INCOMPLETE, "DEPENDENCY_MISSING", detail)
     return Check("chat", "チャット", OK, "READY", detail)
+
+
+def _models(settings: Settings, env: Mapping[str, str], chat: Check) -> Check:
+    """The selectable-model allowlist (``JARVIS_MODEL_CHOICES``). Counts only; no names, no keys."""
+    from backend.providers.choices import provider_ready, split_choice
+
+    total = len(settings.model_choices)
+    if total == 0:
+        return Check("models", "モデル選択", OFF, "NOT_CONFIGURED", "choices=0")
+    if chat.status != OK:  # the default provider is what the app falls back to
+        detail = f"choices={total}"
+        return Check("models", "モデル選択", INCOMPLETE, "CHAT_PROVIDER_MISSING", detail)
+    ready = sum(provider_ready(split_choice(entry)[0], env) for entry in settings.model_choices)
+    detail = f"choices={total}, available={ready}"
+    if ready < total:
+        return Check("models", "モデル選択", INCOMPLETE, "MODEL_CHOICE_UNAVAILABLE", detail)
+    return Check("models", "モデル選択", OK, "READY", detail)
 
 
 def _research(settings: Settings, chat: Check) -> Check:
@@ -236,6 +254,7 @@ def run_checks(host: str = "127.0.0.1") -> list[Check]:
     router = _router(settings, chat)
     return [
         chat,
+        _models(settings, environment, chat),
         research,
         router,
         _chat_research(settings, router, research),

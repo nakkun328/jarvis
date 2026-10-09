@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.api.approvals import create_approvals_router
 from backend.api.chat import build_chat_router
 from backend.api.memory import create_memory_router
+from backend.api.models import create_models_router
 from backend.api.request_logging import RequestLoggingMiddleware
 from backend.api.research import create_research_router
 from backend.api.tasks import create_tasks_router
@@ -35,6 +36,7 @@ from backend.memory.semantic import SemanticMemorySearcher
 from backend.memory.vector import VectorIndex
 from backend.personality.settings import PersonalityError, load_personality
 from backend.providers.base import LLMProvider
+from backend.providers.choices import ModelRegistry
 from backend.providers.factory import create_provider
 from backend.research.models import ResearchLevel
 from backend.research.repository import ResearchRepository
@@ -80,6 +82,7 @@ def create_app(
     search_provider: SearchProvider | None = None,
     page_reader: "PageFetcher | None" = None,
     router: Router | None = None,
+    models: ModelRegistry | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     auth = auth or AuthService.from_settings(settings)
@@ -113,12 +116,17 @@ def create_app(
     )
     if router is None and settings.router != "off":
         router = _build_router(settings, provider)
+    # The selectable models need a default provider to fall back on; without one (or without
+    # JARVIS_MODEL_CHOICES) there is no registry and the app is exactly the single-model app.
+    if models is None and provider is not None and settings.model_choices:
+        models = ModelRegistry(settings.model_choices, provider)
     chat_service = (
         ChatService(
             provider,
             SQLiteConversationStore(database),
             memory_context=memory_context,
             personality=personality,
+            models=models,
             router=router,
             # A routed research decision starts a research only when there is a router AND the
             # research run service exists (switch, search provider and chat provider all set).
@@ -156,6 +164,8 @@ def create_app(
                 worker.cancel()
                 with suppress(asyncio.CancelledError):
                     await worker
+            if models is not None:
+                await models.aclose()
             close = getattr(provider, "aclose", None)
             if close is not None:
                 await close()
@@ -184,6 +194,7 @@ def create_app(
         return {"status": "ok"}
 
     app.include_router(build_chat_router(chat_service))
+    app.include_router(create_models_router(models))
     app.include_router(create_memory_router(MemoryRepository(database)))
     app.include_router(
         create_research_router(

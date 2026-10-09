@@ -10,6 +10,7 @@ import "./memory.test.mjs";
 import "./shell.test.mjs";
 import "./activity.test.mjs";
 import "./session.test.mjs";
+import "./model-select.test.mjs";
 
 const encode = (text) => new TextEncoder().encode(text);
 
