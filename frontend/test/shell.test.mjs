@@ -51,7 +51,7 @@ function fakeDocument({ withMain = true } = {}) {
 }
 
 test("one page list defines every screen, with unique root-relative paths", () => {
-  assert.deepEqual(PAGES.map((page) => page.path), ["/", "/tasks", "/approvals", "/research", "/memory"]);
+  assert.deepEqual(PAGES.map((page) => page.path), ["/", "/tasks", "/approvals", "/research", "/memory", "/devices"]);
   assert.equal(new Set(PAGES.map((page) => page.path)).size, PAGES.length);
   for (const page of PAGES) {
     assert.match(page.path, /^\/[a-z]*$/);
