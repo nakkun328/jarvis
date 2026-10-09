@@ -29,14 +29,16 @@ Fakes (from `tests/research_run_support.py`): a canned search provider (can fail
 
 `not_configured` and `refused` skip reasons are covered at unit level in `test_chat_research_route.py`.
 
-## Known gaps (current behaviour is asserted)
+## Quality fixes (formerly known gaps, now asserted fixed)
 
-These tests assert what happens today and carry a `known gap:` comment. When the behaviour is fixed the assertion fails on purpose; update it together with the fix.
+The four problems seen in the owner's real run are fixed and their tests assert the fixed behaviour:
 
-1. Near-duplicate claims (`test_known_gap_near_duplicate_claims_are_all_kept`): two reworded copies of one fact from one source are both stored and listed. Fix would give one claim.
-2. One domain dominance (`test_known_gap_one_domain_can_supply_every_source_without_a_caveat`): three pages of one domain count as three independent sources, agreement is 1.0 and the result has no caveat. A diversity caveat would appear in `result_text`.
-3. Blocked URLs use page budget (`test_known_gap_blocked_urls_use_up_the_page_budget`): internal URLs in the search hits are rejected before any fetch, but each still counts as a page tried, so a flood of them crowds good sources out of the first pass.
-4. Quick prints the model's unverified prose (`test_multiple_sources...[quick]`): the Quick result starts with the model's own free-text answer, then the verified claims. Standard builds the text from verified claims only.
+1. Near-duplicate claims (`test_near_duplicate_claims_are_merged`): reworded copies of one fact from one source become one claim; the better-cited (longer quote) wording stays.
+2. One-domain dominance (`test_one_domain_is_not_counted_as_independent_sources`, `test_pages_are_picked_from_different_domains_first`): three pages of one domain give `agreement` `None` and the `single_domain` caveat; selection reads one page per domain first.
+3. Blocked URLs (`test_blocked_urls_do_not_use_up_the_page_budget`): internal URLs are set aside before the result and page limits, never fetched and not counted as pages tried.
+4. Quick prose (`test_multiple_sources...[quick]`): Quick shows verified claims only, like Standard.
+
+Unit tests are in `tests/test_research_quality.py`.
 
 ## Running
 
