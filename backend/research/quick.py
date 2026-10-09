@@ -34,6 +34,7 @@ from backend.research.citations import (
     ProposedClaim,
     normalize_space,
 )
+from backend.research.domains import diversify, split_blocked
 from backend.research.models import (
     MAX_QUERY_CHARS,
     MAX_RESULT_CHARS,
@@ -45,7 +46,7 @@ from backend.research.models import (
     ResearchSource,
     ResearchStatus,
 )
-from backend.research.reader import FetchedPage, PageReader, ReaderError
+from backend.research.reader import FetchedPage, PageReader, ReaderError, ReadFailure
 from backend.research.repository import (
     ResearchRepository,
     ResearchRepositoryError,
@@ -72,6 +73,10 @@ SYSTEM_PROMPT = (
     '"claims": [{"text": "...", "source": 1, "quote": "..."}]}'
 )
 
+RESULT_HEADER = (
+    "Quick research result. Every statement below is backed by a quote found word for word "
+    "in the cited page."
+)
 _STOPWORDS = frozenset(
     "a an and are as at be by can do does for from how i in is it of on or that the this to "
     "was what when where which who why will with".split()
@@ -242,11 +247,17 @@ class QuickResearch:
                 self._repository.add_query(session.id, text)
         state.queries = tuple(planned)
 
-        candidates = await self._search_all(planned)
+        blocked: list[tuple[SearchResult, ReadFailure]] = []
+        candidates = await self._search_all(planned, blocked)
         if not candidates:
             raise _Failed(FailureReason.NO_RESULTS)
 
-        pages = await self._read_all(candidates[: limits.max_pages], state)
+        # Blocked URLs never use a page slot; one domain does not fill every slot.
+        pages = await self._read_all(diversify(candidates)[: limits.max_pages], state)
+        state.failed_reads = (
+            *(FailedRead(hit.url, reason.value) for hit, reason in blocked),
+            *state.failed_reads,
+        )
         evidence: list[EvidenceSource] = []
         seen_ids: set[UUID] = set()
         for result, page in pages:
@@ -271,20 +282,22 @@ class QuickResearch:
             raise _Failed(FailureReason.READER_FAILED)
 
         raw = await self._ask_llm(session.question, evidence)
-        answer, insufficient, proposed = _parse_response(raw)
+        _answer, insufficient, proposed = _parse_response(raw)  # the prose is never shown
 
         manager = CitationManager(self._repository, session.id, evidence)
         report = manager.verify(proposed, max_claims=limits.max_claims)
         state.dropped = report.dropped
         if not report.verified and not insufficient:
             raise _Failed(FailureReason.SYNTHESIS_FAILED)
-        text = manager.render(answer, report.verified, dropped=len(report.dropped))
+        text = manager.render(RESULT_HEADER, report.verified, dropped=len(report.dropped))
         if len(text) > MAX_RESULT_CHARS:
             raise _Failed(FailureReason.BUDGET_EXCEEDED)
         state.claims = manager.persist(report.verified)
         self._repository.set_result(session.id, text)
 
-    async def _search_all(self, queries: Sequence[str]) -> list[SearchResult]:
+    async def _search_all(
+        self, queries: Sequence[str], blocked: list[tuple[SearchResult, ReadFailure]]
+    ) -> list[SearchResult]:
         limits = self._limits
         results: list[SearchResult] = []
         seen: set[str] = set()
@@ -298,7 +311,9 @@ class QuickResearch:
                 failures += 1
                 logger.info("research search failed type=%s", type(error).__name__)
                 continue
-            for hit in list(found)[: limits.results_per_query]:
+            readable, refused = split_blocked(list(found))  # blocked take no result slot
+            blocked.extend(refused)
+            for hit in readable[: limits.results_per_query]:
                 if hit.url not in seen:
                     seen.add(hit.url)
                     results.append(hit)

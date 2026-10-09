@@ -12,6 +12,7 @@ Quote offsets are character offsets into the in-memory extracted page text of th
 """
 
 import re
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -23,12 +24,18 @@ from backend.research.models import (
     ResearchClaim,
     ResearchSource,
 )
+from backend.research.planner import EN_STOPWORDS
 from backend.research.repository import ResearchRepository
 
 MIN_QUOTE_CHARS = 8
 _URL = re.compile(r"https?://[^\s<>\"'\])}]+", re.IGNORECASE)
 _URL_TRAILING = ".,;:!?"
 _LINK_REMOVED = "[link removed]"
+NEAR_DUPLICATE_AT = 0.7
+_NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
+_CJK_RUN = re.compile(r"[\u3040-\u30ff\u3400-\u9fff]+")
+_WORD = re.compile(r"[^\W\d_]+")
+_NEGATIONS = frozenset({"not", "no", "never", "cannot", "without", "ない", "ません", "不"})
 
 
 class DropReason(StrEnum):
@@ -42,6 +49,7 @@ class DropReason(StrEnum):
     CLAIM_TOO_LONG = "claim_too_long"
     DUPLICATE = "duplicate"
     OVER_LIMIT = "over_limit"
+    NEAR_DUPLICATE = "near_duplicate"
 
 
 @dataclass(frozen=True)
@@ -86,6 +94,38 @@ def normalize_space(text: str) -> str:
     return " ".join(text.split())
 
 
+def _signature(text: str) -> tuple[frozenset[str], frozenset[str], bool]:
+    """(content tokens, numbers, negated) of a claim; words are case-folded, CJK uses bigrams."""
+    folded = unicodedata.normalize("NFKC", text).casefold()
+    numbers = frozenset(m.replace(",", "") for m in _NUMBER.findall(folded))
+    tokens: set[str] = set()
+    for run in _CJK_RUN.findall(folded):
+        tokens.update(run[i : i + 2] for i in range(len(run) - 1))
+    plain = _CJK_RUN.sub(" ", _NUMBER.sub(" ", folded))
+    words = [w for w in _WORD.findall(plain) if w not in EN_STOPWORDS]
+    tokens.update(words)
+    negated = bool(_NEGATIONS & set(words)) or "n't" in folded or any(
+        n in folded for n in ("ない", "ません", "不")
+    )
+    return frozenset(tokens), numbers, negated
+
+
+def near_duplicate(first: str, second: str) -> bool:
+    """True for two wordings of one statement: same numbers and negation, most words shared.
+
+    Deterministic and surface-only: lower-case word (or CJK bigram) Jaccard of at least
+    ``NEAR_DUPLICATE_AT`` after dropping stop words, with identical numbers and negation.
+    """
+    tokens_a, numbers_a, negated_a = _signature(first)
+    tokens_b, numbers_b, negated_b = _signature(second)
+    if numbers_a != numbers_b or negated_a != negated_b:
+        return False
+    union = tokens_a | tokens_b
+    if not union:
+        return False
+    return len(tokens_a & tokens_b) / len(union) >= NEAR_DUPLICATE_AT
+
+
 def find_quote(text: str, quote: str) -> tuple[int, int] | None:
     """Offsets of the first verbatim occurrence of ``quote``; whitespace runs may differ."""
     tokens = quote.split()
@@ -121,6 +161,17 @@ class CitationManager:
             key = (outcome.text, outcome.source_index, outcome.quote)
             if key in seen:
                 dropped.append(DroppedClaim(DropReason.DUPLICATE, outcome.source_index))
+                continue
+            twin = _twin(verified, outcome)
+            if twin is not None:
+                # A reworded copy of a claim of the same source: keep the better-cited one.
+                if len(outcome.quote) > len(verified[twin].quote):
+                    seen.discard(
+                        (verified[twin].text, verified[twin].source_index, verified[twin].quote)
+                    )
+                    verified[twin] = outcome
+                    seen.add(key)
+                dropped.append(DroppedClaim(DropReason.NEAR_DUPLICATE, outcome.source_index))
                 continue
             seen.add(key)
             verified.append(outcome)
@@ -176,14 +227,18 @@ class CitationManager:
             )
         return tuple(stored)
 
-    def render(self, answer: str, claims: Sequence[VerifiedClaim], *, dropped: int = 0) -> str:
-        """Final text: the answer, the verified claims, and a source list from stored records."""
+    def render(self, header: str, claims: Sequence[VerifiedClaim], *, dropped: int = 0) -> str:
+        """Final text: a fixed header, the verified claims, and a source list from stored records.
+
+        Only verified claims are shown. ``header`` must be fixed text of ours, never the model's
+        free-text answer (callers pass a constant); URLs in it are still checked.
+        """
         allowed = {
             url
             for item in self._evidence.values()
             for url in (item.source.url, item.source.final_url)
         }
-        lines = [strip_unknown_urls(answer.strip(), allowed)]
+        lines = [strip_unknown_urls(header.strip(), allowed)]
         if claims:
             lines += ["", "Verified claims:"]
             lines += [
@@ -216,6 +271,19 @@ def strip_unknown_urls(text: str, allowed: set[str]) -> str:
         return _LINK_REMOVED + tail
 
     return _URL.sub(replace, text)
+
+
+def _twin(verified: Sequence[VerifiedClaim], claim: VerifiedClaim) -> int | None:
+    """Index of a kept claim of the same source that says the same thing, if any."""
+    for position, kept in enumerate(verified):
+        if kept.source_index == claim.source_index and near_duplicate(kept.text, claim.text):
+            return position
+    return None
+
+
+def has_twin(verified: Sequence[VerifiedClaim], claim: VerifiedClaim) -> bool:
+    """True when ``claim`` repeats (or rewords) a claim of the same source in ``verified``."""
+    return _twin(verified, claim) is not None
 
 
 def _source_ref(value: object) -> int | None:

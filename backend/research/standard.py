@@ -52,11 +52,13 @@ from backend.research.citations import (
     DroppedClaim,
     EvidenceSource,
     VerifiedClaim,
+    has_twin,
     normalize_space,
     strip_unknown_urls,
 )
 from backend.research.conflicts import detect_and_store_conflicts
 from backend.research.crosscheck import cross_check_and_store
+from backend.research.domains import diversify, registrable_domain, split_blocked
 from backend.research.evaluation import evaluate_and_store
 from backend.research.followup import FollowUpQuery, generate_follow_ups
 from backend.research.levels import LEVEL_BUDGETS, LevelBudget
@@ -181,6 +183,7 @@ class Caveat(StrEnum):
     READS_FAILED = "reads_failed"
     CLAIMS_REMOVED = "claims_removed"
     NO_VERIFIED_CLAIMS = "no_verified_claims"
+    SINGLE_DOMAIN = "single_domain"
 
 
 CAVEAT_TEXT: dict[Caveat, str] = {
@@ -201,6 +204,7 @@ CAVEAT_TEXT: dict[Caveat, str] = {
     Caveat.READS_FAILED: "Some pages could not be read.",
     Caveat.CLAIMS_REMOVED: "Some proposed claims were removed because they could not be verified.",
     Caveat.NO_VERIFIED_CLAIMS: "The sources did not support any claim that could be verified.",
+    Caveat.SINGLE_DOMAIN: "All verified claims come from one website, so they are not independent.",
 }
 
 _GAP_CAVEAT = {
@@ -551,22 +555,42 @@ class StandardResearch:
                 failures += 1
                 logger.info("research search failed type=%s", type(error).__name__)
                 continue
-            hits.extend(list(found)[: limits.results_per_query])
+            # Blocked URLs are set aside first so they take neither a result slot nor a page.
+            usable = self._set_blocked_aside(run, list(found))
+            hits.extend(usable[: limits.results_per_query])
         return hits, failures
 
     @staticmethod
+    def _set_blocked_aside(run: _Run, hits: Sequence[SearchResult]) -> list[SearchResult]:
+        readable, blocked = split_blocked(hits)
+        for hit, reason in blocked:
+            key = _url_key(hit.url)
+            if key not in run.attempted:
+                run.attempted.add(key)  # recorded once; never counted as a page tried
+                run.failed_reads.append(FailedRead(hit.url, reason.value))
+                run.note(Caveat.READS_FAILED)
+        return readable
+
+    @staticmethod
     def _candidates(run: _Run, hits: Sequence[SearchResult]) -> list[SearchResult]:
-        """Distinct, not yet tried URLs; the best rank of any query first, ties by discovery."""
+        """Distinct, not yet tried, fetchable URLs; best rank first, one page per domain first.
+
+        Blocked URLs (internal addresses, bad schemes) never get here: the search step records
+        them as failed reads and they take no slot and do not count as pages tried. The best hit
+        of each registrable domain comes before a second hit of the same domain, so a page
+        limit is not filled by one site while other domains are available.
+        """
         ordered = sorted(enumerate(hits), key=lambda pair: (pair[1].rank, pair[0]))
-        chosen: list[SearchResult] = []
+        distinct: list[SearchResult] = []
         seen: set[str] = set()
         for _, hit in ordered:
             key = _url_key(hit.url)
             if key in run.attempted or key in seen:
                 continue
             seen.add(key)
-            chosen.append(hit)
-        return chosen
+            distinct.append(hit)
+        readable, _ = split_blocked(distinct)  # already recorded by the search step
+        return diversify(readable)
 
     async def _read_and_store(
         self, run: _Run, candidates: Sequence[SearchResult]
@@ -650,7 +674,10 @@ class StandardResearch:
         run.dropped.extend(report.dropped)
         if insufficient and not report.verified:
             run.insufficient_rounds += 1
-        kept = [claim for claim in report.verified if not _already(run.verified, claim)]
+        kept: list[VerifiedClaim] = []
+        for claim in report.verified:
+            if not _already(run.verified, claim) and not has_twin([*run.verified, *kept], claim):
+                kept.append(claim)
         manager.persist(kept)
         run.verified.extend(kept)
         if run.verified:
@@ -735,12 +762,22 @@ class StandardResearch:
         stop = _STOP_CAVEAT.get(run.stop_reason) if run.stop_reason else None
         if stop is not None and gaps:
             caveats.append(stop)
+        if self._single_domain(run):
+            caveats.append(Caveat.SINGLE_DOMAIN)
         for caveat in run.caveats:
             if caveat not in caveats:
                 caveats.append(caveat)
         if run.dropped and Caveat.CLAIMS_REMOVED not in caveats:
             caveats.append(Caveat.CLAIMS_REMOVED)
         return caveats
+
+    @staticmethod
+    def _single_domain(run: _Run) -> bool:
+        """Two or more sources carry the verified claims, yet all share one registrable domain."""
+        by_index = {item.index: item.source for item in run.evidence}
+        cited = {claim.source_index for claim in run.verified}
+        domains = {registrable_domain(by_index[i].final_url) for i in cited if i in by_index}
+        return len(cited) >= 2 and len(domains) == 1 and None not in domains
 
     @staticmethod
     def _caveat_line(run: _Run, caveat: Caveat) -> str:
