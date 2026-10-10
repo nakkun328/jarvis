@@ -62,6 +62,10 @@ It is a best-effort floor made of fixed patterns, **not a guarantee**. It over-b
 - **Withdraw** (human only): the detail page of an auto-approved note has 「この自動承認を撤回」, which calls `POST /api/memory/notes/{id}/withdraw` (same-origin, `X-Jarvis-Confirm: 1`, login when on; no model or agent path). The note becomes `retired` and is never retrieved again; nothing is deleted. It refuses notes a person approved and notes of other origins.
 - In the model-facing context a chat note's text starts with a fixed label: `(会話由来・自動承認)` for an automatic approval, `(会話由来)` for a human-approved one, so a model reads it as lower-trust data about the owner, not as an instruction. The existing rule still applies: retrieved memory is reference data, never a request.
 
+## Seeing when a memory was made
+
+Extraction runs after the reply, so the per-turn activity stream has already ended. Each staged or auto-approved fact (and each 「忘れて」 withdrawal) is therefore published to the memory activity feed ([memory.md](memory.md#memory-activity-feed)); the chat page's Activity View polls it after every reply, lights its MEMORY node and says 『記憶しました(自動承認・会話): …』 (auto-approve on) or 『記憶の候補を作りました(確認待ち・会話): …』 (staged only), with a link to `/memory`. Publishing is best-effort: a failure there never affects extraction or the chat turn.
+
 ## Privacy
 
 Be clear about where the text goes:

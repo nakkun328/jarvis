@@ -16,6 +16,7 @@ from backend.api.approvals import create_approvals_router
 from backend.api.chat import build_chat_router
 from backend.api.devices import create_devices_router
 from backend.api.memory import create_memory_router
+from backend.api.memory_activity import create_memory_activity_router
 from backend.api.memory_withdraw import create_memory_withdraw_router
 from backend.api.models import create_models_router
 from backend.api.request_logging import RequestLoggingMiddleware
@@ -38,6 +39,7 @@ from backend.core.logging import configure_logging
 from backend.memory.auto_approval import AUTO_APPROVER
 from backend.memory.chat_auto import ChatAutoMemory
 from backend.memory.embedding import EmbeddingProvider
+from backend.memory.events import MemoryActivityFeed
 from backend.memory.obsidian import ObsidianVault
 from backend.memory.repository import MemoryRepository
 from backend.memory.retrieval import MemoryRetriever
@@ -133,6 +135,7 @@ def create_app(
         if settings.memory_vault_path is not None
         else None
     )
+    memory_feed = MemoryActivityFeed()
     research_memory = ResearchMemoryCandidates(
         research_repository,
         MemoryRepository(database),
@@ -141,6 +144,7 @@ def create_app(
             if settings.research_memory_auto_approve and memory_writer is not None
             else None
         ),
+        publisher=memory_feed.publish,
     )
 
     # Owner-approved exception (docs/chat-auto-memory.md): facts about the owner are extracted
@@ -155,6 +159,7 @@ def create_app(
             min_chars=settings.chat_memory_min_chars,
             per_conversation_limit=settings.chat_memory_per_conversation_limit,
             per_day_limit=settings.chat_memory_per_day_limit,
+            publisher=memory_feed.publish,
         )
         if settings.chat_memory_auto and provider is not None
         else None
@@ -291,7 +296,18 @@ def create_app(
     )
     app.include_router(
         create_memory_withdraw_router(
-            MemoryRepository(database), memory_writer, trusted_proxy=settings.trusted_proxy
+            MemoryRepository(database),
+            memory_writer,
+            trusted_proxy=settings.trusted_proxy,
+            publisher=memory_feed.publish,
+        )
+    )
+    app.include_router(
+        create_memory_activity_router(
+            memory_feed,
+            configured=settings.memory_vault_path is not None,
+            chat_enabled=chat_memory is not None,
+            research_enabled=settings.research_memory_auto_stage,
         )
     )
     app.include_router(create_tasks_router(TaskRepository(database)))

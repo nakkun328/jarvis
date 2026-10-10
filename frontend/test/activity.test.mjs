@@ -348,6 +348,7 @@ class El {
   getAttribute(n) { return this.attrs[n] ?? null; }
   removeAttribute(n) { delete this.attrs[n]; }
   append(...n) { this.children.push(...n); }
+  replaceChildren(...n) { this.children = n; }
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
   click() { for (const fn of this.listeners.click ?? []) fn(); }
   *walk() { yield this; for (const c of this.children) yield* c.walk(); }

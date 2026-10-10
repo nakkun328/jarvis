@@ -5,6 +5,7 @@ import {
   pollSession,
   startResearch,
 } from "./research-run-api.js";
+import { createMemoryPoller, memoryLink, noticeText } from "./activity-memory.js";
 import { detailViewModel, isTerminal, statusInfo } from "./research-view.js";
 import {
   LEVELS,
@@ -61,6 +62,21 @@ export function initRunPanel({ onSessionsChanged = () => {}, onOpenDetail = () =
   const progressError = $("#run-progress-error");
   const progressNote = $("#run-progress-note");
   const resultBox = $("#run-result");
+
+  // Memory that a finished research staged (or approved) on its own arrives through the memory
+  // feed shortly after the run completes; only research-origin events are shown here.
+  let memoryLine = null;
+  const memoryPoller = createMemoryPoller({
+    filter: (event) => event.origin === "research",
+    onEvents: (events, { silent }) => {
+      if (silent || !memoryLine) return;
+      memoryLine.textContent = noticeText(events);
+      memoryLine.hidden = false;
+      if (!memoryLine.querySelector("a")) memoryLine.after(memoryLink(document));
+    },
+    isHidden: () => document.hidden,
+  });
+  void memoryPoller.baseline();
 
   const state = {
     mode: "loading", // loading | unavailable | form | submitting | watching | finished
@@ -168,6 +184,9 @@ export function initRunPanel({ onSessionsChanged = () => {}, onOpenDetail = () =
     progressNote.textContent = state.notice ?? "";
     state.notice = null;
     live.textContent = "";
+    memoryPoller.stop();
+    memoryLine = null;
+    void memoryPoller.mark();
     show("watching");
     renderProgress();
     progressHeading.focus({ preventScroll: false });
@@ -342,6 +361,15 @@ export function initRunPanel({ onSessionsChanged = () => {}, onOpenDetail = () =
       parts.push(el("p", "run-citation-note", model.citationNote));
     }
 
+    memoryLine = null;
+    if (model.kind === "completed") {
+      memoryLine = el("p", "run-memory-status");
+      memoryLine.setAttribute("role", "status");
+      memoryLine.setAttribute("aria-live", "polite");
+      memoryLine.hidden = true;
+      parts.push(memoryLine);
+    }
+
     const actions = el("div", "run-actions");
     const open = el("button", "run-secondary", "詳細（出典と評価）を開く");
     open.type = "button";
@@ -357,6 +385,7 @@ export function initRunPanel({ onSessionsChanged = () => {}, onOpenDetail = () =
 
     resultBox.replaceChildren(...parts);
     show("finished");
+    if (memoryLine) memoryPoller.watch();
     live.textContent = "";
     heading.focus({ preventScroll: false });
     onSessionsChanged();

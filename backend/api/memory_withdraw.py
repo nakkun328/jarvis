@@ -34,6 +34,12 @@ from backend.memory.auto_approval import (
     WITHDRAW_REASON_CHAT,
     is_auto_approved,
 )
+from backend.memory.events import (
+    MemoryEventKind,
+    MemoryEventOrigin,
+    MemoryEventPublisher,
+    safe_publish,
+)
 from backend.memory.model import MemoryOrigin
 from backend.memory.repository import (
     MemoryRepository,
@@ -54,6 +60,7 @@ def create_memory_withdraw_router(
     writer: MemoryWriter | None = None,
     *,
     trusted_proxy: bool = False,
+    publisher: MemoryEventPublisher | None = None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -101,6 +108,15 @@ def create_memory_withdraw_router(
         except (MemoryRepositoryError, ValueError, KeyError) as exc:
             _LOG.warning("Memory storage failed: %s", type(exc).__name__)
             raise HTTPException(status_code=503, detail=ERROR_STORAGE_UNAVAILABLE) from exc
+        safe_publish(
+            publisher,
+            MemoryEventKind.WITHDRAWN,
+            MemoryEventOrigin.CHAT
+            if stored.record.origin is MemoryOrigin.CHAT
+            else MemoryEventOrigin.RESEARCH,
+            parsed,
+            stored.record.content,
+        )
         body: dict[str, Any] = with_auto_flag(memory_dto(retired), repository, retired)
         return JSONResponse(body, headers=_NO_STORE)
 

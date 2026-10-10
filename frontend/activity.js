@@ -3,6 +3,7 @@
 // textContent and attributes only; nothing here parses markup, and no inline style is set
 // (activity.css keys every colour and animation on the data-* attributes written below).
 import { begin, initialState, reduce, reset, settle, viewModel } from "./activity-view.js";
+import { eventLine, memoryLink, mergeRecent, noticeText } from "./activity-memory.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const REDUCED_QUERY = "(prefers-reduced-motion: reduce)";
@@ -10,6 +11,8 @@ const NARROW_QUERY = "(max-width: 600px)";
 // A finished turn shows its result for a while, then the panel returns to standby. A stopped or
 // failed turn stays on screen until the next message.
 export const DONE_RESET_MS = 6000;
+// How long the MEMORY node stays lit after a memory was made.
+export const MEMORY_LIT_MS = 6000;
 
 const PANEL_LABEL = "JARVIS の動作状況";
 const HIDE_LABEL = "図を隠す";
@@ -23,6 +26,7 @@ const NODE_BOX = {
   realtime: { x: 225, y: 9, w: 100, h: 26 },
   main: { x: 225, y: 62, w: 100, h: 26 },
   researcher: { x: 225, y: 115, w: 100, h: 26 },
+  memory: { x: 8, y: 115, w: 84, h: 26 },
 };
 const EDGE_PATH = {
   "input-router": "M38,63 C38,28 78,28 108,28",
@@ -30,6 +34,7 @@ const EDGE_PATH = {
   "router-main": "M172,28 C200,28 198,75 225,75",
   "router-researcher": "M156,40 C156,100 190,128 225,128",
   "input-main": "M68,75 L225,75",
+  "main-memory": "M225,82 C160,86 110,92 70,115",
 };
 
 function svg(doc, tag, attributes = {}, text) {
@@ -89,10 +94,15 @@ export function createActivityView(doc, mount, env = {}) {
   const schedule = env.setTimeout ?? globalThis.setTimeout;
   const cancel = env.clearTimeout ?? globalThis.clearTimeout;
   const resetAfter = env.doneResetMs ?? DONE_RESET_MS;
+  const litFor = env.memoryLitMs ?? MEMORY_LIT_MS;
 
   let state = initialState();
   let timer = null;
   let lastLive = null;
+  // The memory part: whether memory is configured at all (null = not known yet), whether the
+  // node is lit, and the last few events. It is independent of the turn state above.
+  const memoryState = { configured: null, lit: false, recent: [], notice: "" };
+  let litTimer = null;
 
   const reducedMedia = matchMedia?.(REDUCED_QUERY);
   const narrowMedia = matchMedia?.(NARROW_QUERY);
@@ -124,6 +134,19 @@ export function createActivityView(doc, mount, env = {}) {
   const routeNote = html(doc, "p", "activity-route");
   routeNote.hidden = true;
 
+  // The MEMORY part: one polite sentence when a memory was made, a link to /memory, and the
+  // last few events as plain text.
+  const memoryBox = html(doc, "div", "activity-memory");
+  memoryBox.hidden = true;
+  const memoryStatus = html(doc, "p", "activity-memory-status");
+  memoryStatus.setAttribute("role", "status");
+  memoryStatus.setAttribute("aria-live", "polite");
+  const memoryLinkNode = memoryLink(doc);
+  memoryLinkNode.setAttribute("class", "activity-memory-link");
+  const memoryHeading = html(doc, "p", "activity-memory-heading", "最近の記憶");
+  const memoryList = html(doc, "ul", "activity-memory-recent");
+  memoryBox.append(memoryStatus, memoryLinkNode, memoryHeading, memoryList);
+
   const body = html(doc, "div", "activity-body");
   body.setAttribute("id", "activity-body");
   const stage = html(doc, "div", "activity-stage");
@@ -131,7 +154,7 @@ export function createActivityView(doc, mount, env = {}) {
   const { diagram, edges, nodes } = buildDiagram(doc, initial);
   stage.append(orb, diagram);
   body.append(stage);
-  root.append(bar, live, routeNote, body);
+  root.append(bar, live, routeNote, memoryBox, body);
   mount.append(root);
 
   function setCollapsed(collapsed) {
@@ -143,7 +166,10 @@ export function createActivityView(doc, mount, env = {}) {
   toggle.addEventListener("click", () => setCollapsed(!body.hidden));
 
   function render() {
-    const model = viewModel(state, { reducedMotion: motionReduced() });
+    const model = viewModel(state, {
+      reducedMotion: motionReduced(),
+      memory: { configured: memoryState.configured, lit: memoryState.lit },
+    });
     root.setAttribute("data-phase", model.phase);
     root.setAttribute("data-mode", model.mode);
     root.setAttribute("data-reduced-motion", String(model.reducedMotion));
@@ -162,6 +188,7 @@ export function createActivityView(doc, mount, env = {}) {
       routeNote.removeAttribute("data-decided");
       routeNote.hidden = true;
     }
+    renderMemory();
     diagram.setAttribute("aria-label", model.diagramLabel);
     for (const edge of model.edges) {
       const path = edges.get(edge.id);
@@ -174,6 +201,24 @@ export function createActivityView(doc, mount, env = {}) {
       parts.group.setAttribute("data-status", node.status);
       parts.title.textContent = node.title;
     }
+  }
+
+  function renderMemory() {
+    memoryBox.setAttribute("data-lit", String(memoryState.lit));
+    // Re-setting identical text would make a screen reader repeat it.
+    if (memoryStatus.textContent !== memoryState.notice) {
+      memoryStatus.textContent = memoryState.notice;
+    }
+    memoryStatus.hidden = memoryState.notice === "";
+    memoryBox.hidden = memoryState.recent.length === 0 && memoryState.notice === "";
+    memoryList.replaceChildren(
+      ...memoryState.recent.map((event) => {
+        const item = html(doc, "li", "activity-memory-item", eventLine(event));
+        item.setAttribute("data-kind", event.kind);
+        return item;
+      }),
+    );
+    memoryHeading.hidden = memoryState.recent.length === 0;
   }
 
   function clearTimer() {
@@ -197,6 +242,28 @@ export function createActivityView(doc, mount, env = {}) {
   render();
 
   return {
+    // Memory events from the feed. `silent` events (the backlog at page load) fill the recent
+    // list without announcing anything or lighting the node.
+    memoryEvents(events, { silent = false } = {}) {
+      if (!Array.isArray(events) || events.length === 0) return;
+      memoryState.recent = mergeRecent(memoryState.recent, events);
+      if (!silent) {
+        memoryState.notice = noticeText(events);
+        memoryState.lit = true;
+        if (litTimer !== null) cancel(litTimer);
+        litTimer = schedule(() => {
+          litTimer = null;
+          memoryState.lit = false;
+          render();
+        }, litFor);
+      }
+      render();
+    },
+    // Whether the server has memory configured; only `false` dims the MEMORY node.
+    memoryConfigured(configured) {
+      memoryState.configured = configured !== false;
+      render();
+    },
     begin: () => update(begin()),
     // Accepts an SSE `data` string or a parsed object; anything that is not a known event is
     // ignored.

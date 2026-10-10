@@ -20,6 +20,14 @@
 .activity-live { margin: .15rem 0 0; color: var(--text-soft); font-size: .8rem; line-height: 1.5; overflow-wrap: anywhere; }
 .activity-route { margin: .3rem 0 0; padding-left: .6rem; border-left: 2px solid var(--act); color: var(--text-soft); font-size: .76rem; line-height: 1.5; overflow-wrap: anywhere; }
 .activity-route[hidden] { display: none; }
+.activity-memory { margin: .3rem 0 0; padding-left: .6rem; border-left: 2px solid #b9a8e8; font-size: .76rem; line-height: 1.5; color: var(--text-soft); }
+.activity-memory[hidden], .activity-memory [hidden] { display: none; }
+.activity-memory[data-lit="true"] { border-left-color: #8fe0a8; }
+.activity-memory-status { margin: 0; overflow-wrap: anywhere; color: var(--text); }
+.activity-memory-link { display: inline-block; margin-top: .15rem; color: var(--accent); }
+.activity-memory-heading { margin: .3rem 0 0; font-weight: 700; letter-spacing: .08em; }
+.activity-memory-recent { margin: .1rem 0 0; padding-left: 1.1rem; }
+.activity-memory-item { overflow-wrap: anywhere; }
 .activity-body { margin-top: .5rem; }
 .activity-stage { display: flex; align-items: center; justify-content: center; gap: 1rem; }
 
@@ -71,6 +79,7 @@
 .node[data-connected="false"] rect { stroke-dasharray: 3 3; }
 .node[data-status="active"] rect { stroke: var(--act); stroke-width: 2.5; fill: #12303d; }
 .node[data-status="active"] text { fill: #fff; }
+.node[data-node="memory"][data-status="active"] rect { stroke: #8fe0a8; fill: #153324; }
 .node[data-status="done"] rect { stroke: #8fe0a8; }
 .node[data-status="error"] rect { stroke: #ff9b8f; stroke-width: 2.5; }
 

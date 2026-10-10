@@ -1,5 +1,6 @@
 import { sendChat } from "./chat-api.js";
 import { createActivityView } from "./activity.js";
+import { createMemoryPoller } from "./activity-memory.js";
 import { mountModelSelect } from "./model-select.js";
 import { renderReply } from "./chat-links.js";
 import { createConversationMemory, restoreConversation } from "./chat-restore.js";
@@ -25,6 +26,16 @@ function safeStorage() {
 
 const memory = createConversationMemory(safeStorage());
 const activity = createActivityView(document, document.querySelector("#activity"), window);
+
+// Memory made after a reply (chat auto-memory, research staging) arrives through the memory
+// feed: read once at page load, then polled for a short while after each completed reply.
+const memoryPoller = createMemoryPoller({
+  onEvents: (events, options) => activity.memoryEvents(events, options),
+  onConfig: (configured) => activity.memoryConfigured(configured),
+  fetchImpl: (url, init) => fetch(url, init),
+  isHidden: () => document.hidden,
+});
+void memoryPoller.baseline();
 
 const modelMount = document.querySelector("#model-select");
 let modelSelect = null;
@@ -92,6 +103,7 @@ function beginTurn(text, onRetry) {
     },
     complete({ provider, model }) {
       activity.settle("done");
+      memoryPoller.watch();
       assistant.item.classList.remove("message-pending");
       if (typeof provider === "string" && typeof model === "string") {
         const meta = document.createElement("div");
@@ -136,6 +148,7 @@ function beginTurn(text, onRetry) {
       scrollToLatest();
     },
     reset() {
+      memoryPoller.stop();
       activity.begin();
       clearExtras();
       assistant.content.classList.remove("message-partial");
@@ -165,6 +178,7 @@ const session = new ChatSession({
       resizeInput();
     },
     beginTurn: (text) => {
+      memoryPoller.stop();
       activity.begin();
       return beginTurn(text, () => session.retry());
     },
