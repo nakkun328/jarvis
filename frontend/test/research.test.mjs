@@ -447,3 +447,11 @@ test("detailViewModel carries the reuse info", () => {
   assert.equal(detailViewModel(session).reuse.label, "古いので再検索");
   assert.ok(detailViewModel(session).reuse.note.endsWith("不明"));
 });
+
+test("stripListNumber drops a leading list number but keeps decimals", async () => {
+  const { stripListNumber } = await import("../research-view.js");
+  assert.equal(stripListNumber("1.SQLite WAL"), "SQLite WAL");
+  assert.equal(stripListNumber("2) foo"), "foo");
+  assert.equal(stripListNumber("3.5 inch display"), "3.5 inch display");
+  assert.equal(stripListNumber(null), "");
+});

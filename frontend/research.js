@@ -345,7 +345,7 @@ function renderDetail() {
     parts.push(section("結果", el("p", "placeholder", "まだ結果は保存されていません。")));
   }
 
-  const queries = el("ol", "queries");
+  const queries = el("ul", "queries");
   for (const query of model.queries) {
     const li = el("li", "query");
     li.append(el("span", "item-number", `${query.number}.`), el("span", "query-text", query.text));

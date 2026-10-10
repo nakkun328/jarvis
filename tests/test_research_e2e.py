@@ -30,6 +30,7 @@ from research_run_support import (
     build_reader,
     foo_page,
     hit,
+    page,
 )
 
 from backend.api.app import create_app
@@ -645,3 +646,98 @@ def test_two_listed_pages_of_one_site_get_a_caveat_and_no_mutual_agreement(tmp_p
     same_site = [s for s in detail["sources"] if "a.test" in s["url"]]
     # Each page of a.test is compared only with the other domain, never with its sibling.
     assert all(s["evaluation"]["agreement"] == 1.0 for s in same_site)
+
+
+# ----- relevance, selection, first-party sites, numbering (the SQLite WAL question) -----
+
+SQLITE_Q = "SQLite の WAL モードの利点と、複数プロセスから書くときの注意点"
+WAL_URL = "https://www.sqlite.org/wal.html"
+SAAS_URL = "https://saas.example.jp/stocks"
+FORUM_URL = "https://www.sqlite.org/forum/forumpost/1234"
+TIPS_URL = "https://tips.other.test/sqlite-wal-tips"
+GUIDE_URL = "https://guide.third.test/sqlite-multi-process"
+LOCKS_URL = "https://notes.fourth.test/sqlite-wal-locks"
+LATE_URL = "https://late.fifth.test/sqlite-wal-late"
+WAL_FACT = "WAL mode lets readers and a writer proceed concurrently."
+FORUM_FACT = "Several processes can use one WAL database only on the same host."
+SQLITE_HITS = [
+    hit(SAAS_URL, "SaaS株の利点と注意点"),  # best rank, but about something else
+    hit(WAL_URL, "Write-Ahead Logging"),
+    hit(FORUM_URL, "Forum: WAL and several processes"),
+    hit(TIPS_URL, "SQLite WAL tips"),
+    hit(GUIDE_URL, "SQLite multi-process guide"),
+    hit(LOCKS_URL, "SQLite WAL locks"),
+    hit(LATE_URL, "SQLite WAL late"),
+]
+SQLITE_PAGES = {
+    SAAS_URL: page(
+        "SaaS株の利点と注意点", "SaaS関連株の利点と注意点。複数の銘柄に分散して書くときの注意点。"
+    ),
+    WAL_URL: page("Write-Ahead Logging", WAL_FACT, "Advantages of WAL mode, multiple processes."),
+    FORUM_URL: page("Forum: WAL and several processes", FORUM_FACT),
+    TIPS_URL: page("SQLite WAL tips", "SQLite WAL tips for multiple processes that write."),
+    GUIDE_URL: page("SQLite multi-process guide", "SQLite writes from multiple processes."),
+    LOCKS_URL: page("SQLite WAL locks", "SQLite WAL write locks and processes."),
+    LATE_URL: page("SQLite WAL late", "SQLite WAL late page about processes."),
+}
+SQLITE_CLAIMS = {WAL_URL: [claim(WAL_FACT)], FORUM_URL: [claim(FORUM_FACT)]}
+
+
+def run_sqlite(tmp_path: Path) -> tuple[Env, dict]:
+    env = Env(
+        tmp_path, search=FakeSearch(SQLITE_HITS), pages=SQLITE_PAGES, claims=SQLITE_CLAIMS
+    )
+    with env:
+        response = env.start("standard", SQLITE_Q)
+        assert response.status_code == 202
+        return env, env.wait(response.json()["id"])
+
+
+def test_an_irrelevant_hit_is_not_read_while_better_ones_fill_the_page_budget(
+    tmp_path: Path,
+) -> None:
+    env, detail = run_sqlite(tmp_path)
+    assert SAAS_URL not in env.transport.requests  # rank 1, yet clearly not about SQLite/WAL
+    assert WAL_URL in env.transport.requests
+    assert SAAS_URL not in by_url(detail)
+
+
+def test_the_official_page_rates_above_the_other_pages_and_is_first_party(
+    tmp_path: Path,
+) -> None:
+    _, detail = run_sqlite(tmp_path)
+    sources = by_url(detail)
+    wal, forum = sources[WAL_URL], sources[FORUM_URL]
+    assert wal["source_type"] == "docs"
+    assert wal["classification"] == {"rule": "subject_official_host", "basis": "host"}
+    assert wal["evaluation"]["authority"] == 0.6
+    assert wal["reasons"]["authority"] == ["authority_subject_official"]
+    assert forum["source_type"] == "forum"  # sqlite.org/forum stays a forum
+    assert wal["evaluation"]["relevance"] >= 0.4
+    assert wal["evaluation"]["relevance"] >= max(
+        s["evaluation"]["relevance"] for s in detail["sources"] if s is not wal
+    ) - 0.2
+    # An authoritative-kind source was found, so the claim that none was is not made.
+    assert CAVEAT_TEXT[Caveat.NO_AUTHORITATIVE_SOURCE] not in detail["result_text"]
+
+
+def test_source_numbers_in_the_text_are_the_numbers_of_the_source_list(tmp_path: Path) -> None:
+    _, detail = run_sqlite(tmp_path)
+    listed = sources_section(detail)
+    assert listed
+    ordered = [source["url"] for source in detail["sources"]]  # what the screen numbers 1..n
+    for line in listed:
+        number = int(line[1 : line.index("]")])
+        assert ordered[number - 1] in line
+    by_number = {n + 1: source for n, source in enumerate(detail["sources"])}
+    sources = {source["id"]: number for number, source in by_number.items()}
+    for number, text in [
+        (int(line[line.rindex("[") + 1 : -1]), line)
+        for line in result_lines(detail)
+        if line.startswith("- ") and line.endswith("]")
+    ]:
+        assert text and number in by_number
+    # each claim sits under the number of the source it quotes
+    for item in detail["claims"]:
+        cited = f"- {item['claim_text']} [{sources[item['source_id']]}]"
+        assert cited in result_lines(detail)

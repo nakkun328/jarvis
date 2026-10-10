@@ -60,7 +60,7 @@ from backend.research.citations import (
 from backend.research.conflicts import detect_and_store_conflicts
 from backend.research.crosscheck import cross_check_and_store
 from backend.research.domains import diversify, registrable_domain, split_blocked
-from backend.research.evaluation import evaluate_and_store
+from backend.research.evaluation import evaluate_and_store, relevance_rating
 from backend.research.followup import FollowUpQuery, generate_follow_ups
 from backend.research.levels import LEVEL_BUDGETS, LevelBudget
 from backend.research.models import (
@@ -584,7 +584,9 @@ class StandardResearch:
         Blocked URLs (internal addresses, bad schemes) never get here: the search step records
         them as failed reads and they take no slot and do not count as pages tried. The best hit
         of each registrable domain comes before a second hit of the same domain, so a page
-        limit is not filled by one site while other domains are available.
+        limit is not filled by one site while other domains are available. Hits whose title,
+        snippet and URL clearly share none of the question's terms (``hit_prescore`` below
+        ``PRESCORE_FLOOR``) go after the others, so they are read only when pages are left over.
         """
         ordered = sorted(enumerate(hits), key=lambda pair: (pair[1].rank, pair[0]))
         distinct: list[SearchResult] = []
@@ -596,7 +598,13 @@ class StandardResearch:
             seen.add(key)
             distinct.append(hit)
         readable, _ = split_blocked(distinct)  # already recorded by the search step
-        return diversify(readable)
+        ordered_hits = diversify(readable)
+        queries = run.queries
+        question = run.session.question
+        scored = [(_prescore(question, queries, hit), hit) for hit in ordered_hits]
+        relevant = [hit for score, hit in scored if score is None or score >= PRESCORE_FLOOR]
+        irrelevant = [hit for score, hit in scored if score is not None and score < PRESCORE_FLOOR]
+        return relevant + irrelevant
 
     async def _read_and_store(
         self, run: _Run, candidates: Sequence[SearchResult]
@@ -609,13 +617,13 @@ class StandardResearch:
         outcomes = await self._read_pages(run, candidates)
         fresh: list[EvidenceSource] = []
         known_ids = {item.source.id for item in run.evidence}
+        seen_finals = {_final_key(item.source.final_url) for item in run.evidence}
+        stored: list[tuple[ResearchSource, FetchedPage]] = []
         for hit, outcome in zip(candidates, outcomes, strict=True):
             if isinstance(outcome, str):
                 run.failed_reads.append(FailedRead(hit.url, outcome))
                 continue
-            if _final_key(outcome.final_url) in {
-                _final_key(item.source.final_url) for item in run.evidence
-            }:
+            if _final_key(outcome.final_url) in seen_finals:
                 continue  # the same final page (fragment, trailing slash, utm_*) is one source
             source = self._repository.add_source(
                 run.session.id,
@@ -630,8 +638,20 @@ class StandardResearch:
             if source.id in known_ids:
                 continue  # the same page under another URL
             known_ids.add(source.id)
+            seen_finals.add(_final_key(outcome.final_url))
+            stored.append((source, outcome))
+        # One numbering everywhere: the number a source has in the result text is its position in
+        # the stored source list (the order the detail screen shows), not the order the reads
+        # happened to finish in.
+        position = {item.id: index for index, item in enumerate(self._list_sources(run))}
+        stored.sort(key=lambda pair: position.get(pair[0].id, len(position)))
+        for source, outcome in stored:
             rated = evaluate_and_store(
-                self._repository, source, run.session.question, text=outcome.text
+                self._repository,
+                source,
+                run.session.question,
+                text=outcome.text,
+                queries=run.queries,
             )
             item = EvidenceSource(len(run.evidence) + 1, rated, outcome.text)
             run.evidence.append(item)
@@ -640,6 +660,9 @@ class StandardResearch:
         if any(isinstance(o, str) for o in outcomes):
             run.note(Caveat.READS_FAILED)
         return fresh
+
+    def _list_sources(self, run: _Run) -> list[ResearchSource]:
+        return self._repository.list_sources(run.session.id)
 
     async def _read_pages(
         self, run: _Run, candidates: Sequence[SearchResult]
@@ -924,6 +947,17 @@ class StandardResearch:
             search_rounds=run.rounds_done if run else 0,
             pages_tried=run.pages_tried if run else 0,
         )
+
+
+PRESCORE_FLOOR = 0.2  # below this a hit's title/snippet/URL shares nothing with the question
+
+
+def _prescore(question: str, queries: Sequence[str], hit: SearchResult) -> float | None:
+    """Relevance of a search hit from its title, snippet and URL alone (``None``: no text)."""
+    value, _ = relevance_rating(
+        question, hit.title, hit.snippet, url=hit.url, queries=queries
+    )
+    return value
 
 
 def _url_key(url: str) -> str:
