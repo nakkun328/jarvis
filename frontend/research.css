@@ -136,3 +136,6 @@
   .run-primary, .run-actions .run-secondary, .run-progress .run-secondary { width: 100%; }
   .run-counter, .run-hint, .run-notice, .run-citation-note, .counter-item, .stage { font-size: .8rem; }
 }
+
+.memory-candidates { display: grid; gap: 8px; justify-items: start; }
+.memory-note, .memory-status { margin: 0; }

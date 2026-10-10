@@ -61,7 +61,7 @@ test("normalizeMemory keeps only usable values and rejects non-records", () => {
   assert.equal(odd.content, "");
   assert.equal(odd.project, null);
   assert.deepEqual(Object.keys(normalizeMemory(raw())).sort(), [
-    "category", "confidence", "content", "created_at", "id", "importance", "origin", "project",
+    "auto_approved", "category", "confidence", "content", "created_at", "id", "importance", "origin", "project",
     "revision", "source", "status", "supersedes_id", "tags", "updated_at",
   ]);
 });

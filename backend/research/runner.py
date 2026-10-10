@@ -265,6 +265,7 @@ class ResearchRunService:
         quick_limits: QuickLimits | None = None,
         standard_limits: StandardLimits | None = None,
         clock: Callable[[], datetime] | None = None,
+        on_completed: Callable[[UUID], None] | None = None,
     ) -> None:
         if poll_seconds <= 0:
             raise ValueError("poll_seconds must be positive")
@@ -278,6 +279,9 @@ class ResearchRunService:
         self._quick_limits = quick_limits
         self._standard_limits = standard_limits
         self._clock = clock or (lambda: datetime.now(UTC))
+        # Called (off the event loop) with the id of a session that just completed with at least
+        # one verified claim. A failure is logged and never changes the session or the task.
+        self._on_completed = on_completed
         self._lock = threading.Lock()
         self._progress: dict[UUID, _Counters] = {}
         self._executor = _ResearchExecutor(self)
@@ -569,6 +573,11 @@ class _ResearchExecutor:
             return ExecutionOutcome.failure()
         claims = len(service.repository.list_claims(session_id))
         sources = len(service.repository.list_sources(session_id))
+        if claims and service._on_completed is not None:
+            try:
+                await asyncio.to_thread(service._on_completed, session_id)
+            except Exception as error:  # a hook failure must not fail a finished research
+                logger.warning("completion hook failed type=%s", type(error).__name__)
         return ExecutionOutcome.succeeded(
             f"Research finished with {claims} verified claim(s) from {sources} source(s)."
         )

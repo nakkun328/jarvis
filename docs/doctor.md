@@ -25,6 +25,7 @@ The exit code is `0` when nothing is `INCOMPLETE`, otherwise `1`.
 | chat | `JARVIS_LLM_PROVIDER`; `gemini` needs `GEMINI_API_KEY` and `JARVIS_GEMINI_MODEL`, `groq` needs `GROQ_API_KEY` and `JARVIS_GROQ_MODEL`, `openai` needs `OPENAI_API_KEY` and `JARVIS_OPENAI_MODEL`; the optional package must be installed |
 | models | `JARVIS_MODEL_CHOICES` ([model-select.md](model-select.md)): `OFF` when unset; `INCOMPLETE` when the default chat provider is not ready or an entry's provider key/package is missing (`MODEL_CHOICE_UNAVAILABLE`); shows only counts |
 | research | `JARVIS_RESEARCH_ENABLED`, `JARVIS_SEARCH_PROVIDER` with `JARVIS_SEARCH_API_KEY`, a ready chat provider |
+| research_memory | `JARVIS_RESEARCH_MEMORY_AUTO_APPROVE` / `JARVIS_RESEARCH_MEMORY_AUTO_STAGE` ([memory.md](memory.md) exception): `OFF` by default; `OK` with `AUTO_APPROVE_ON` (says plainly that research memory is approved without human review) or `AUTO_STAGE_ONLY`; shows only on/off flags |
 | router | `JARVIS_ROUTER` is `off`, `rule` or `llm`; `llm` needs a ready chat provider |
 | casual | `JARVIS_CASUAL` is on; INCOMPLETE if it is on but the router is off or incomplete, or there is no ready chat provider; OFF when the switch is off (default) |
 | chat_research | a router other than `off` plus research ready |
