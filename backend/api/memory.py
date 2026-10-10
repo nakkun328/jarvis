@@ -23,6 +23,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 
+from backend.memory.auto_approval import AUTO_APPROVER, is_auto_approved
+from backend.memory.model import MemoryOrigin
 from backend.memory.repository import (
     MemoryLifecycleEvent,
     MemoryRepository,
@@ -88,6 +90,20 @@ def memory_dto(stored: StoredMemory) -> dict[str, Any]:
     }
 
 
+def with_auto_flag(dto: dict[str, Any], repository: MemoryRepository, stored: StoredMemory) -> dict:
+    """Mark a research note whose approval was automatic (shown as 「自動承認(調査)」).
+
+    The key is present, as ``true``, only on such notes, so every other response keeps its shape.
+    """
+    if (
+        stored.status in NOTE_DETAIL_STATUSES
+        and stored.record.origin is MemoryOrigin.RESEARCH
+        and is_auto_approved(repository, stored.record.id)
+    ):
+        dto["auto_approved"] = True
+    return dto
+
+
 def _lifecycle_dto(event: MemoryLifecycleEvent) -> dict[str, Any]:
     # `actor` and `reason` are free text a person typed at the review CLI; they are not exposed.
     return {
@@ -99,13 +115,17 @@ def _lifecycle_dto(event: MemoryLifecycleEvent) -> dict[str, Any]:
 
 
 def _review_dto(event: MemoryReviewEvent) -> dict[str, Any]:
-    return {
+    dto: dict[str, Any] = {
         "action": event.action,
         "previous_status": event.previous_status.value,
         "new_status": event.new_status.value,
         "occurred_at": _iso(event.occurred_at),
         "revision": event.vault_revision,
     }
+    if event.actor == AUTO_APPROVER:
+        # The system itself recorded this decision (the actor text is otherwise not exposed).
+        dto["automatic"] = True
+    return dto
 
 
 def memory_detail_dto(
@@ -195,7 +215,9 @@ def create_memory_router(repository: MemoryRepository) -> APIRouter:
                     for stored in repository.list_by_status(status, limit=limit, newest_first=True)
                 ]
                 rows.sort(key=lambda s: (s.record.created_at, str(s.record.id)), reverse=True)
-            return [memory_dto(stored) for stored in rows[:limit]]
+            return [
+                with_auto_flag(memory_dto(stored), repository, stored) for stored in rows[:limit]
+            ]
         except (MemoryRepositoryError, ValueError, KeyError, TypeError) as exc:
             # A row that no longer parses is a storage problem, not the caller's.
             raise storage_unavailable(exc) from exc
@@ -206,8 +228,12 @@ def create_memory_router(repository: MemoryRepository) -> APIRouter:
             stored = repository.get(parsed)
             if stored is None or stored.status not in statuses:
                 raise HTTPException(status_code=404, detail=ERROR_NOT_FOUND)
-            return memory_detail_dto(
-                stored, repository.lifecycle_events(parsed), repository.review_events(parsed)
+            return with_auto_flag(
+                memory_detail_dto(
+                    stored, repository.lifecycle_events(parsed), repository.review_events(parsed)
+                ),
+                repository,
+                stored,
             )
         except (MemoryRepositoryError, ValueError, KeyError, TypeError) as exc:
             raise storage_unavailable(exc) from exc

@@ -9,7 +9,9 @@ Only stored claims are used: each already carries a quote and a source. The free
 any unverified text are never read.
 """
 
-from dataclasses import dataclass
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -18,10 +20,14 @@ from backend.memory.repository import (
     MemoryAlreadyExists,
     MemoryRepository,
     MemoryRepositoryError,
+    MemoryStatus,
     StoredMemory,
 )
+from backend.research.claim_safety import auto_approvable
 from backend.research.models import ConflictStatus, ResearchClaim, ResearchSource, ResearchStatus
 from backend.research.repository import ResearchRepository
+
+_LOG = logging.getLogger(__name__)
 
 #: Most candidates created from one session, so one click cannot flood the review queue.
 MAX_CANDIDATES_PER_SESSION = 5
@@ -55,6 +61,8 @@ class CandidateSet:
     omitted: int
     #: Whether the session is completed and has at least one verified claim.
     eligible: bool = True
+    #: Candidates approved automatically by this call (always 0 unless auto-approval is on).
+    auto_approved: int = 0
 
 
 def candidate_id(claim_id: UUID) -> UUID:
@@ -81,9 +89,44 @@ def render_content(claim: ResearchClaim, source: ResearchSource, session_id: UUI
 
 
 class ResearchMemoryCandidates:
-    def __init__(self, research: ResearchRepository, memory: MemoryRepository) -> None:
+    def __init__(
+        self,
+        research: ResearchRepository,
+        memory: MemoryRepository,
+        *,
+        approve: Callable[[UUID], StoredMemory] | None = None,
+    ) -> None:
+        """``approve`` is the owner-approved automatic approval (docs/memory.md): a callable that
+        publishes one candidate through the existing writer. ``None`` (the default) keeps every
+        candidate pending for human review."""
         self._research = research
         self._memory = memory
+        self._approve = approve
+
+    @property
+    def auto_approval(self) -> bool:
+        return self._approve is not None
+
+    def _maybe_approve(
+        self, stored: StoredMemory, claim: ResearchClaim, source: ResearchSource
+    ) -> tuple[StoredMemory, bool]:
+        """Approve a research candidate automatically when it passes the safety checks.
+
+        Only a still-pending research candidate is touched; anything else, and any failure,
+        leaves the candidate exactly as it was (pending, for a person to review).
+        """
+        if (
+            self._approve is None
+            or stored.status is not MemoryStatus.PENDING
+            or stored.record.origin is not MemoryOrigin.RESEARCH
+            or not auto_approvable(source, claim.claim_text, claim.quote)
+        ):
+            return stored, False
+        try:
+            return self._approve(stored.record.id), True
+        except (RuntimeError, ValueError) as exc:
+            _LOG.warning("Automatic approval skipped: %s", type(exc).__name__)
+            return self._memory.get(stored.record.id) or stored, False
 
     def _verified(self, session_id: UUID) -> list[tuple[ResearchClaim, ResearchSource]]:
         sources = {source.id: source for source in self._research.list_sources(session_id)}
@@ -138,6 +181,7 @@ class ResearchMemoryCandidates:
             raise RefusedCandidates(CandidateRefusal.NO_VERIFIED_CLAIMS)
         stored_all: list[StoredMemory] = []
         created = 0
+        automatic = 0
         for claim, source in pairs[:MAX_CANDIDATES_PER_SESSION]:
             record = MemoryRecord(
                 id=candidate_id(claim.id),
@@ -157,6 +201,12 @@ class ResearchMemoryCandidates:
                 if existing is None:
                     raise MemoryRepositoryError("Memory storage unavailable") from None
                 stored_all.append(existing)
-        return CandidateSet(
-            tuple(stored_all), created, max(0, len(pairs) - MAX_CANDIDATES_PER_SESSION)
+            approved, did = self._maybe_approve(stored_all[-1], claim, source)
+            stored_all[-1] = approved
+            automatic += did
+        return replace(
+            CandidateSet(
+                tuple(stored_all), created, max(0, len(pairs) - MAX_CANDIDATES_PER_SESSION)
+            ),
+            auto_approved=automatic,
         )
