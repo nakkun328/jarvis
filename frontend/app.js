@@ -4,6 +4,8 @@ import { createMemoryPoller } from "./activity-memory.js";
 import { mountModelSelect } from "./model-select.js";
 import { renderReply } from "./chat-links.js";
 import { createConversationMemory, restoreConversation } from "./chat-restore.js";
+import { createHistoryController } from "./chat-history.js";
+import { createHistoryPanel } from "./history-panel.js";
 import { ChatSession, MAX_MESSAGE_LENGTH, messageLength } from "./chat-session.js";
 
 const conversation = document.querySelector("#conversation");
@@ -15,6 +17,7 @@ const stopButton = document.querySelector("#stop");
 const newChatButton = document.querySelector("#new-chat");
 const status = document.querySelector("#status");
 const counter = document.querySelector("#counter");
+const historyButton = document.querySelector("#open-history");
 
 function safeStorage() {
   try {
@@ -58,7 +61,7 @@ function scrollToLatest() {
   window.scrollTo(0, document.documentElement.scrollHeight);
 }
 
-function createMessage(role, text) {
+function createMessage(role, text, { scroll = true } = {}) {
   welcome.remove();
   const item = document.createElement("article");
   item.className = `message message-${role}`;
@@ -76,7 +79,7 @@ function createMessage(role, text) {
   body.append(label, content);
   item.append(avatar, body);
   conversation.append(item);
-  scrollToLatest();
+  if (scroll) scrollToLatest();
   return { item, body, content };
 }
 
@@ -185,6 +188,7 @@ const session = new ChatSession({
     setBusy(value) {
       sendButton.disabled = value;
       newChatButton.disabled = value;
+      historyButton.disabled = value;
       modelSelect?.setDisabled(value);
       stopButton.hidden = !value;
       conversation.setAttribute("aria-busy", String(value));
@@ -235,22 +239,97 @@ stopButton.addEventListener("click", () => session.stop());
 newChatButton.addEventListener("click", () => {
   if (!session.reset()) return;
   memory.clear();
+  chatHistory.forget();
   conversation.replaceChildren(welcome);
   activity.reset();
   setStatus("");
   input.focus();
 });
 
-void restoreConversation({
-  memory,
+// History: the 履歴 panel, older pages and `/?c=<uuid>` (see chat-history.js).
+const olderButton = document.createElement("button");
+olderButton.type = "button";
+olderButton.className = "history-older";
+olderButton.textContent = "さらに前を読み込む";
+olderButton.hidden = true;
+olderButton.addEventListener("click", () => void chatHistory.loadOlder());
+
+function showHistory(messages, { hasMore = false, nextBefore = null } = {}) {
+  for (const message of messages) {
+    const created = createMessage(message.role, message.content, { scroll: false });
+    if (message.role === "assistant") renderReply(document, created.content, message.content);
+  }
+  conversation.prepend(olderButton);
+  olderButton.hidden = !hasMore;
+  chatHistory.adopt(session.conversationId, nextBefore);
+  scrollToLatest();
+}
+
+const historyPanel = createHistoryPanel(
+  document,
+  {
+    trigger: historyButton,
+    backdrop: document.querySelector("#history-panel"),
+    list: document.querySelector("#history-list"),
+    state: document.querySelector("#history-state"),
+    close: document.querySelector("#history-close"),
+    more: document.querySelector("#history-more"),
+  },
+  {
+    onOpen: () => void chatHistory.openList(),
+    onSelect: (id) => void chatHistory.select(id),
+    onMore: () => void chatHistory.moreList(),
+  },
+);
+
+const chatHistory = createHistoryController({
   session,
+  memory,
+  fetchImpl: (url, init) => fetch(url, init),
   view: {
     setStatus,
-    showHistory(messages) {
-      for (const message of messages) {
-        const created = createMessage(message.role, message.content);
+    showListLoading: () => historyPanel.showListLoading(),
+    showList: (page) => historyPanel.showList(page),
+    showListError: (text) => historyPanel.showListError(text),
+    closePanel: () => historyPanel.closePanel(),
+    showConversation(messages, page) {
+      memoryPoller.stop();
+      activity.reset();
+      conversation.replaceChildren();
+      showHistory(messages, page);
+    },
+    prependOlder(messages, { hasMore }) {
+      const items = messages.map((message) => {
+        const created = createMessage(message.role, message.content, { scroll: false });
         if (message.role === "assistant") renderReply(document, created.content, message.content);
-      }
+        return created.item;
+      });
+      olderButton.after(...items);
+      olderButton.hidden = !hasMore;
     },
   },
 });
+
+function takeConversationParam() {
+  const search = window.location.search;
+  if (!new URLSearchParams(search).has("c")) return null;
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("c");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    // The parameter then stays in the address bar; the page still works.
+  }
+  return search;
+}
+
+const linkedSearch = takeConversationParam();
+if (linkedSearch !== null) {
+  void chatHistory.openFromParam(linkedSearch);
+} else {
+  void restoreConversation({
+    memory,
+    session,
+    view: { setStatus, showHistory },
+  });
+}

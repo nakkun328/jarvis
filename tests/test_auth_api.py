@@ -158,6 +158,8 @@ API_GET = [
     f"/api/tasks/{uuid4()}",
     f"/api/tasks/{uuid4()}/events",
     f"/api/chat/conversations/{uuid4()}/messages",
+    "/api/chat/conversations",
+    "/api/chat/conversations?limit=5",
     "/api/missing",
     "/api/auth",
     "/static/app.js",

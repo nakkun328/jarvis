@@ -237,6 +237,8 @@ def test_history_endpoint_restores_after_simulated_page_load(tmp_path: Path) -> 
                 {"role": "user", "content": "first"},
                 {"role": "assistant", "content": "reply"},
             ],
+            "has_more": False,
+            "next_before": None,
         }
         assert "secret other" not in response.text
         assert other["conversation_id"] not in response.text
@@ -248,7 +250,9 @@ def test_history_endpoint_restores_after_simulated_page_load(tmp_path: Path) -> 
         assert len(client.get(url).json()["messages"]) == 4
 
 
-def test_history_endpoint_is_bounded_by_the_store_window(tmp_path: Path) -> None:
+def test_history_endpoint_returns_the_full_transcript_beyond_the_window(
+    tmp_path: Path,
+) -> None:
     provider = Provider()
     with TestClient(create_app(Settings(db_path=tmp_path / "b.sqlite3"), provider)) as client:
         conversation_id = None
@@ -260,8 +264,8 @@ def test_history_endpoint_is_bounded_by_the_store_window(tmp_path: Path) -> None
         messages = client.get(f"/api/chat/conversations/{conversation_id}/messages").json()[
             "messages"
         ]
-    assert len(messages) == 20
-    assert messages[0] == {"role": "user", "content": "m2"}
+    assert len(messages) == 24
+    assert messages[0] == {"role": "user", "content": "m0"}
 
 
 @pytest.mark.parametrize(
@@ -284,9 +288,12 @@ def test_history_endpoint_with_the_process_memory_store() -> None:
     from fastapi import FastAPI
 
     from backend.api.chat import build_chat_router
+    from backend.api.chat_history import build_chat_history_router
 
+    service = ChatService(Provider())
     app = FastAPI()
-    app.include_router(build_chat_router(ChatService(Provider())))
+    app.include_router(build_chat_router(service))
+    app.include_router(build_chat_history_router(service))
     with TestClient(app) as client:
         created = client.post("/api/chat", json={"message": "hi"}).json()
         response = client.get(f"/api/chat/conversations/{created['conversation_id']}/messages")

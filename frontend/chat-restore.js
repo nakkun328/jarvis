@@ -42,14 +42,23 @@ export function createConversationMemory(storage) {
   };
 }
 
-export function historyUrl(id) {
-  return `/api/chat/conversations/${id}/messages`;
+// `before` is the `next_before` cursor of a previous page (digits only) and `limit` a page size;
+// both are optional. Without them the server returns its newest page.
+export function historyUrl(id, { before, limit } = {}) {
+  const query = new URLSearchParams();
+  if (limit) query.set("limit", String(limit));
+  if (before) query.set("before", String(before));
+  const text = query.toString();
+  return `/api/chat/conversations/${id}/messages${text ? `?${text}` : ""}`;
 }
 
-// Resolves { status: "ok", messages } | { status: "missing" } | { status: "failed" }.
-export async function fetchHistory(id, fetchImpl = fetch) {
+// Resolves { status: "ok", messages, hasMore, nextBefore } | { status: "missing" } |
+// { status: "failed" }. `nextBefore` is the cursor for the next older page, or null.
+export async function fetchHistory(id, fetchImpl = fetch, options = {}) {
   try {
-    const response = await fetchImpl(historyUrl(id), { headers: { Accept: "application/json" } });
+    const response = await fetchImpl(historyUrl(id, options), {
+      headers: { Accept: "application/json" },
+    });
     if (response.status === 401) {
       sessionEnded();
       return { status: "failed" };
@@ -62,7 +71,13 @@ export async function fetchHistory(id, fetchImpl = fetch) {
       (item) =>
         (item?.role === "user" || item?.role === "assistant") && typeof item.content === "string",
     );
-    return { status: "ok", messages: messages.map(({ role, content }) => ({ role, content })) };
+    const hasMore = data.has_more === true && /^[0-9]{1,9}$/.test(data.next_before ?? "");
+    return {
+      status: "ok",
+      messages: messages.map(({ role, content }) => ({ role, content })),
+      hasMore,
+      nextBefore: hasMore ? data.next_before : null,
+    };
   } catch {
     return { status: "failed" };
   }
@@ -91,7 +106,7 @@ export async function restoreConversation({ memory, session, view, fetchImpl }) 
     return "empty";
   }
   session.conversationId = id;
-  view.showHistory(result.messages);
+  view.showHistory(result.messages, { hasMore: result.hasMore, nextBefore: result.nextBefore });
   view.setStatus(RESTORED_MESSAGE);
   return "restored";
 }

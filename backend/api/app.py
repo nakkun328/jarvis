@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.api.approvals import create_approvals_router
 from backend.api.chat import build_chat_router
+from backend.api.chat_history import build_chat_history_router
 from backend.api.devices import create_devices_router
 from backend.api.memory import create_memory_router
 from backend.api.memory_activity import create_memory_activity_router
@@ -296,6 +297,7 @@ def create_app(
         return {"status": "ok"}
 
     app.include_router(build_chat_router(chat_service))
+    app.include_router(build_chat_history_router(chat_service))
     app.include_router(create_models_router(models))
     app.include_router(create_memory_router(MemoryRepository(database)))
     app.include_router(

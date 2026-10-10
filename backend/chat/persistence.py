@@ -9,8 +9,13 @@ from uuid import UUID, uuid4
 from backend.chat.context import (
     Conversation,
     ConversationCapacityError,
+    ConversationList,
     ConversationNotFound,
     ConversationStore,
+    ConversationSummary,
+    MessagePage,
+    StoredMessage,
+    derive_title,
 )
 from backend.core.database import Database
 from backend.providers.base import ChatMessage
@@ -51,6 +56,71 @@ class SQLiteConversationStore(ConversationStore):
     async def history(self, conversation_id: UUID) -> list[ChatMessage] | None:
         """The last `max_messages` stored messages, or None when the conversation is unknown."""
         return await asyncio.to_thread(self._load, conversation_id)
+
+    def _list(self, limit: int, before: tuple[str, str] | None) -> ConversationList:
+        cursor_sql = ""
+        params: list[object] = []
+        if before is not None:
+            cursor_sql = "AND (c.updated_at < ? OR (c.updated_at = ? AND c.id < ?)) "
+            params = [before[0], before[0], before[1]]
+        try:
+            with self.database.connect(read_only=True) as connection:
+                rows = connection.execute(
+                    "SELECT c.id, c.updated_at, "
+                    "(SELECT COUNT(*) FROM conversation_messages m "
+                    " WHERE m.conversation_id = c.id) AS n, "
+                    "(SELECT substr(m.content, 1, 400) FROM conversation_messages m "
+                    " WHERE m.conversation_id = c.id AND m.role = 'user' "
+                    " ORDER BY m.id LIMIT 1) AS first_user "
+                    "FROM conversations c WHERE n > 0 "
+                    f"{cursor_sql}"
+                    "ORDER BY c.updated_at DESC, c.id DESC LIMIT ?",
+                    (*params, limit + 1),
+                ).fetchall()
+        except (OSError, sqlite3.Error) as exc:
+            raise ConversationStorageError("Conversation storage unavailable") from exc
+        items = [
+            ConversationSummary(
+                UUID(row["id"]),
+                derive_title(row["first_user"] or ""),
+                row["updated_at"],
+                row["n"],
+            )
+            for row in rows[:limit]
+        ]
+        return ConversationList(items, len(rows) > limit)
+
+    async def list_conversations(
+        self, *, limit: int, before: tuple[str, str] | None = None
+    ) -> ConversationList:
+        """Every stored conversation (not just cached ones), newest activity first."""
+        return await asyncio.to_thread(self._list, limit, before)
+
+    def _page(self, conversation_id: UUID, limit: int, before: int | None) -> MessagePage | None:
+        try:
+            with self.database.connect(read_only=True) as connection:
+                exists = connection.execute(
+                    "SELECT 1 FROM conversations WHERE id = ?", (str(conversation_id),)
+                ).fetchone()
+                if exists is None:
+                    return None
+                rows = connection.execute(
+                    "SELECT id, role, content FROM conversation_messages "
+                    "WHERE conversation_id = ? AND (? IS NULL OR id < ?) "
+                    "ORDER BY id DESC LIMIT ?",
+                    (str(conversation_id), before, before, limit + 1),
+                ).fetchall()
+        except (OSError, sqlite3.Error) as exc:
+            raise ConversationStorageError("Conversation storage unavailable") from exc
+        page = [StoredMessage(r["id"], r["role"], r["content"]) for r in rows[:limit]]
+        page.reverse()
+        return MessagePage(page, len(rows) > limit)
+
+    async def messages_page(
+        self, conversation_id: UUID, *, limit: int, before: int | None = None
+    ) -> MessagePage | None:
+        """The full stored transcript, `limit` messages at a time (not the prompt window)."""
+        return await asyncio.to_thread(self._page, conversation_id, limit, before)
 
     @asynccontextmanager
     async def open(self, conversation_id: UUID | None) -> AsyncIterator[tuple[UUID, Conversation]]:

@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/static/shell.css" />
     <link rel="stylesheet" href="/static/style.css" />
     <link rel="stylesheet" href="/static/activity.css" />
+    <link rel="stylesheet" href="/static/history.css" />
     <script type="module" src="/static/shell.js"></script>
     <script type="module" src="/static/app.js"></script>
   </head>
@@ -18,10 +19,25 @@
     <div class="app-shell">
       <header class="app-header" data-app-header>
         <div class="model-select" id="model-select" hidden></div>
+        <button class="new-chat" id="open-history" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="会話の履歴を開く">
+          履歴
+        </button>
         <button class="new-chat" id="new-chat" type="button" aria-label="新しい会話を始める">
           <span aria-hidden="true">＋</span> 新しい会話
         </button>
       </header>
+
+      <div class="history-backdrop" id="history-panel" hidden>
+        <section class="history-panel" role="dialog" aria-modal="true" aria-labelledby="history-title">
+          <header class="history-head">
+            <h2 id="history-title">会話の履歴</h2>
+            <button class="history-close" id="history-close" type="button" aria-label="履歴を閉じる">閉じる</button>
+          </header>
+          <p class="history-state" id="history-state" role="status"></p>
+          <ul class="history-list" id="history-list"></ul>
+          <button class="history-more" id="history-more" type="button" hidden>さらに表示</button>
+        </section>
+      </div>
 
       <main class="chat" aria-label="JARVIS との会話">
         <div class="activity-mount" id="activity"></div>
