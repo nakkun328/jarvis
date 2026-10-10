@@ -322,9 +322,20 @@ def _adopt_uvicorn_loggers() -> None:
     access.disabled = True  # request logging middleware records method/path/status instead
 
 
+# HTTP client libraries log "HTTP Request: <method> <full url>" at INFO. Provider and search URLs
+# can carry credentials in a query string, so their request lines are never wanted in our logs.
+_HTTP_CLIENT_LOGGERS = ("httpx", "httpx2", "httpcore", "openai", "urllib3")
+
+
+def _quiet_http_clients() -> None:
+    for name in _HTTP_CLIENT_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def configure_logging(level: str) -> None:
     """Install one JSON-lines stderr handler on the root logger. Safe to call repeatedly."""
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(JsonLogFormatter())
     logging.basicConfig(level=level, handlers=[handler], force=True)
     _adopt_uvicorn_loggers()
+    _quiet_http_clients()

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  ERROR_CODES, FALLBACK_TEXT, NOT_CONNECTED_TITLE, NOT_WIRED_TEXT, RESEARCH_STARTED_TEXT, SKIPS, SKIP_TEXT, begin, initialState, parseActivity, reduce, reset, settle, viewModel,
+  CASUAL_SKIP_TEXT, ERROR_CODES, FALLBACK_TEXT, NOT_CONNECTED_TITLE, NOT_WIRED_TEXT, RESEARCH_STARTED_TEXT, SKIPS, SKIP_TEXT, begin, initialState, parseActivity, reduce, reset, settle, viewModel,
 } from "../activity-view.js";
 import { createActivityView } from "../activity.js";
 import { sendChat } from "../chat-api.js";
@@ -552,4 +552,55 @@ test("activity events are ignored when no handler is given, and a throwing handl
     message: "x", onDelta() {}, fetchImpl, onActivity() { throw new Error("display bug"); },
   });
   assert.equal(result.conversation_id, "c2");
+});
+
+// ---- the casual path (JARVIS_CASUAL on) ----
+
+const casualTurn = [
+  { stage: "received" },
+  { stage: "routing" },
+  { stage: "route_selected", route: "casual", decided: "casual", fallback: false },
+  { stage: "generating" },
+];
+
+test("a casual turn lights REALTIME, never the main agent, and has no memory step", () => {
+  const generating = viewModel(feed(begin(), ...casualTurn));
+  assert.equal(generating.caption, "SYNTHESIZING RESPONSE");
+  assert.equal(node(generating, "realtime").connected, true);
+  assert.equal(node(generating, "realtime").active, true);
+  assert.equal(node(generating, "main").active, false);
+  assert.equal(edge(generating, "router-realtime").active, true);
+  assert.equal(edge(generating, "router-main").active, false);
+  assert.equal(generating.routeNote, null);
+  const selected = viewModel(feed(begin(), ...casualTurn.slice(0, 3)));
+  assert.equal(selected.caption, "ROUTE SELECTED · REALTIME");
+  const done = viewModel(feed(begin(), ...casualTurn, { stage: "done" }));
+  assert.equal(node(done, "realtime").status, "done");
+  assert.equal(node(done, "realtime").connected, true);
+  assert.equal(node(done, "main").status, "idle");
+  assert.ok(done.edges.every((e) => !e.active));
+  assert.equal(node(viewModel(begin()), "realtime").connected, false);
+});
+
+test("a casual decision that fell back says why and runs on the main agent", () => {
+  for (const skip of ["over_budget", "provider", "low_confidence"]) {
+    const turn = [
+      { stage: "routing" },
+      { stage: "route_selected", route: "main", decided: "casual", fallback: false, casual_skip: skip },
+      { stage: "generating" },
+    ];
+    const selected = viewModel(feed(begin(), ...turn.slice(0, 2)));
+    assert.equal(selected.caption, "CASUAL NOT USED");
+    assert.equal(selected.explain, CASUAL_SKIP_TEXT[skip]);
+    assert.notEqual(selected.explain, NOT_WIRED_TEXT);
+    assert.equal(node(selected, "realtime").connected, false);
+    const later = viewModel(feed(begin(), ...turn));
+    assert.equal(later.routeNote.caption, "CASUAL NOT USED");
+    assert.equal(node(later, "main").active, true);
+    assert.equal(node(later, "realtime").active, false);
+  }
+  assert.deepEqual(
+    parseActivity({ stage: "route_selected", route: "main", decided: "casual", casual_skip: "x", text: "t" }),
+    { stage: "route_selected", route: "main", decided: "casual" },
+  );
 });

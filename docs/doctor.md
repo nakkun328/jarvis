@@ -26,6 +26,7 @@ The exit code is `0` when nothing is `INCOMPLETE`, otherwise `1`.
 | models | `JARVIS_MODEL_CHOICES` ([model-select.md](model-select.md)): `OFF` when unset; `INCOMPLETE` when the default chat provider is not ready or an entry's provider key/package is missing (`MODEL_CHOICE_UNAVAILABLE`); shows only counts |
 | research | `JARVIS_RESEARCH_ENABLED`, `JARVIS_SEARCH_PROVIDER` with `JARVIS_SEARCH_API_KEY`, a ready chat provider |
 | router | `JARVIS_ROUTER` is `off`, `rule` or `llm`; `llm` needs a ready chat provider |
+| casual | `JARVIS_CASUAL` is on; INCOMPLETE if it is on but the router is off or incomplete, or there is no ready chat provider; OFF when the switch is off (default) |
 | chat_research | a router other than `off` plus research ready |
 | login | `JARVIS_AUTH_PASSPHRASE_HASH`; a non-loopback `--host` needs login and Secure cookies |
 | db, vault, personality | `JARVIS_DB_PATH` (a missing database is created on first start), `JARVIS_MEMORY_VAULT_PATH`, `JARVIS_PERSONALITY_PATH` |
