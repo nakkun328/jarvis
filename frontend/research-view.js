@@ -284,6 +284,13 @@ export function listViewModel(
 
 // ----- detail -----
 
+// The screen numbers the queries itself. A stored query that already starts with a list number
+// ("1.SQLite ..." or "2) ...") would show a double number, so that prefix is dropped from the
+// display only. A decimal such as "3.5" is not a list number and is kept.
+export function stripListNumber(value) {
+  return typeof value === "string" ? value.replace(/^\s*\d{1,2}[.)．、](?!\d)\s*/u, "") : "";
+}
+
 // Joins each claim to the source it cites. A claim whose source is not in the response is
 // shown as such instead of being dropped, so a broken citation is visible.
 export function detailViewModel(session, { timeZone } = {}) {
@@ -345,7 +352,7 @@ export function detailViewModel(session, { timeZone } = {}) {
     hasResult: session.has_result,
     queries: (session.queries ?? []).map((query, position) => ({
       number: position + 1,
-      text: query.text,
+      text: stripListNumber(query.text),
     })),
     sources: sourceModels,
     claims: claimModels,

@@ -400,7 +400,7 @@ class ResearchRepository:
         _require_uuid(session_id, "session_id")
         with self._read() as connection:
             rows = connection.execute(
-                "SELECT * FROM research_sources WHERE session_id = ? ORDER BY retrieved_at, id",
+                "SELECT * FROM research_sources WHERE session_id = ? ORDER BY retrieved_at, rowid",
                 (str(session_id),),
             ).fetchall()
             reasons = _load_reasons(connection, [row["id"] for row in rows])

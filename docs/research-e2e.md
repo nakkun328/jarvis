@@ -43,3 +43,7 @@ Unit tests are in `tests/test_research_quality.py`.
 ## Running
 
 `python -m pytest tests/test_research_e2e.py` (about 30 s; most of it is the polling worker).
+
+## UX quality scenarios (SQLite WAL question)
+
+`test_an_irrelevant_hit_is_not_read_...`, `test_the_official_page_rates_above_...` and `test_source_numbers_in_the_text_are_the_numbers_of_the_source_list` use a Japanese question with English technical terms: the irrelevant top-ranked hit is not read, `sqlite.org/wal.html` is `docs` by `subject_official_host` with authority 0.6 and no `no_authoritative_source` caveat, `sqlite.org/forum` stays a forum, and `[n]` in the text is source `n` of the detail list.

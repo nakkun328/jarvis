@@ -19,10 +19,13 @@ the caller as ``rules=`` without touching this module.
 """
 
 import re
+from collections.abc import Collection
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+from backend.research.domains import registrable_domain
 from backend.research.models import MAX_TITLE_CHARS, Basis, SourceType
+from backend.research.terms import normalize_latin
 
 _MAX_URL_CHARS = 2048
 _IPV4 = re.compile(r"[0-9]{1,3}(?:\.[0-9]{1,3}){3}")
@@ -346,10 +349,62 @@ def _parse(url: object) -> tuple[str, list[str]] | None:
     return host, segments
 
 
+SUBJECT_OFFICIAL_RULE = "subject_official_host"
+SUBJECT_OFFICIAL_AUTHORITY_CAP = 0.6
+_MIN_SUBJECT_LABEL = 3
+# Platforms where anyone can publish: a question about them does not make their pages first-party.
+_SHARED_PLATFORM_LABELS = frozenset(
+    {
+        "github", "gitlab", "bitbucket", "google", "youtube", "facebook", "twitter", "linkedin",
+        "wikipedia", "amazon", "notion", "medium", "reddit", "npmjs", "pypi", "sourceforge",
+        "stackoverflow", "stackexchange", "slideshare", "scribd", "wordpress", "blogspot",
+    }
+)  # fmt: skip
+
+
+def _subject_official(host: str, subject_terms: Collection[str]) -> bool:
+    """The registrable domain's main label equals a distinctive Latin term of the question.
+
+    Whole-label match only (``sqlite.org`` for ``sqlite``): ``sqlite.org.evil.example`` has the
+    label ``evil``, ``sqlite-docs.com`` and ``mysqlite.org`` do not match. The label is the
+    first label of the registrable domain, so a subdomain cannot supply it.
+    """
+    registrable = registrable_domain(f"https://{host}/")
+    if not registrable or "." not in registrable:
+        return False
+    label = registrable.split(".", 1)[0]
+    if len(label) < _MIN_SUBJECT_LABEL or label in _SHARED_PLATFORM_LABELS:
+        return False
+    wanted = {normalize_latin(term) for term in subject_terms} | {
+        term.casefold() for term in subject_terms
+    }
+    return label in wanted
+
+
 def classify_source_detailed(
-    url: str, title: str | None = None, *, rules: tuple[Rule, ...] = RULES
+    url: str,
+    title: str | None = None,
+    *,
+    rules: tuple[Rule, ...] = RULES,
+    subject_terms: Collection[str] = (),
 ) -> SourceClassification:
-    """Classify ``url`` (and, last, ``title``) with the ordered rule table."""
+    """Classify ``url`` (and, last, ``title``) with the ordered rule table.
+
+    ``subject_terms`` (optional) are the distinctive Latin terms of the question. A site whose
+    registrable domain is named after one of them (``sqlite.org`` for a SQLite question) is
+    ``docs`` by the host rule ``subject_official_host``, but only when no other rule decided
+    the URL (so ``/forum`` and ``/blog`` paths, forum hosts and blog hosts keep their kind) or
+    when only a title guess did. Its authority is capped at ``SUBJECT_OFFICIAL_AUTHORITY_CAP``.
+    """
+    result = _classify(url, title, rules)
+    if subject_terms and result.rule_id in {"no_rule", "docs_title"}:
+        parsed = _parse(url)
+        if parsed is not None and _subject_official(parsed[0], subject_terms):
+            return SourceClassification(SourceType.DOCS, SUBJECT_OFFICIAL_RULE, Basis.HOST)
+    return result
+
+
+def _classify(url: str, title: str | None, rules: tuple[Rule, ...]) -> SourceClassification:
     parsed = _parse(url)
     if parsed is None:
         return SourceClassification(SourceType.UNKNOWN, "invalid_url", Basis.DEFAULT)
@@ -375,7 +430,13 @@ def classify_source_detailed(
 
 
 def classify_source(
-    url: str, title: str | None = None, *, rules: tuple[Rule, ...] = RULES
+    url: str,
+    title: str | None = None,
+    *,
+    rules: tuple[Rule, ...] = RULES,
+    subject_terms: Collection[str] = (),
 ) -> SourceType:
     """The ``SourceType`` of a URL; ``unknown`` when no rule applies. Never fetches anything."""
-    return classify_source_detailed(url, title, rules=rules).source_type
+    return classify_source_detailed(
+        url, title, rules=rules, subject_terms=subject_terms
+    ).source_type

@@ -258,7 +258,7 @@ class QuickResearch:
             *(FailedRead(hit.url, reason.value) for hit, reason in blocked),
             *state.failed_reads,
         )
-        evidence: list[EvidenceSource] = []
+        stored: list[tuple[ResearchSource, str]] = []
         seen_ids: set[UUID] = set()
         for result, page in pages:
             if page is None:
@@ -276,7 +276,11 @@ class QuickResearch:
             if source.id in seen_ids:
                 continue
             seen_ids.add(source.id)
-            evidence.append(EvidenceSource(len(evidence) + 1, source, page.text))
+            stored.append((source, page.text))
+        # The number in the result text is the source's position in the stored source list.
+        position = {s.id: n for n, s in enumerate(self._repository.list_sources(session.id))}
+        stored.sort(key=lambda pair: position.get(pair[0].id, len(position)))
+        evidence = [EvidenceSource(n, source, text) for n, (source, text) in enumerate(stored, 1)]
         state.sources = tuple(item.source for item in evidence)
         if not evidence:
             raise _Failed(FailureReason.READER_FAILED)

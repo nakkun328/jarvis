@@ -369,6 +369,7 @@ def test_reasons_are_fixed_codes() -> None:
         "freshness_decay",
         "freshness_unknown_date",
         "freshness_future_date",
+        "authority_subject_official",
         "relevance_overlap",
         "relevance_title_only",
         "relevance_no_terms",
@@ -449,3 +450,109 @@ def test_evaluate_and_store_respects_final_sessions(repository: ResearchReposito
     repository.transition(session.id, ResearchStatus.RUNNING, ResearchStatus.CANCELLED)
     with pytest.raises(ResearchStateChanged):
         evaluate_and_store(repository, source, "q")
+
+
+# ----- relevance across languages (technical terms of the question and of the queries) -----
+
+SQLITE_QUESTION = "SQLite の WAL モードの利点と、複数プロセスから書くときの注意点"
+SQLITE_QUERIES = (
+    SQLITE_QUESTION,
+    "SQLite WAL mode advantages multiple processes write concurrency",
+    "SQLite WAL mode multi-process write caveats",
+)
+WAL_PAGE = (
+    "Write-Ahead Logging. The WAL journal mode of SQLite lets readers and writers proceed "
+    "concurrently. Advantages of WAL mode: reads do not block writes. Multiple processes may "
+    "write, but there is only one writer at a time, so writes need care. WAL-index shared memory."
+)
+ABOUT_PAGE = (
+    "SQLite is a C-language library. Journal modes include DELETE, TRUNCATE and WAL. "
+    "Writes from multiple processes are serialized."
+)
+# Shares Japanese filler with the question (advantage, caution, several, write, mode) and
+# none of its technical terms.
+SAAS_PAGE = (
+    "SaaS関連株の利点と注意点。複数の銘柄に分散して書くときの注意点とプロセスを解説します。"
+    "モードの切り替えにも注意。"
+)
+
+
+def test_a_cross_language_official_page_beats_an_unrelated_japanese_page() -> None:
+    wal, _ = relevance_rating(
+        SQLITE_QUESTION,
+        "Write-Ahead Logging",
+        WAL_PAGE,
+        url="https://www.sqlite.org/wal.html",
+        queries=SQLITE_QUERIES,
+    )
+    about, _ = relevance_rating(
+        SQLITE_QUESTION,
+        "About SQLite",
+        ABOUT_PAGE,
+        url="https://www.sqlite.org/about.html",
+        queries=SQLITE_QUERIES,
+    )
+    saas, _ = relevance_rating(
+        SQLITE_QUESTION,
+        "SaaS株の利点と注意点",
+        SAAS_PAGE,
+        url="https://saas.example.jp/stocks",
+        queries=SQLITE_QUERIES,
+    )
+    assert wal is not None and about is not None and saas is not None
+    assert wal > about > saas
+    assert wal >= 0.4 > saas  # the decision threshold for "relevant" is 0.4
+    assert saas <= 0.15  # no technical term: only the small CJK share can count
+
+
+def test_technical_terms_in_the_url_and_title_count() -> None:
+    by_url, _ = relevance_rating(
+        SQLITE_QUESTION, "Untitled", "text without terms", url="https://sqlite.org/wal.html"
+    )
+    without, _ = relevance_rating(SQLITE_QUESTION, "Untitled", "text without terms")
+    assert by_url is not None and without is not None and by_url > without
+
+
+def test_rare_technical_terms_weigh_more_than_generic_query_words() -> None:
+    queries = ("LiteFS replication", "LiteFS replication tutorial guide overview")
+    rare, _ = relevance_rating("LiteFS の使い方", "x", "litefs", queries=queries)
+    generic, _ = relevance_rating(
+        "LiteFS の使い方", "x", "tutorial guide overview", queries=queries
+    )
+    assert rare is not None and generic is not None and rare > 0.5 > generic
+
+
+def test_latin_terms_split_compounds_in_pages_but_not_in_the_question() -> None:
+    value, _ = relevance_rating("WAL", "x", "the wal-index and wal.html files")
+    assert value is not None and value > 0.7
+
+
+def test_subject_official_authority_is_capped_and_explained() -> None:
+    assessed = assess_source(
+        question=SQLITE_QUESTION,
+        url="https://www.sqlite.org/wal.html",
+        retrieved_at=NOW,
+        title="Write-Ahead Logging",
+        text=WAL_PAGE,
+        queries=SQLITE_QUERIES,
+    )
+    assert assessed.source_type is SourceType.DOCS
+    assert assessed.classification_rule == "subject_official_host"
+    assert assessed.classification_basis is Basis.HOST
+    assert assessed.evaluation.authority == 0.6
+    assert assessed.authority_reason is RatingReason.AUTHORITY_SUBJECT_OFFICIAL
+    # without the question's terms the same URL stays unknown
+    plain = assess_source(
+        question="database", url="https://www.sqlite.org/wal.html", retrieved_at=NOW
+    )
+    assert plain.source_type is SourceType.UNKNOWN and plain.evaluation.authority == 0.25
+    # a stored classification keeps its cap when it is assessed again
+    again = assess_source(
+        question="database",
+        url="https://www.sqlite.org/wal.html",
+        retrieved_at=NOW,
+        source_type=SourceType.DOCS,
+        classification_rule="subject_official_host",
+        classification_basis=Basis.HOST,
+    )
+    assert again.evaluation.authority == 0.6
