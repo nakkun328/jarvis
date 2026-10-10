@@ -97,6 +97,8 @@ class Env:
         *,
         auto_approve: bool = False,
         daily_limit: int = 50,
+        per_conversation_limit: int = 5,
+        per_day_limit: int = 30,
         today: Callable[[], date] = date.today,
     ) -> None:
         self.database = Database(tmp_path / "chat.sqlite3")
@@ -113,6 +115,8 @@ class Env:
             self.writer,
             auto_approve=auto_approve,
             daily_limit=daily_limit,
+            per_conversation_limit=per_conversation_limit,
+            per_day_limit=per_day_limit,
             today=today,
         )
         app = FastAPI()
@@ -708,3 +712,26 @@ def test_only_the_extraction_module_and_app_wiring_reference_the_staging_code() 
     assert module.count(".approve(") == 1 and "actor=CHAT_AUTO_APPROVER" in module
     imports = r"^(?:from|import) (?:backend\.memory\.obsidian|httpx|requests)"
     assert not re.search(imports, module, re.M)
+
+
+def test_staging_caps_are_settings(tmp_path: Path) -> None:
+    env = Env(tmp_path, payload(), per_conversation_limit=1, per_day_limit=2)
+    topics = [
+        ("猫を二匹飼っている", "猫を二匹飼っています"),
+        ("ジャズギターを練習している", "ジャズギターを練習中"),
+        ("週末は山で写真を撮る", "週末は山で写真を撮ります"),
+    ]
+    staged = []
+    for fact, quote in topics:
+        env.provider.extraction = payload((fact, "preference", quote))
+        staged.append(len(env.run(f"ちなみに{quote}、よろしくお願いします", uuid4()).staged))
+    assert staged == [1, 1, 0]  # per-day cap of 2
+    settings = Settings(db_path=tmp_path / "d")
+    assert settings.chat_memory_per_conversation_limit == 5
+    assert settings.chat_memory_per_day_limit == 30
+    bad_values = (("PER_CONVERSATION_LIMIT", 51), ("PER_DAY_LIMIT", 501), ("PER_DAY_LIMIT", 0))
+    for name, bad in bad_values:
+        with pytest.raises(ConfigError, match=name):
+            Settings(db_path=tmp_path / "d", **{f"chat_memory_{name.lower()}": bad})
+    with pytest.raises(ValueError):
+        ChatAutoMemory(env.provider, env.memory, per_day_limit=0)

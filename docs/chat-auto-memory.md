@@ -19,6 +19,8 @@ After a chat turn has been answered and saved, JARVIS may ask the **default chat
 | `JARVIS_CHAT_MEMORY_AUTO_APPROVE` | `0` | approve staged candidates immediately through `MemoryWriter.approve` with the audit actor `auto:chat`. **This skips human review.** Requires `JARVIS_CHAT_MEMORY_AUTO` and `JARVIS_MEMORY_VAULT_PATH` (approval publishes a vault note); otherwise the app refuses to start. |
 | `JARVIS_CHAT_MEMORY_DAILY_LIMIT` | `50` | extraction model calls per UTC day, 1 to 1000. The counter lives in the process and restarts from zero on a restart. |
 | `JARVIS_CHAT_MEMORY_MIN_CHARS` | `12` | shorter messages are not examined (1 to 1000). |
+| `JARVIS_CHAT_MEMORY_PER_CONVERSATION_LIMIT` | `5` | most candidates staged from one conversation (1 to 50, per process). |
+| `JARVIS_CHAT_MEMORY_PER_DAY_LIMIT` | `30` | most candidates staged per UTC day (1 to 500, per process). |
 
 Invalid values refuse to start. `python -m backend.doctor` has an area `chat_memory` that shows the flags and says plainly that chat-derived memory is approved **without human review** when auto-approval is on. It never prints any content.
 
@@ -31,7 +33,7 @@ Invalid values refuse to start. `python -m backend.doctor` has an area `chat_mem
 5. **Sensitive-information floor.** A message that trips the filter below skips the whole turn *before any model call*; each extracted fact and quote is checked again.
 6. **Private markers skip the whole turn:** 内緒, 秘密, ひみつ, オフレコ, ここだけの話, 覚えないで, 覚えなくていい, メモ/保存/記録しないで, プライベート, 非公開, "off the record", "confidential", "keep this private", "don't remember/save", "secret" and similar.
 7. **Pasted-looking messages are skipped** (a code fence, two or more links, more than 12 lines, more than 1500 characters). Chat has no flag for pasted external content, so this is judged by shape.
-8. **Dedupe and caps.** A fact whose character-bigram (Dice) similarity to any approved or pending note is 0.6 or more is dropped. Candidate IDs are derived from the source and fact, so a retry adds nothing. At most 5 candidates per conversation and 30 per day are staged per process.
+8. **Dedupe and caps.** A fact whose character-bigram (Dice) similarity to any approved or pending note is 0.6 or more is dropped. Candidate IDs are derived from the source and fact, so a retry adds nothing. At most `JARVIS_CHAT_MEMORY_PER_CONVERSATION_LIMIT` (5) candidates per conversation and `JARVIS_CHAT_MEMORY_PER_DAY_LIMIT` (30) per day are staged per process.
 9. **Nothing else can approve.** The staging and approval code is referenced only by `backend/memory/chat_auto.py`, its audit actor constant and the app wiring; no chat, router, tool, provider, task or research code imports it (a source-scan test enforces this). The only approval is `MemoryWriter.approve`.
 
 ### The sensitive-information filter

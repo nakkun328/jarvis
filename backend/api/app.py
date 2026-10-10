@@ -152,6 +152,8 @@ def create_app(
             auto_approve=settings.chat_memory_auto_approve,
             daily_limit=settings.chat_memory_daily_limit,
             min_chars=settings.chat_memory_min_chars,
+            per_conversation_limit=settings.chat_memory_per_conversation_limit,
+            per_day_limit=settings.chat_memory_per_day_limit,
         )
         if settings.chat_memory_auto and provider is not None
         else None

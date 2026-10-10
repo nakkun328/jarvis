@@ -195,6 +195,9 @@ def _chat_memory(settings: Settings, chat: Check) -> Check:
         + ("on" if settings.chat_memory_auto_approve else "off") + ", "
         f"JARVIS_CHAT_MEMORY_DAILY_LIMIT={settings.chat_memory_daily_limit}, "
         f"JARVIS_CHAT_MEMORY_MIN_CHARS={settings.chat_memory_min_chars}, "
+        "JARVIS_CHAT_MEMORY_PER_CONVERSATION_LIMIT="
+        f"{settings.chat_memory_per_conversation_limit}, "
+        f"JARVIS_CHAT_MEMORY_PER_DAY_LIMIT={settings.chat_memory_per_day_limit}, "
         "JARVIS_MEMORY_VAULT_PATH=" + _word(settings.memory_vault_path is not None)
     )
     label = "会話記憶の自動作成"

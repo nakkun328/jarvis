@@ -132,6 +132,8 @@ class Settings:
     chat_memory_auto_approve: bool = False
     chat_memory_daily_limit: int = 50
     chat_memory_min_chars: int = 12
+    chat_memory_per_conversation_limit: int = 5
+    chat_memory_per_day_limit: int = 30
     # Structured shell tool (docs/tool-shell.md). Off by default; it needs an execution root too.
     # The command names pick entries of the fixed allowlist table, they are never command lines.
     shell_enabled: bool = False
@@ -216,6 +218,16 @@ class Settings:
             or not 1 <= self.chat_memory_min_chars <= 1000
         ):
             raise ConfigError("JARVIS_CHAT_MEMORY_MIN_CHARS must be between 1 and 1000")
+        for name, value, high in (
+            (
+                "JARVIS_CHAT_MEMORY_PER_CONVERSATION_LIMIT",
+                self.chat_memory_per_conversation_limit,
+                50,
+            ),
+            ("JARVIS_CHAT_MEMORY_PER_DAY_LIMIT", self.chat_memory_per_day_limit, 500),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= high:
+                raise ConfigError(f"{name} must be between 1 and {high}")
         if not isinstance(self.shell_enabled, bool):
             raise ConfigError("JARVIS_SHELL_ENABLED must be true or false")
         if self.shell_root is not None and not str(self.shell_root).strip():
@@ -350,4 +362,8 @@ class Settings:
             chat_memory_auto_approve=_env_bool("JARVIS_CHAT_MEMORY_AUTO_APPROVE", False),
             chat_memory_daily_limit=_env_int("JARVIS_CHAT_MEMORY_DAILY_LIMIT", 50),
             chat_memory_min_chars=_env_int("JARVIS_CHAT_MEMORY_MIN_CHARS", 12),
+            chat_memory_per_conversation_limit=_env_int(
+                "JARVIS_CHAT_MEMORY_PER_CONVERSATION_LIMIT", 5
+            ),
+            chat_memory_per_day_limit=_env_int("JARVIS_CHAT_MEMORY_PER_DAY_LIMIT", 30),
         )

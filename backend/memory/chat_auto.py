@@ -58,8 +58,8 @@ MAX_QUOTE_CHARS = 300
 MAX_OUTPUT_CHARS = 4000
 TIMEOUT_SECONDS = 30.0
 #: Caps on what one process stages, so a long chat cannot flood memory.
-MAX_STAGED_PER_CONVERSATION = 5
-MAX_STAGED_PER_DAY = 30
+DEFAULT_PER_CONVERSATION_LIMIT = 5
+DEFAULT_PER_DAY_LIMIT = 30
 MAX_PENDING_TASKS = 8
 DUPLICATE_SIMILARITY = 0.6
 FORGET_MIN_OVERLAP = 0.4
@@ -268,6 +268,8 @@ class ChatAutoMemory:
         auto_approve: bool = False,
         daily_limit: int = DEFAULT_DAILY_LIMIT,
         min_chars: int = DEFAULT_MIN_CHARS,
+        per_conversation_limit: int = DEFAULT_PER_CONVERSATION_LIMIT,
+        per_day_limit: int = DEFAULT_PER_DAY_LIMIT,
         today: Callable[[], date] = _today,
     ) -> None:
         if auto_approve and writer is None:
@@ -282,6 +284,11 @@ class ChatAutoMemory:
         self._auto_approve = auto_approve
         self.daily_limit = daily_limit
         self.min_chars = min_chars
+        for limit in (per_conversation_limit, per_day_limit):
+            if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+                raise ValueError("staging limits must be positive")
+        self.per_conversation_limit = per_conversation_limit
+        self.per_day_limit = per_day_limit
         self._today = today
         self._counters = _Counters(today())
         self._lock = asyncio.Lock()
@@ -341,8 +348,8 @@ class ChatAutoMemory:
         return max(
             0,
             min(
-                MAX_STAGED_PER_DAY - counters.staged,
-                MAX_STAGED_PER_CONVERSATION - counters.per_conversation.get(conversation_id, 0),
+                self.per_day_limit - counters.staged,
+                self.per_conversation_limit - counters.per_conversation.get(conversation_id, 0),
             ),
         )
 
