@@ -139,3 +139,5 @@
 
 .memory-candidates { display: grid; gap: 8px; justify-items: start; }
 .memory-note, .memory-status { margin: 0; }
+.run-memory-status { margin: .8rem 0 .2rem; color: #d7e6f2; font-size: .85rem; line-height: 1.6; overflow-wrap: anywhere; }
+.run-memory-status[hidden] { display: none; }

@@ -354,6 +354,7 @@ const NODE_DEFS = [
   { id: "realtime", label: "REALTIME" },
   { id: "main", label: "MAIN AGENT" },
   { id: "researcher", label: "RESEARCHER" },
+  { id: "memory", label: "MEMORY" },
 ];
 // `direct` is the path messages take today, around the router that does not exist yet.
 const EDGE_DEFS = [
@@ -362,6 +363,8 @@ const EDGE_DEFS = [
   { id: "router-main", from: "router", to: "main" },
   { id: "router-researcher", from: "router", to: "researcher" },
   { id: "input-main", from: "input", to: "main", direct: true },
+  // Memory made in the background after a reply (chat auto-memory, research staging).
+  { id: "main-memory", from: "main", to: "memory" },
 ];
 
 // Which edges carry the moving light. The direct path is lit only while no router is involved.
@@ -380,7 +383,9 @@ function activeEdges(state, nodes) {
 }
 
 // Everything the DOM layer needs, with all wording decided here.
-export function viewModel(state, { reducedMotion = false } = {}) {
+// memory: { configured, lit }. The MEMORY node is dimmed as not connected only when the server
+// said no memory is configured; `lit` is true while a memory was just made (activity-memory.js).
+export function viewModel(state, { reducedMotion = false, memory = {} } = {}) {
   const { caption, explain } = describe(state);
   const active = activeNodes(state);
   const nodes = new Map();
@@ -392,21 +397,24 @@ export function viewModel(state, { reducedMotion = false } = {}) {
       isActive ||
       (def.id === "router" && state.routed) ||
       (def.id === "researcher" && researchStarted(state)) ||
-      (def.id === "realtime" && casualRan(state));
+      (def.id === "realtime" && casualRan(state)) ||
+      (def.id === "memory" && memory.configured !== false);
     let status = "idle";
-    if (isActive) status = "active";
+    if (def.id === "memory") status = memory.lit && connected ? "active" : "idle";
+    else if (isActive) status = "active";
     else if (def.id === resultNode(state) && state.phase === "done") status = "done";
     else if (def.id === resultNode(state) && state.phase === "error") status = "error";
     nodes.set(def.id, {
       id: def.id,
       label: def.label,
       connected,
-      active: isActive,
+      active: def.id === "memory" ? status === "active" : isActive,
       status,
       title: connected ? def.label : `${def.label} · ${NOT_CONNECTED_TITLE}`,
     });
   }
   const lit = activeEdges(state, nodes);
+  if (nodes.get("memory").active) lit.add("main-memory");
   const edges = EDGE_DEFS.map((def) => {
     const connected = nodes.get(def.from).connected && nodes.get(def.to).connected;
     return { ...def, direct: Boolean(def.direct), connected, active: lit.has(def.id) };

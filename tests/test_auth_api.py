@@ -153,6 +153,8 @@ API_GET = [
     "/api/tasks",
     "/api/devices",
     "/api/research/sessions",
+    "/api/memory/activity",
+    "/api/memory/activity?after=0",
     f"/api/tasks/{uuid4()}",
     f"/api/tasks/{uuid4()}/events",
     f"/api/chat/conversations/{uuid4()}/messages",

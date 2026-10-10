@@ -32,6 +32,12 @@ from enum import StrEnum
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from backend.memory.auto_approval import CHAT_AUTO_APPROVER
+from backend.memory.events import (
+    MemoryEventKind,
+    MemoryEventOrigin,
+    MemoryEventPublisher,
+    safe_publish,
+)
 from backend.memory.model import MemoryCategory, MemoryOrigin, MemoryRecord
 from backend.memory.repository import (
     MemoryAlreadyExists,
@@ -271,6 +277,7 @@ class ChatAutoMemory:
         per_conversation_limit: int = DEFAULT_PER_CONVERSATION_LIMIT,
         per_day_limit: int = DEFAULT_PER_DAY_LIMIT,
         today: Callable[[], date] = _today,
+        publisher: MemoryEventPublisher | None = None,
     ) -> None:
         if auto_approve and writer is None:
             raise ValueError("Automatic approval needs a memory writer")
@@ -290,6 +297,7 @@ class ChatAutoMemory:
         self.per_conversation_limit = per_conversation_limit
         self.per_day_limit = per_day_limit
         self._today = today
+        self._publisher = publisher
         self._counters = _Counters(today())
         self._lock = asyncio.Lock()
         self._tasks: set[asyncio.Task[None]] = set()
@@ -327,6 +335,9 @@ class ChatAutoMemory:
             "chat_memory.failed",
             extra={"code": code.value, "error_type": type(exc).__name__ if exc else None},
         )
+
+    def _publish(self, kind: MemoryEventKind, memory_id: UUID, content: str) -> None:
+        safe_publish(self._publisher, kind, MemoryEventOrigin.CHAT, memory_id, content)
 
     # ----- processing -----
 
@@ -479,13 +490,16 @@ class ChatAutoMemory:
                 self._log_failure(Failure.STORAGE, exc)
                 return Outcome(tuple(staged), approved, failure=Failure.STORAGE, dropped=dropped)
             known.append(item.fact)
+            kind = MemoryEventKind.STAGED
             if self._auto_approve and self._writer is not None:
                 try:
                     stored = self._writer.approve(record.id, actor=CHAT_AUTO_APPROVER)
                     approved += 1
+                    kind = MemoryEventKind.APPROVED
                 except (MemoryWriteError, MemoryRepositoryError, ValueError, RuntimeError) as exc:
                     # Stays pending, for a person to review.
                     self._log_failure(Failure.APPROVAL, exc)
+            self._publish(kind, record.id, record.content)
             staged.append(stored)
         self._count_staged(conversation_id, len(staged))
         return Outcome(tuple(staged), approved, dropped=dropped)
@@ -533,6 +547,7 @@ class ChatAutoMemory:
                 new=MemoryStatus.REJECTED,
                 actor=CHAT_AUTO_APPROVER,
             )
+            self._publish(MemoryEventKind.WITHDRAWN, target.record.id, target.record.content)
             return 1
         try:
             if self._writer is None:
@@ -545,4 +560,5 @@ class ChatAutoMemory:
                 actor=CHAT_AUTO_APPROVER,
                 reason=FORGET_REASON,
             )
+        self._publish(MemoryEventKind.WITHDRAWN, target.record.id, target.record.content)
         return 1

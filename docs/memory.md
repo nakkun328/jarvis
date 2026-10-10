@@ -94,3 +94,13 @@ is never returned.
 
 `python -m backend.doctor` has an area `research_memory` that states plainly when automatic
 approval is on (flags only, no content).
+
+## Memory activity feed
+
+So that the owner can see WHEN a memory was made, chat auto-memory (`ChatAutoMemory`), research staging and auto-approval (`ResearchMemoryCandidates`, including the manual button), the 「忘れて」 command and the human withdraw route publish small events to an in-process feed (`backend/memory/events.py`). The publisher is injected (`publisher=` arguments); `create_app` wires one `MemoryActivityFeed` per app and tests use their own, so there is no global singleton.
+
+- **Bounded and volatile.** A ring buffer of the last 100 events. Nothing is stored in SQLite and there is no migration (schema v10); a restart empties it and `seq` starts again at 1 (the page notices `latest` going backwards and follows).
+- **Event.** `{seq, at, kind, origin, memory_id, summary}`: `seq` rises by one per event and never repeats; `at` is UTC ISO; `kind` is `staged` (a candidate waits for review), `approved` (approved automatically, `auto:chat` / `auto:research`) or `withdrawn` (withdrawn by the owner or by 「忘れて」); `origin` is `chat` or `research`; `summary` is the first line of the note, control/format/bidi characters removed, at most 80 characters. Only what a call actually changed is announced: a repeated staging of the same claims publishes nothing, and a candidate approved on the spot is one `approved` event, not two.
+- **Never blocks, never leaks.** `safe_publish` swallows any publisher failure and logs only the fixed code `memory_event_publish_failed`. The summary is the owner's own content and is never logged.
+- **Endpoint.** `GET /api/memory/activity?after=<seq>` (behind the login layer; `Cache-Control: no-store`; read-only) returns `{"latest": <int>, "events": [...], "configured": <bool>, "chat_enabled": <bool>, "research_enabled": <bool>}`. `events` holds the events with `seq > after`, oldest first, at most 50. `after` defaults to 0 and must be a non-negative integer of at most 15 digits, otherwise `422 {"detail": "invalid_after"}`. `configured` is whether a memory vault is configured (the Activity View dims its MEMORY node when it is not); `chat_enabled` / `research_enabled` say whether chat auto-memory / research auto-staging are switched on.
+- **Page.** The chat page and the Research screen poll it for a short window after a reply or a finished research (see [chat.md](chat.md), "Activity events").

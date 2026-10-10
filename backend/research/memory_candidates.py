@@ -15,6 +15,12 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from backend.memory.events import (
+    MemoryEventKind,
+    MemoryEventOrigin,
+    MemoryEventPublisher,
+    safe_publish,
+)
 from backend.memory.model import MemoryCategory, MemoryOrigin, MemoryRecord
 from backend.memory.repository import (
     MemoryAlreadyExists,
@@ -95,6 +101,7 @@ class ResearchMemoryCandidates:
         memory: MemoryRepository,
         *,
         approve: Callable[[UUID], StoredMemory] | None = None,
+        publisher: MemoryEventPublisher | None = None,
     ) -> None:
         """``approve`` is the owner-approved automatic approval (docs/memory.md): a callable that
         publishes one candidate through the existing writer. ``None`` (the default) keeps every
@@ -102,6 +109,7 @@ class ResearchMemoryCandidates:
         self._research = research
         self._memory = memory
         self._approve = approve
+        self._publisher = publisher
 
     @property
     def auto_approval(self) -> bool:
@@ -196,7 +204,9 @@ class ResearchMemoryCandidates:
             try:
                 stored_all.append(self._memory.add(record))
                 created += 1
+                new = True
             except MemoryAlreadyExists:
+                new = False
                 existing = self._memory.get(record.id)
                 if existing is None:
                     raise MemoryRepositoryError("Memory storage unavailable") from None
@@ -204,6 +214,15 @@ class ResearchMemoryCandidates:
             approved, did = self._maybe_approve(stored_all[-1], claim, source)
             stored_all[-1] = approved
             automatic += did
+            # Only what this call changed is announced; a repeat of an old staging is silent.
+            if did or new:
+                safe_publish(
+                    self._publisher,
+                    MemoryEventKind.APPROVED if did else MemoryEventKind.STAGED,
+                    MemoryEventOrigin.RESEARCH,
+                    record.id,
+                    record.content,
+                )
         return replace(
             CandidateSet(
                 tuple(stored_all), created, max(0, len(pairs) - MAX_CANDIDATES_PER_SESSION)
