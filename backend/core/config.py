@@ -117,6 +117,13 @@ class Settings:
     # Which research a chat turn starts when the router chooses research (and a router, research,
     # a search provider and a chat provider are all configured). A fixed enum, not a free value.
     chat_research_level: str = "quick"
+    # Opt-in (docs/chat-research-answer.md): a chat turn that started a research waits for it
+    # (at most the timeout, 20..900 s) and answers from its verified claims. Off: the fixed
+    # "research started" reply. The fallback switch lets a failed research fall back to the Main
+    # Agent, labelled as unsupported by the research.
+    chat_research_answer: bool = False
+    chat_research_answer_timeout_seconds: int = 180
+    chat_research_fallback_main: bool = False
     # The owner-selectable chat models (JARVIS_MODEL_CHOICES): an allowlist of `provider:model`
     # strings. Empty (the default) means no selector and exactly the single configured model.
     model_choices: tuple[str, ...] = ()
@@ -176,6 +183,16 @@ class Settings:
                 "JARVIS_CHAT_RESEARCH_LEVEL must be one of: "
                 f"{', '.join(sorted(_CHAT_RESEARCH_LEVELS))}"
             )
+        if not isinstance(self.chat_research_answer, bool):
+            raise ConfigError("JARVIS_CHAT_RESEARCH_ANSWER must be true or false")
+        if not isinstance(self.chat_research_fallback_main, bool):
+            raise ConfigError("JARVIS_CHAT_RESEARCH_FALLBACK_MAIN must be true or false")
+        if (
+            isinstance(self.chat_research_answer_timeout_seconds, bool)
+            or not isinstance(self.chat_research_answer_timeout_seconds, int)
+            or not 20 <= self.chat_research_answer_timeout_seconds <= 900
+        ):
+            raise ConfigError("JARVIS_CHAT_RESEARCH_ANSWER_TIMEOUT_SECONDS must be 20..900")
         if not isinstance(self.model_choices, tuple) or any(
             not isinstance(entry, str) for entry in self.model_choices
         ):
@@ -355,6 +372,11 @@ class Settings:
             chat_research_level=(
                 os.environ.get("JARVIS_CHAT_RESEARCH_LEVEL", "quick").strip().lower()
             ),
+            chat_research_answer=_env_bool("JARVIS_CHAT_RESEARCH_ANSWER", False),
+            chat_research_answer_timeout_seconds=_env_int(
+                "JARVIS_CHAT_RESEARCH_ANSWER_TIMEOUT_SECONDS", 180
+            ),
+            chat_research_fallback_main=_env_bool("JARVIS_CHAT_RESEARCH_FALLBACK_MAIN", False),
             model_choices=parse_model_choices(os.environ.get("JARVIS_MODEL_CHOICES", "")),
             research_memory_auto_approve=_env_bool("JARVIS_RESEARCH_MEMORY_AUTO_APPROVE", False),
             research_memory_auto_stage=_env_bool("JARVIS_RESEARCH_MEMORY_AUTO_STAGE", False),

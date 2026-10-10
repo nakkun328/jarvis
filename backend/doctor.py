@@ -192,7 +192,8 @@ def _chat_memory(settings: Settings, chat: Check) -> Check:
     detail = (
         "JARVIS_CHAT_MEMORY_AUTO=" + ("on" if settings.chat_memory_auto else "off") + ", "
         "JARVIS_CHAT_MEMORY_AUTO_APPROVE="
-        + ("on" if settings.chat_memory_auto_approve else "off") + ", "
+        + ("on" if settings.chat_memory_auto_approve else "off")
+        + ", "
         f"JARVIS_CHAT_MEMORY_DAILY_LIMIT={settings.chat_memory_daily_limit}, "
         f"JARVIS_CHAT_MEMORY_MIN_CHARS={settings.chat_memory_min_chars}, "
         "JARVIS_CHAT_MEMORY_PER_CONVERSATION_LIMIT="
@@ -231,7 +232,12 @@ def _casual(settings: Settings, router: Check, chat: Check) -> Check:
 
 
 def _chat_research(settings: Settings, router: Check, research: Check) -> Check:
-    detail = f"level={settings.chat_research_level}"
+    answer = "on" if settings.chat_research_answer else "off"
+    fallback_main = "on" if settings.chat_research_fallback_main else "off"
+    detail = (
+        f"level={settings.chat_research_level}, answer={answer}, "
+        f"timeout={settings.chat_research_answer_timeout_seconds}s, fallback_main={fallback_main}"
+    )
     if settings.router == "off":
         return Check("chat_research", "チャットからのリサーチ", OFF, "ROUTER_OFF", detail)
     if not settings.research_enabled:

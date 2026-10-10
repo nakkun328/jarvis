@@ -74,3 +74,25 @@ test("renderReply builds text nodes and same-origin anchors with the DOM API", (
   renderReply(doc, container, "");
   assert.deepEqual(container.children, []);
 });
+
+test("a research-backed answer with a source list renders as text plus the one safe link", () => {
+  const reply = [
+    "Foo 2.0 が最新です [1]。",
+    "",
+    "出典:",
+    '[1] <img src=x onerror=alert(1)> https://evil.test/a"b (取得日 2026-10-09)',
+    `調査の詳細: /research#${ID}`,
+  ].join("\n");
+  const container = new El("div");
+  renderReply(doc, container, reply);
+  const anchors = container.children.filter((n) => n.tag === "a");
+  assert.equal(anchors.length, 1);
+  assert.equal(anchors[0].attrs.href, `/research#${ID}`);
+  const texts = container.children.filter((n) => n.tag === "#text").map((n) => n.text);
+  assert.ok(texts.join("").includes('<img src=x onerror=alert(1)> https://evil.test/a"b'));
+  assert.equal(
+    container.children.map((n) => n.text ?? n.textContent).join(""),
+    reply,
+  );
+  assert.ok(container.children.every((n) => n.tag === "#text" || n.tag === "a"));
+});
