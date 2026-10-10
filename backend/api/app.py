@@ -72,6 +72,21 @@ if TYPE_CHECKING:
     from backend.research.standard import PageFetcher
 
 
+class RevalidatedStaticFiles(StaticFiles):
+    """Static files that the browser must revalidate on every use.
+
+    The pages load many small ES modules that import each other. With the default heuristic
+    caching a browser can keep an old module next to a new one after an update, which breaks the
+    whole import graph (blank activity view, missing model selector). ``no-cache`` still allows
+    a cheap 304 through the ETag/Last-Modified validators StaticFiles already sends.
+    """
+
+    async def get_response(self, path, scope):  # type: ignore[no-untyped-def]
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def _build_router(settings: Settings, provider: LLMProvider | None) -> Router:
     """The router chosen by ``JARVIS_ROUTER``, with an in-memory audit (no text, not persisted).
 
@@ -324,7 +339,7 @@ def create_app(
     if auth.enabled:
         app.include_router(create_auth_router(auth, frontend_dir))
     if (frontend_dir / "index.html").is_file():
-        app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
+        app.mount("/static", RevalidatedStaticFiles(directory=frontend_dir), name="static")
 
         @app.get("/", include_in_schema=False)
         def web_client() -> FileResponse:

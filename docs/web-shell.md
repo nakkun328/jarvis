@@ -69,3 +69,7 @@ The login layer must not be cached: authenticated pages and responses are served
 ### With login enabled
 
 The browser fetches `/manifest.webmanifest` and the icons without the session cookie, so they would be `401` and the app could not be installed. They are therefore public by **exact path** (`/manifest.webmanifest`, `/static/icons/icon.svg`, `/static/icons/icon-192.png`, `/static/icons/icon-512.png` and `/static/icons/icon-maskable-512.png`; no directory or prefix rule), as they hold nothing sensitive. `crossorigin="use-credentials"` on the manifest link was not used because it would not cover the icon and install-time fetches. `/sw.js` and the shell scripts keep requiring the session. The reasoning and threat model are in [auth](auth.md#login-and-the-installable-app-pwa).
+
+## Static file caching
+
+`/static/*` is served with `Cache-Control: no-cache`: the browser keeps its copy but must revalidate it (a cheap `304` through the ETag/Last-Modified validators) before every use. The pages are made of many small ES modules that import each other; with the default heuristic caching a browser could keep an old module next to a new one after an update, which breaks the whole import graph (blank activity view, missing model selector). The service worker's shell files are versioned separately (see `CACHE_VERSION` in `frontend/sw.js`).
