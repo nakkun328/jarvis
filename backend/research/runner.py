@@ -32,6 +32,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from backend.providers.base import CompletionRequest, CompletionResponse, LLMProvider
+from backend.research.deep import DeepLimits, DeepResearch
 from backend.research.models import (
     FailureReason,
     ResearchLevel,
@@ -84,6 +85,28 @@ STEP_DESCRIPTIONS: tuple[str, ...] = (
     "Verify the citations",
     "Write the result",
 )
+#: Deep research has its own steps: the sub-questions are researched one after the other inside
+#: step 2 (the progress counters carry the sub-question number), gap follow-ups are step 3.
+DEEP_STEP_DESCRIPTIONS: tuple[str, ...] = (
+    "Plan the sub-questions",
+    "Research the sub-questions",
+    "Follow up on gaps and conflicts",
+    "Write the result",
+)
+
+
+def steps_for(level: ResearchLevel) -> tuple[str, ...]:
+    return DEEP_STEP_DESCRIPTIONS if level is ResearchLevel.DEEP else STEP_DESCRIPTIONS
+
+
+def _deep_step_index(stage: Stage, round_index: int) -> int:
+    if stage is Stage.PLANNING:
+        return 0
+    if stage is Stage.WRITING:
+        return 3
+    return 2 if round_index > 0 else 1
+
+
 _STAGE_INDEX: Mapping[Stage, int] = {
     Stage.PLANNING: 0,
     Stage.SEARCHING: 1,
@@ -148,9 +171,15 @@ class _Counters:
     pages: int = 0
     sources: int = 0
     claims: int = 0
+    sub_question: int = 0  # Deep only: the sub-question being researched (1-based)
+    sub_questions: int = 0
 
     def as_dict(self) -> dict[str, object]:
+        extra: dict[str, object] = {}
+        if self.sub_questions:
+            extra = {"sub_question": self.sub_question, "sub_questions": self.sub_questions}
         return {
+            **extra,
             "stage": self.stage,
             "round": self.round_index,
             "queries": self.queries,
@@ -264,6 +293,8 @@ class ResearchRunService:
         poll_seconds: float = DEFAULT_POLL_SECONDS,
         quick_limits: QuickLimits | None = None,
         standard_limits: StandardLimits | None = None,
+        deep_limits: DeepLimits | None = None,
+        deep_clock: Callable[[], float] | None = None,
         clock: Callable[[], datetime] | None = None,
         on_completed: Callable[[UUID], None] | None = None,
     ) -> None:
@@ -278,6 +309,8 @@ class ResearchRunService:
         self._poll = poll_seconds
         self._quick_limits = quick_limits
         self._standard_limits = standard_limits
+        self._deep_limits = deep_limits
+        self._deep_clock = deep_clock
         self._clock = clock or (lambda: datetime.now(UTC))
         # Called (off the event loop) with the id of a session that just completed with at least
         # one verified claim. A failure is logged and never changes the session or the task.
@@ -299,7 +332,7 @@ class ResearchRunService:
                 raise BudgetExhausted
             session = self.repository.create_session(question, level)
             try:
-                self.queue.submit(goal_for(session.id), STEP_DESCRIPTIONS)
+                self.queue.submit(goal_for(session.id), steps_for(level))
             except Exception:
                 self._close(session.id, cancel=True)
                 raise
@@ -400,6 +433,29 @@ class ResearchRunService:
         reused = self._try_reuse(session, counters, steps)
         if reused is not None:
             return reused
+        if session.level is ResearchLevel.DEEP:
+
+            def on_deep_progress(event: ProgressEvent) -> None:
+                counters.stage = event.stage.value
+                counters.round_index = event.round_index
+                counters.queries = event.queries_run
+                counters.pages = event.pages_read
+                counters.sources = event.sources
+                counters.claims = event.verified_claims
+                counters.sub_question = event.sub_question
+                counters.sub_questions = event.sub_questions
+                steps.advance(_deep_step_index(event.stage, event.round_index))
+
+            deep = await DeepResearch(
+                self._search,
+                self._reader,
+                self.repository,
+                self._llm,
+                self._deep_limits,
+                clock=self._deep_clock,
+            ).resume(session.id, cancel=_CancelView(token), on_progress=on_deep_progress)
+            steps.finish()
+            return deep.session
         if session.level is ResearchLevel.STANDARD:
 
             def on_progress(event: ProgressEvent) -> None:
@@ -482,7 +538,12 @@ class ResearchRunService:
         counters.claims = copy_prior_into(self.repository, prior.id, session.id)
         counters.sources = len(self.repository.list_sources(session.id))
         counters.stage = Stage.WRITING.value
-        steps.advance(_STAGE_INDEX[Stage.WRITING])
+        write_step = (
+            _deep_step_index(Stage.WRITING, 0)
+            if session.level is ResearchLevel.DEEP
+            else _STAGE_INDEX[Stage.WRITING]
+        )
+        steps.advance(write_step)
         finished = self.repository.set_result(session.id, prior.result_text)
         steps.finish()
         return finished

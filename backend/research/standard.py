@@ -139,6 +139,9 @@ class ProgressEvent:
     pages_read: int  # pages tried so far, including failed ones
     sources: int
     verified_claims: int
+    # Deep research only (0 elsewhere): the sub-question being worked on, 1-based, and how many.
+    sub_question: int = 0
+    sub_questions: int = 0
 
 
 ProgressCallback = Callable[[ProgressEvent], None]
@@ -186,6 +189,11 @@ class Caveat(StrEnum):
     NO_VERIFIED_CLAIMS = "no_verified_claims"
     SINGLE_DOMAIN = "single_domain"
     SAME_SITE_SOURCES = "same_site_sources"
+    # Deep research only.
+    PLAN_FALLBACK = "plan_fallback"
+    SUB_QUESTION_NO_CLAIMS = "sub_question_no_claims"
+    SUB_QUESTIONS_SKIPPED = "sub_questions_skipped"
+    SEARCH_BUDGET_EXHAUSTED = "search_budget_exhausted"
 
 
 CAVEAT_TEXT: dict[Caveat, str] = {
@@ -210,6 +218,14 @@ CAVEAT_TEXT: dict[Caveat, str] = {
     Caveat.SAME_SITE_SOURCES: (
         "Some listed sources are different pages of the same website, so they are not "
         "independent confirmation of each other."
+    ),
+    Caveat.PLAN_FALLBACK: "The question was split by a fixed rule because no usable plan was made.",
+    Caveat.SUB_QUESTION_NO_CLAIMS: "Some sub-questions have no verified claim.",
+    Caveat.SUB_QUESTIONS_SKIPPED: (
+        "Some sub-questions were not researched because a limit was reached."
+    ),
+    Caveat.SEARCH_BUDGET_EXHAUSTED: (
+        "The search stopped because the monthly search budget was used up."
     ),
 }
 

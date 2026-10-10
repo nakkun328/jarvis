@@ -213,6 +213,11 @@ export function normalizeSession(raw) {
         sources: integer(raw.progress.sources),
         claims: integer(raw.progress.claims),
       };
+      // Deep research only: which sub-question is being researched.
+      if (integer(raw.progress.sub_questions) > 0) {
+        session.progress.sub_question = integer(raw.progress.sub_question);
+        session.progress.sub_questions = integer(raw.progress.sub_questions);
+      }
     }
   }
   return session;

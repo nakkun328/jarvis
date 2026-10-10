@@ -219,10 +219,10 @@ async def test_a_model_error_is_a_fixed_synthesis_failure_without_its_text(
 
 
 @aio
-async def test_a_foreign_task_and_a_deep_session_are_failed_not_run(tmp_path: Path) -> None:
+async def test_a_foreign_task_and_an_extensive_session_are_failed_not_run(tmp_path: Path) -> None:
     h = Harness(tmp_path)
     foreign = h.queue.submit("something else entirely", ["one step"])
-    deep = h.repository.create_session(QUESTION, ResearchLevel.DEEP)
+    deep = h.repository.create_session(QUESTION, ResearchLevel.EXTENSIVE)
     h.queue.submit(goal_for(deep.id), ["one step"])
     first = await h.service.run_one()
     second = await h.service.run_one()
@@ -301,7 +301,7 @@ async def test_only_one_research_at_a_time(tmp_path: Path) -> None:
 
 def test_unavailable_levels_are_refused(tmp_path: Path) -> None:
     h = Harness(tmp_path)
-    for level in (ResearchLevel.DEEP, ResearchLevel.EXTENSIVE, ResearchLevel.MEMORY):
+    for level in (ResearchLevel.EXTENSIVE, ResearchLevel.MEMORY):
         with pytest.raises(ValueError):
             h.service.submit(QUESTION, level)
     assert h.repository.list_sessions() == []

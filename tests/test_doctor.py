@@ -76,7 +76,7 @@ def test_research_requirements(monkeypatch):
 def test_invalid_values_become_config_invalid(monkeypatch):
     for name, value in [
         ("JARVIS_ROUTER", "bogus"),
-        ("JARVIS_CHAT_RESEARCH_LEVEL", "deep"),
+        ("JARVIS_CHAT_RESEARCH_LEVEL", "extensive"),
         ("JARVIS_SEARCH_MONTHLY_LIMIT", "0"),
         ("JARVIS_LLM_PROVIDER", "nope"),
     ]:

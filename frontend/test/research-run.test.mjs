@@ -88,10 +88,11 @@ test("the notice states what is sent, where, and what is not", () => {
   assert.match(CITATION_NOTE, /簡易な目安/);
 });
 
-test("only quick and standard can be requested, each with a one line explanation", () => {
-  assert.deepEqual(LEVELS.map((level) => level.value), ["quick", "standard"]);
+test("quick, standard and deep can be requested, each with a one line explanation", () => {
+  assert.deepEqual(LEVELS.map((level) => level.value), ["quick", "standard", "deep"]);
   for (const level of LEVELS) assert.ok(levelHint(level.value).length > 10);
-  assert.equal(levelHint("deep"), "");
+  assert.match(levelHint("deep"), /調べ項目/);
+  assert.equal(levelHint("extensive"), "");
   assert.equal(levelHint("__proto__"), "");
 });
 
@@ -185,6 +186,23 @@ test("progress marks the stages before the current one as done", () => {
   assert.match(model.label, /ページ/);
   const values = Object.fromEntries(model.counters.map((counter) => [counter.key, counter.value]));
   assert.deepEqual(values, { queries: 2, pages: 3, sources: 2, claims: 0 });
+});
+
+test("deep progress shows which sub-question is being researched", () => {
+  const model = progressModel({
+    status: "running",
+    progress: { stage: "reading", round: 0, queries: 3, pages: 4, sources: 3, claims: 2, sub_question: 2, sub_questions: 4 },
+  });
+  assert.deepEqual(model.subQuestion, { index: 2, total: 4 });
+  assert.match(model.label, /調べ項目 2\/4/);
+  assert.equal(progressModel({ status: "running", progress: { stage: "reading" } }).subQuestion, null);
+  const session = normalizeSession(
+    detailBody({
+      status: "running",
+      progress: { stage: "reading", round: 0, queries: 1, pages: 0, sources: 0, claims: 0, sub_question: 1, sub_questions: 3 },
+    }),
+  );
+  assert.equal(session.progress.sub_questions, 3);
 });
 
 test("progress without live data shows the queued and preparing states", () => {

@@ -26,6 +26,11 @@ export const LEVELS = [
     label: "標準",
     hint: "検索は最大5回、読むページは最大8件。複数の出典を照らし合わせます。最大5分ほどかかります。",
   },
+  {
+    value: "deep",
+    label: "詳細",
+    hint: "質問を2〜5個の調べ項目に分け、検索は最大10回、読むページは最大20件。検索の利用量が多く、最大10分ほどかかります。",
+  },
 ];
 
 const OWN = (table, key) => (typeof key === "string" && Object.hasOwn(table, key) ? table[key] : null);
@@ -138,6 +143,11 @@ export function progressModel(session) {
   let label = "";
   if (status === "pending") label = "順番待ちです。まもなく始まります。";
   else if (status === "running") label = stageKey ? `${STAGES[stageIndex].label}…` : "準備しています…";
+  const total = count(live?.sub_questions);
+  const subQuestion = total > 0 ? { index: Math.min(count(live?.sub_question), total), total } : null;
+  if (status === "running" && subQuestion && subQuestion.index > 0) {
+    label += `（調べ項目 ${subQuestion.index}/${subQuestion.total}）`;
+  }
   else if (status === "waiting") label = "応答待ちです。";
   const stored = {
     queries: session?.queries?.length ?? 0,
@@ -161,6 +171,7 @@ export function progressModel(session) {
       state: index < stageIndex ? "done" : index === stageIndex ? "current" : "todo",
     })),
     round: count(live?.round),
+    subQuestion,
     counters: COUNTER_LABELS.map(([key, text]) => ({ key, label: text, value: numbers[key] })),
     cancellable: status === "pending" || status === "running",
   };
@@ -194,6 +205,13 @@ const CAVEAT_JA = {
   "The sources did not support any claim that could be verified.": NO_VERIFIED_JA,
   "All verified claims come from one website, so they are not independent.":
     "検証できた主張はすべて同じウェブサイトのものなので、独立した裏付けとは言えません。",
+  "The question was split by a fixed rule because no usable plan was made.":
+    "調査計画を作れなかったため、質問を固定の規則で分けました。",
+  "Some sub-questions have no verified claim.": "検証できた主張のない調べ項目があります。",
+  "Some sub-questions were not researched because a limit was reached.":
+    "上限に達したため、調べていない調べ項目があります。",
+  "The search stopped because the monthly search budget was used up.":
+    "今月の検索の上限に達したため、検索を止めました。",
   "Some listed sources are different pages of the same website, so they are not independent confirmation of each other.":
     "掲載した出典の一部は同じウェブサイトの別ページなので、互いに独立した裏付けとは言えません。",
 };
