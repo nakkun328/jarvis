@@ -195,3 +195,36 @@ def test_strip_unknown_urls_handles_punctuation_and_trailing_slash() -> None:
     assert strip_unknown_urls("(http://x.test/y), ok", allowed) == "([link removed]), ok"
     assert strip_unknown_urls("HTTP://X.TEST/y", allowed) == "[link removed]"
     assert strip_unknown_urls("no links here", allowed) == "no links here"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "提供された資料からは価格を確認できません。",
+        "公式の料金は記載されていません",
+        "価格に関する情報はありません。",
+        "The price cannot be confirmed from the provided materials.",
+        "Pricing is not specified.",
+        "The source does not mention the price.",
+        "Price is not available in the provided sources.",
+    ],
+)
+def test_statements_of_missing_information_are_recognised(text: str) -> None:
+    from backend.research.citations import is_absence_statement
+
+    assert is_absence_statement(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "入力トークンは100万あたり3ドルです。",
+        "The model is not available in the EU region.",
+        "The cache keeps entries for 60 seconds.",
+        "この機能は無料プランでは使えません。",
+    ],
+)
+def test_ordinary_statements_are_not_absence_statements(text: str) -> None:
+    from backend.research.citations import is_absence_statement
+
+    assert not is_absence_statement(text)

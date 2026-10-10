@@ -114,6 +114,47 @@ RULES: tuple[Rule, ...] = (
             "worldbank.org",
         ),
     ),
+    # Documentation hosts of well-known vendors and projects whose host is not already caught
+    # by the ``docs.``/``developer.``/``developers.`` name pattern (``docs_host`` below, which
+    # covers docs.anthropic.com, developers.openai.com, developer.mozilla.org, docs.python.org):
+    # exact host (or subdomain) match only, never a substring. The type says "published on a
+    # documentation host", not that the page is correct or current.
+    Rule(
+        "vendor_docs_host",
+        SourceType.DOCS,
+        host_suffixes=(
+            "ai.google.dev",
+            "platform.openai.com",
+            "console.groq.com",
+            "learn.microsoft.com",
+            "kubernetes.io",
+        ),
+    ),
+    # Benchmark, comparison and model-aggregator sites: a recognised kind of site, but not an
+    # institutional source. They stay ``unknown`` (lowest authority) with their own rule id so
+    # the decision is explained instead of "no_rule".
+    Rule(
+        "benchmark_site_host",
+        SourceType.UNKNOWN,
+        host_suffixes=(
+            "benchlm.ai",
+            "artificialanalysis.ai",
+            "lmarena.ai",
+            "llm-stats.com",
+            "livebench.ai",
+            "pricepertoken.com",
+        ),
+    ),
+    Rule(
+        "comparison_site_host",
+        SourceType.UNKNOWN,
+        host_suffixes=("docsbot.ai", "llmpricecheck.com", "vellum.ai"),
+    ),
+    Rule(
+        "aggregator_host",
+        SourceType.UNKNOWN,
+        host_suffixes=("openrouter.ai", "poe.com", "together.ai"),
+    ),
     # Question-and-answer sites and discussion hubs people read for experience reports.
     Rule(
         "community_host",
@@ -215,6 +256,39 @@ RULES: tuple[Rule, ...] = (
             "hashnode.dev",
         ),
         host_first_labels=("blog", "blogs"),
+    ),
+    # Vendor sites that mix marketing, blog and documentation: only a documentation-like path
+    # counts, so the authority is capped as for any path-based decision.
+    Rule(
+        "vendor_docs_path",
+        SourceType.DOCS,
+        path_only_on_hosts=(
+            "cloud.google.com",
+            "openai.com",
+            "anthropic.com",
+            "azure.microsoft.com",
+            "aws.amazon.com",
+            "mistral.ai",
+            "groq.com",
+            "cohere.com",
+            "x.ai",
+        ),
+        path_segments=(
+            "docs",
+            "doc",
+            "documentation",
+            "pricing",
+            "api",
+            "api-reference",
+            "reference",
+            "models",
+        ),
+    ),
+    Rule(
+        "github_docs_path",
+        SourceType.DOCS,
+        path_only_on_hosts=("github.com", "gitlab.com"),
+        path_segments=("docs", "doc", "documentation", "readme.md", "readme"),
     ),
     Rule(
         "community_path",
