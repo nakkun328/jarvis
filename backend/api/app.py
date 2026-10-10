@@ -28,6 +28,7 @@ from backend.auth.service import AuthService
 from backend.chat.casual import CasualService
 from backend.chat.memory_context import MemoryContext
 from backend.chat.persistence import SQLiteConversationStore
+from backend.chat.research_answer import RepositoryResearchReader, ResearchAnswer
 from backend.chat.research_start import RunServiceStarter
 from backend.chat.semantic_context import SemanticMemoryContext
 from backend.chat.service import ChatService
@@ -204,6 +205,16 @@ def create_app(
             research_starter=(
                 RunServiceStarter(run_service, ResearchLevel(settings.chat_research_level))
                 if router is not None and run_service is not None
+                else None
+            ),
+            # Opt-in: wait for the started research and answer from its verified claims.
+            research_answer=(
+                ResearchAnswer(
+                    RepositoryResearchReader(research_repository, run_service),
+                    timeout_seconds=settings.chat_research_answer_timeout_seconds,
+                    fallback_main=settings.chat_research_fallback_main,
+                )
+                if settings.chat_research_answer and router is not None and run_service is not None
                 else None
             ),
         )

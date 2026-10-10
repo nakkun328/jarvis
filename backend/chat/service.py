@@ -25,6 +25,7 @@ from backend.chat.context import (
 )
 from backend.chat.memory_context import MemoryContext, MemoryContextError, rendered_note_count
 from backend.chat.persistence import ConversationStorageError
+from backend.chat.research_answer import AnswerEnd, ResearchAnswer, UseMainAgent
 from backend.chat.research_start import ResearchStarter, StartKind, StartOutcome
 from backend.personality.prompt import SYSTEM_PROMPT, render_system_prompt
 from backend.personality.settings import PersonalityProfile
@@ -171,6 +172,7 @@ class ChatService:
         models: ModelRegistry | None = None,
         casual: CasualService | None = None,
         turn_observer: Callable[[UUID, str], None] | None = None,
+        research_answer: ResearchAnswer | None = None,
     ) -> None:
         # The default provider. Router and research use this one only; a per-request model
         # choice (see ``provider_for``) affects just the chat answer.
@@ -189,6 +191,10 @@ class ChatService:
         # chat memory). It must not block; whatever it raises is logged and ignored. It is never
         # given the reply, and it is not called for a turn that started a research.
         self.turn_observer = turn_observer
+        # Off by default (JARVIS_CHAT_RESEARCH_ANSWER). Only used when a research really started
+        # for the turn: the turn then waits for it and answers from its verified claims
+        # (docs/chat-research-answer.md) instead of the fixed "research started" reply.
+        self.research_answer = research_answer
         self.store = store or ConversationStore()
         self.memory_context = memory_context
         self._system_prompt = (
@@ -352,6 +358,7 @@ class ChatService:
         provider = self.provider_for(model_choice)
         self._log_choice(model_choice)
         started = perf_counter()
+        main_prefix = ""
         try:
             emit(ActivityEvent.received())
             async with self.store.open(conversation_id) as (current_id, conversation):
@@ -381,12 +388,31 @@ class ChatService:
                     emit(routed.selected)
                     if routed.research_session is not None:
                         emit(ActivityEvent.researching(ResearchStep.STARTED))
-                        reply = research_started_reply(routed.research_session)
-                        await self.store.remember(current_id, conversation, message, reply)
-                        emit(ActivityEvent.done())
-                        return ChatResult(
-                            current_id, reply, FIXED_REPLY_PROVIDER, FIXED_REPLY_MODEL
-                        )
+                        if self.research_answer is None:
+                            reply = research_started_reply(routed.research_session)
+                            await self.store.remember(current_id, conversation, message, reply)
+                            emit(ActivityEvent.done())
+                            return ChatResult(
+                                current_id, reply, FIXED_REPLY_PROVIDER, FIXED_REPLY_MODEL
+                            )
+                        end: AnswerEnd | None = None
+                        async for item in self.research_answer.run(
+                            routed.research_session,
+                            message,
+                            conversation.messages,
+                            provider,
+                            self._system_prompt,
+                        ):
+                            if isinstance(item, ActivityEvent):
+                                emit(item)
+                            elif isinstance(item, AnswerEnd):
+                                end = item
+                            elif isinstance(item, UseMainAgent):
+                                main_prefix = item.prefix
+                        if end is not None:
+                            await self.store.remember(current_id, conversation, message, end.reply)
+                            emit(ActivityEvent.done())
+                            return ChatResult(current_id, end.reply, end.provider, end.model)
                 request, notes = await self._request(conversation.messages, message)
                 if notes is not None:
                     emit(ActivityEvent.memory_lookup(notes))
@@ -394,10 +420,12 @@ class ChatService:
                 response = await provider.complete(request)
                 if not response.text.strip():
                     raise ProviderError("Provider returned no text")
-                await self.store.remember(current_id, conversation, message, response.text)
-                self._observe(current_id, message)
+                text = main_prefix + response.text
+                await self.store.remember(current_id, conversation, message, text)
+                if not main_prefix:
+                    self._observe(current_id, message)
                 emit(ActivityEvent.done())
-                return ChatResult(current_id, response.text, response.provider, response.model)
+                return ChatResult(current_id, text, response.provider, response.model)
         except Exception as exc:
             _log_failure(exc, started, streaming=False)
             emit(ActivityEvent.error(_error_code(exc)))
@@ -446,6 +474,7 @@ class ChatService:
         provider = self.provider_for(model_choice)
         self._log_choice(model_choice)
         started = perf_counter()
+        main_prefix = ""
         try:
             if activity:
                 yield ActivityEvent.received()
@@ -487,17 +516,48 @@ class ChatService:
                     if routed.research_session is not None:
                         if activity:
                             yield ActivityEvent.researching(ResearchStep.STARTED)
-                        reply = research_started_reply(routed.research_session)
-                        yield ChatDelta(reply)
-                        await self.store.remember(current_id, conversation, message, reply)
-                        if activity:
-                            yield ActivityEvent.done()
-                        yield ChatDone(
-                            conversation_id=current_id,
-                            provider=FIXED_REPLY_PROVIDER,
-                            model=FIXED_REPLY_MODEL,
+                        if self.research_answer is None:
+                            reply = research_started_reply(routed.research_session)
+                            yield ChatDelta(reply)
+                            await self.store.remember(current_id, conversation, message, reply)
+                            if activity:
+                                yield ActivityEvent.done()
+                            yield ChatDone(
+                                conversation_id=current_id,
+                                provider=FIXED_REPLY_PROVIDER,
+                                model=FIXED_REPLY_MODEL,
+                            )
+                            return
+                        answers = self.research_answer.run(
+                            routed.research_session,
+                            message,
+                            conversation.messages,
+                            provider,
+                            self._system_prompt,
                         )
-                        return
+                        end: AnswerEnd | None = None
+                        async with AsyncExitStack() as resources:
+                            resources.push_async_callback(answers.aclose)
+                            async for item in answers:
+                                if isinstance(item, ActivityEvent):
+                                    if activity:
+                                        yield item
+                                elif isinstance(item, AnswerEnd):
+                                    end = item
+                                elif isinstance(item, UseMainAgent):
+                                    main_prefix = item.prefix
+                                    chunks.append(item.prefix)
+                                    yield ChatDelta(item.prefix)
+                                else:
+                                    yield ChatDelta(item)
+                        if end is not None:
+                            await self.store.remember(current_id, conversation, message, end.reply)
+                            if activity:
+                                yield ActivityEvent.done()
+                            yield ChatDone(
+                                conversation_id=current_id, provider=end.provider, model=end.model
+                            )
+                            return
                 request, notes = await self._request(conversation.messages, message)
                 if activity:
                     if notes is not None:
@@ -513,10 +573,11 @@ class ChatService:
                             chunks.append(delta)
                             yield ChatDelta(delta)
                 reply = "".join(chunks)
-                if not reply.strip():
+                if not reply[len(main_prefix) :].strip():
                     raise ProviderError("Provider returned no text")
                 await self.store.remember(current_id, conversation, message, reply)
-                self._observe(current_id, message)
+                if not main_prefix:
+                    self._observe(current_id, message)
                 if activity:
                     yield ActivityEvent.done()
                 yield ChatDone(

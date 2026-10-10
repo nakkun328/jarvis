@@ -604,3 +604,30 @@ test("a casual decision that fell back says why and runs on the main agent", () 
     { stage: "route_selected", route: "main", decided: "casual" },
   );
 });
+
+test("a research-backed turn shows each research step, then generating, then done", () => {
+  let state = feed(
+    begin(),
+    { stage: "received" },
+    { stage: "routing" },
+    { stage: "route_selected", route: "research", decided: "research", fallback: false },
+    { stage: "researching", step: "started" },
+  );
+  assert.equal(viewModel(state).caption, "ROUTED: RESEARCH");
+  const captions = [];
+  for (const step of ["planning", "searching", "reading", "verifying", "writing"]) {
+    state = feed(state, { stage: "researching", step });
+    captions.push(viewModel(state).caption);
+  }
+  assert.deepEqual(captions, [
+    "RESEARCHING · PLANNING",
+    "RESEARCHING · SEARCHING",
+    "RESEARCHING · READING",
+    "RESEARCHING · VERIFYING",
+    "RESEARCHING · WRITING",
+  ]);
+  state = feed(state, { stage: "generating" });
+  assert.equal(viewModel(state).caption, "SYNTHESIZING RESPONSE");
+  state = feed(state, { stage: "done" });
+  assert.equal(viewModel(state).caption, "RESPONSE COMPLETE");
+});
