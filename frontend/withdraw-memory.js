@@ -1,7 +1,7 @@
-// 「自動承認の撤回」: retires one automatically approved research memory. Only a person's click on
+// 「自動承認の撤回」: retires one automatically approved research or chat memory. Only a person's click on
 // the Memory detail screen calls withdrawMemory. The POST sends the fixed confirmation header (a
 // cross-site page cannot add it) and no body; the server refuses any note that a person approved
-// or that is not research-origin. Nothing is deleted. Messages are fixed Japanese strings.
+// or that is neither research- nor chat-origin. Nothing is deleted. Messages are fixed Japanese strings.
 import { sessionEnded } from "./session.js";
 
 export const CONFIRM_HEADER = "X-Jarvis-Confirm";
@@ -15,7 +15,7 @@ const FAILURES = {
   unauthorized: "ログインの有効期限が切れました。",
   forbidden: "この操作は許可されませんでした。",
   not_found: "この記憶は見つかりませんでした。",
-  refused: "この記憶は撤回できません(自動承認された調査由来の記憶だけが対象です)。",
+  refused: "この記憶は撤回できません(自動承認された調査・会話由来の記憶だけが対象です)。",
   unavailable: "記憶の保存先を読み取れません。しばらくしてからもう一度お試しください。",
   network: "サーバーに接続できません。",
   error: "サーバーでエラーが発生しました。",

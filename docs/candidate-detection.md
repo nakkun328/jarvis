@@ -1,6 +1,8 @@
 # General Memory candidate detection (JAR27, deterministic slice, Draft)
 
-`GeneralCandidateExtractor` (`backend/memory/candidate_detection.py`) is a fixed-pattern, offline extractor behind the existing `CandidateExtractor` protocol. It needs no network, model or key. Plug it in with `MemoryConsolidator(..., extractor=GeneralCandidateExtractor())`. It is not wired into chat or any entrypoint yet.
+`GeneralCandidateExtractor` (`backend/memory/candidate_detection.py`) is a fixed-pattern, offline extractor behind the existing `CandidateExtractor` protocol. It needs no network, model or key. Plug it in with `MemoryConsolidator(..., extractor=GeneralCandidateExtractor())`. It is not wired into chat or any entrypoint.
+
+> **Owner-approved exception (2026-10-10).** The "no automatic extraction from chat" stance above is reversed, opt-in and default off, for a separate LLM-based path described in [chat-auto-memory](chat-auto-memory.md). That path does not use this extractor; it reuses only its credential patterns. This deterministic extractor is unchanged and still stages nothing by itself.
 
 It only **proposes** `ExtractedCandidate` values. Staging, exact-duplicate detection, topic conflicts, review, approval, vault writes and index refresh remain in [consolidation](consolidation.md) and are unchanged. Every result lands as `pending` (or `conflict`); nothing is approved, published, superseded or indexed. This is a miss-prone pattern matcher for Japanese and English; a hit is a review cue, not a verified fact. An LLM-assisted extractor is a separate decision (it would send conversation text to a provider).
 

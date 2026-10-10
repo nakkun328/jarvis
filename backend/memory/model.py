@@ -22,6 +22,8 @@ class MemoryOrigin(StrEnum):
     TOOL_OBSERVATION = "tool_observation"
     #: A cited claim from a stored research session, staged only by a person pressing a button.
     RESEARCH = "research"
+    #: A fact about the owner extracted from their own chat message (docs/chat-auto-memory.md).
+    CHAT = "chat"
 
 
 @dataclass(frozen=True)

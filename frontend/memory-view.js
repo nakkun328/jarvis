@@ -24,6 +24,7 @@ const ORIGIN_INFO = {
   ai_inference: { label: "AIの推測", glyph: "◇", tone: "waiting" },
   tool_observation: { label: "ツールの観測", glyph: "▣", tone: "running" },
   research: { label: "調査の引用", glyph: "▤", tone: "running" },
+  chat: { label: "会話から自動抽出", glyph: "◐", tone: "waiting" },
 };
 
 const CATEGORY_LABELS = {
@@ -103,15 +104,26 @@ export function shortRevision(value) {
 }
 
 export const AUTO_APPROVED_LABEL = "自動承認(調査)";
+export const AUTO_APPROVED_CHAT_LABEL = "自動承認(会話)";
 
-// For an automatically approved research note: the label plus the source URL and retrieval date
-// that the staged content records on its 出典 / 取得日 lines. Null for every other note.
+// For an automatically approved note: the label plus the source and date that the staged content
+// records. A research note has 出典 (URL) / 取得日 lines; a chat note has the owner's verbatim
+// 引用 and a 日付 line (sourceLabel / dateLabel name them). Null for every other note.
 export function autoApprovalInfo(memory) {
   if (memory.auto_approved !== true) return null;
   const line = (term) => {
     const found = memory.content.match(new RegExp(`^${term}: (.+)$`, "mu"));
     return found ? found[1].trim() : null;
   };
+  if (memory.origin === "chat") {
+    return {
+      label: AUTO_APPROVED_CHAT_LABEL,
+      source: line("引用"),
+      date: line("日付"),
+      sourceLabel: "引用",
+      dateLabel: "日付",
+    };
+  }
   return { label: AUTO_APPROVED_LABEL, source: line("出典"), date: line("取得日") };
 }
 

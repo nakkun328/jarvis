@@ -5,6 +5,8 @@ import json
 
 from backend.memory.auto_approval import (
     CONTEXT_LABEL_AUTO,
+    CONTEXT_LABEL_CHAT,
+    CONTEXT_LABEL_CHAT_AUTO,
     CONTEXT_LABEL_RESEARCH,
     is_auto_approved,
 )
@@ -48,14 +50,19 @@ class MemoryContext:
         return self._render_result(result)
 
     def _research_label(self, record: MemoryRecord) -> str:
-        """A fixed label in front of research-derived text, so a model reads it as web-derived."""
-        if record.origin is not MemoryOrigin.RESEARCH:
+        """A fixed label in front of research- or chat-derived text (web text, or a fact a system
+        extracted from the owner's own message), so a model reads it as lower-trust."""
+        labels = {
+            MemoryOrigin.RESEARCH: (CONTEXT_LABEL_AUTO, CONTEXT_LABEL_RESEARCH),
+            MemoryOrigin.CHAT: (CONTEXT_LABEL_CHAT_AUTO, CONTEXT_LABEL_CHAT),
+        }.get(record.origin)
+        if labels is None:
             return ""
         try:
-            auto = is_auto_approved(self.retriever.repository, record.id)
+            auto = is_auto_approved(self.retriever.repository, record.id, record.origin)
         except (MemoryRepositoryError, ValueError) as exc:
             raise MemoryContextError("Memory approval history unavailable") from exc
-        return (CONTEXT_LABEL_AUTO if auto else CONTEXT_LABEL_RESEARCH) + " "
+        return (labels[0] if auto else labels[1]) + " "
 
     def _render_result(self, result: RetrievalResult) -> str | None:
         if result.issues:

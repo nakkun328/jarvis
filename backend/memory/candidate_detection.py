@@ -290,6 +290,11 @@ def _looks_secret(text: str) -> bool:
     return any(pattern.search(text) for pattern in _SECRET_PATTERNS)
 
 
+def looks_credential(text: str) -> bool:
+    """Public name for the same heuristic, reused by the chat auto-memory sensitivity floor."""
+    return _looks_secret(text)
+
+
 def _digest(value: str) -> str:
     folded = " ".join(unicodedata.normalize("NFKC", value).casefold().split())
     return hashlib.sha256(folded.encode()).hexdigest()[:10]

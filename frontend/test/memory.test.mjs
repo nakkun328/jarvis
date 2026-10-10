@@ -394,3 +394,8 @@ test("the debouncer works with the real timers (they must not be called as metho
   await new Promise((resolve) => setTimeout(resolve, 40));
   assert.deepEqual(ran, ["b"]);
 });
+
+test("chat-origin memory has its own origin label", () => {
+  assert.equal(originInfo("chat").label, "会話から自動抽出");
+  assert.notEqual(originInfo("chat").key, "other");
+});

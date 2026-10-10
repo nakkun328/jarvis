@@ -32,6 +32,12 @@ The `stale` flag uses the SQLite record's last reviewed `updated_at` and a confi
 
 `MemoryConsolidator` stages explicit conversation statements and typed Self Memory events for review. It detects exact duplicates and topic conflicts, then publishes only after a reviewer approves a candidate. An optional index refresher updates the derived vector cache. With the reviewed lifecycle now on main, corrections and retirements can remove old IDs through this pending index adapter. It does not silently infer or overwrite facts. See [consolidation](consolidation.md). A deterministic general candidate extractor for user/project/self statements (Japanese and English, not yet wired into any entrypoint) is described in [candidate detection](candidate-detection.md). The [local review CLI](memory-review.md) is on main; its direct review operations require explicit derived-index refresh or cleanup afterwards.
 
+## Owner-approved exception: automatic memory from chat
+
+> **A second deliberate exception**, recorded by the owner on 2026-10-10 ("調べたり喋ってたら勝手に記憶が出来上がっていく"). It reverses, for chat, the earlier stance that conversation text is never turned into memory without human review. Both switches default **off**. Full description, filters and privacy notes: [chat-auto-memory.md](chat-auto-memory.md).
+
+With `JARVIS_CHAT_MEMORY_AUTO=1`, after a chat turn has been answered, the default chat provider extracts up to three short facts about the owner from the owner's own message; each is verified deterministically (verbatim quote, sensitive-data and instruction filters, dedupe, caps) and staged as a `pending` candidate of origin `chat` (tag `chat-auto`). With `JARVIS_CHAT_MEMORY_AUTO_APPROVE=1` (requires the vault) they are approved at once through `MemoryWriter.approve` with the audit actor `auto:chat`; the `/memory` screen labels them 「自動承認(会話)」 and the model-facing context prefixes them `(会話由来・自動承認)`. The human-only withdrawal below also works for them. The `chat-auto` candidates and the `auto:chat` approvals are the only chat-derived memory; `GeneralCandidateExtractor` and `ExplicitExtractor` stay unwired as before.
+
 ## Owner-approved exception: research auto-approval
 
 > **This is a deliberate exception to the contract above ("only reviewed, currently approved notes
@@ -39,8 +45,9 @@ The `stale` flag uses the SQLite record's last reviewed `updated_at` and a confi
 
 **What.** Memory candidates whose origin is `research` (staged from a completed research session,
 see [research-to-memory.md](research-to-memory.md)) can be approved by the system instead of by a
-person, one memory per verified claim. Candidates from chat, candidate detection, consolidation or
-anything else are not touched and keep the human review described above.
+person, one memory per verified claim. Candidates from candidate detection, consolidation or
+anything else are not touched and keep the human review described above (chat candidates have
+their own, separate switch, see above).
 
 **Why.** The owner prefers that researched facts become usable memory without a review step.
 
@@ -79,7 +86,8 @@ The `/memory` screen shows the label 「自動承認(調査)」 with the source 
 model or agent path). It uses the existing retirement transition: the record becomes `retired`
 (never retrieved again), with a lifecycle event by actor `web:owner`. Nothing is deleted: the vault
 note stays on disk (as for every retirement) and the approval history stays. Only auto-approved
-research notes can be withdrawn this way; anything else is refused. If the vault note was edited or
+research or chat notes (approved by their own origin's automatic actor) can be withdrawn this way;
+anything else is refused. If the vault note was edited or
 is unreadable the withdrawal still succeeds against the revision recorded at approval. A derived
 vector index is not refreshed by this action; retrieval re-checks SQLite status, so a retired note
 is never returned.
