@@ -12,7 +12,7 @@ const NARROW_QUERY = "(max-width: 600px)";
 // failed turn stays on screen until the next message.
 export const DONE_RESET_MS = 6000;
 // How long the MEMORY node stays lit after a memory was made.
-export const MEMORY_LIT_MS = 6000;
+export const MEMORY_LIT_MS = 30000;
 
 const PANEL_LABEL = "JARVIS の動作状況";
 const HIDE_LABEL = "図を隠す";
