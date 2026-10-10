@@ -332,10 +332,18 @@ async function ensureMemoryState(id) {
   if (state.memory.id === id) return;
   state.memory = { id, phase: "loading", count: 0, omitted: 0, created: 0, errorKind: null };
   const result = await loadCandidates(id);
+  const flags = result.kind === "ok" ? { autoApproval: result.autoApproval } : {};
   if (result.kind === "ok" && result.count > 0) {
-    setMemory(id, { phase: "added", count: result.count, omitted: result.omitted, created: 0 });
+    setMemory(id, {
+      ...flags,
+      phase: "added",
+      count: result.count,
+      omitted: result.omitted,
+      created: 0,
+      approved: result.approved,
+    });
   } else {
-    setMemory(id, { phase: "idle" });
+    setMemory(id, { ...flags, phase: "idle" });
   }
 }
 
@@ -348,8 +356,10 @@ async function stageMemory(id) {
       count: result.count,
       omitted: result.omitted,
       created: result.created,
+      approved: result.approved,
+      autoApproval: result.autoApproval,
     });
-    announce.textContent = "記憶の候補に追加しました（未承認）。";
+    announce.textContent = "記憶の候補を作成しました。";
   } else {
     setMemory(id, { phase: "error", errorKind: result.kind });
   }
@@ -399,7 +409,7 @@ function renderDetail() {
     parts.push(section("結果", el("p", "placeholder", "まだ結果は保存されていません。")));
   }
 
-  const queries = el("ol", "queries");
+  const queries = el("ul", "queries");
   for (const query of model.queries) {
     const li = el("li", "query");
     li.append(el("span", "item-number", `${query.number}.`), el("span", "query-text", query.text));

@@ -13,7 +13,7 @@ Quote offsets are character offsets into the in-memory extracted page text of th
 
 import re
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID
@@ -38,6 +38,49 @@ _WORD = re.compile(r"[^\W\d_]+")
 _NEGATIONS = frozenset({"not", "no", "never", "cannot", "without", "ない", "ません", "不"})
 
 
+# A "claim" that only says information is missing is not a finding. Japanese patterns match
+# the end of the statement; English patterns that could also state a real fact ("not
+# available in region X") need a word about the supplied material in the same statement.
+_ABSENCE_JA = re.compile(
+    r"(?:確認でき(?:ません|ない|ず)|記載(?:され)?(?:て)?(?:い)?(?:ません|ない|がありません|はありません)"
+    r"|明記され(?:て)?(?:い)?(?:ません|ない)|言及され(?:て)?(?:い)?(?:ません|ない)"
+    r"|示され(?:て)?(?:い)?(?:ません|ない)|見つかりません|見当たりません|含まれ(?:て)?(?:い)?(?:ません|ない)"
+    r"|情報(?:は|が)(?:ありません|ない)|不明(?:です|である|だ)?|特定でき(?:ません|ない))"
+    r"[。.!！\s]*$"
+)
+_ABSENCE_EN_STRONG = re.compile(
+    r"\b(?:cannot|can ?not|could not|couldn't|unable to|can't)\s+(?:be\s+)?"
+    r"(?:confirm|confirmed|verify|verified|determine|determined|find|found|identify|identified)\b"
+    r"|\bnot\s+(?:been\s+)?(?:mentioned|stated|specified|disclosed)\b"
+)
+_ABSENCE_EN_WEAK = re.compile(
+    r"\bnot (?:provided|available|listed|given|included|found|clear)\b|\bunclear\b"
+    r"|\bno (?:information|data|details|mention)\b"
+    r"|\bdoes not (?:mention|state|specify|say|provide)\b"
+)
+_MATERIAL_EN = re.compile(
+    r"\b(?:provided|given|supplied|available|supplied)\s+(?:materials?|sources?|documents?|"
+    r"texts?|pages?|information|content)\b|\b(?:sources?|materials?|documents?|pages?|texts?|"
+    r"excerpts?|context)\b"
+)
+
+
+def is_absence_statement(text: str) -> bool:
+    """True when the statement only says that information is missing or cannot be confirmed.
+
+    Deterministic surface patterns in Japanese and English; the text is NFKC-normalised first.
+    Anything else, including a negative statement of fact, is not an absence statement.
+    """
+    folded = unicodedata.normalize("NFKC", text).casefold().strip()
+    if not folded:
+        return False
+    if _ABSENCE_JA.search(folded):
+        return True
+    if _ABSENCE_EN_STRONG.search(folded):
+        return True
+    return bool(_ABSENCE_EN_WEAK.search(folded) and _MATERIAL_EN.search(folded))
+
+
 class DropReason(StrEnum):
     """Fixed codes for claims that were not kept."""
 
@@ -50,6 +93,7 @@ class DropReason(StrEnum):
     DUPLICATE = "duplicate"
     OVER_LIMIT = "over_limit"
     NEAR_DUPLICATE = "near_duplicate"
+    ABSENCE_STATEMENT = "absence_statement"
 
 
 @dataclass(frozen=True)
@@ -193,6 +237,8 @@ class CitationManager:
         evidence = self._evidence.get(claim.source)
         if evidence is None:
             return DropReason.UNKNOWN_SOURCE
+        if is_absence_statement(text):
+            return DropReason.ABSENCE_STATEMENT
         quote = normalize_space(claim.quote)
         if len(quote) < MIN_QUOTE_CHARS:
             return DropReason.QUOTE_TOO_SHORT
@@ -227,12 +273,22 @@ class CitationManager:
             )
         return tuple(stored)
 
-    def render(self, header: str, claims: Sequence[VerifiedClaim], *, dropped: int = 0) -> str:
+    def render(
+        self,
+        header: str,
+        claims: Sequence[VerifiedClaim],
+        *,
+        dropped: int = 0,
+        also_cited: Iterable[int] = (),
+    ) -> str:
         """Final text: a fixed header, the verified claims, and a source list from stored records.
 
         Only verified claims are shown. ``header`` must be fixed text of ours, never the model's
         free-text answer (callers pass a constant); URLs in it are still checked.
+        ``also_cited`` are source numbers that other parts of the final text refer to (for
+        example open conflicts); they are listed under ``Sources:`` too, with the same numbers.
         """
+        extra = {i for i in also_cited if i in self._evidence}
         allowed = {
             url
             for item in self._evidence.values()
@@ -245,11 +301,12 @@ class CitationManager:
                 f"- {strip_unknown_urls(claim.text, allowed)} [{claim.source_index}]"
                 for claim in claims
             ]
-            lines += ["", "Sources:"]
-            for index in sorted({claim.source_index for claim in claims}):
-                lines.append(_source_line(index, self._evidence[index].source))
         else:
             lines += ["", "No claim could be verified against a source."]
+        listed = sorted({claim.source_index for claim in claims} | extra)
+        if listed:
+            lines += ["", "Sources:"]
+            lines += [_source_line(index, self._evidence[index].source) for index in listed]
         if dropped:
             lines += [
                 "",

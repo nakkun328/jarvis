@@ -46,6 +46,8 @@ def _body(result: CandidateSet, auto: bool = False) -> dict[str, Any]:
         "eligible": result.eligible,
         "created": result.created,
         "omitted": result.omitted,
+        # Whether the owner-approved automatic approval is on (a boolean, nothing else).
+        "auto_approval": auto,
         "candidates": [memory_dto(stored) for stored in result.candidates],
     }
     if auto:

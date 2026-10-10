@@ -141,3 +141,124 @@ def test_deterministic() -> None:
 def test_very_long_path_is_handled() -> None:
     url = "https://example.com/" + "/".join(["a"] * 600)
     assert classify_source(url) is SourceType.UNKNOWN
+
+
+@pytest.mark.parametrize(
+    ("url", "source_type", "rule", "basis"),
+    [
+        ("https://ai.google.dev/pricing", SourceType.DOCS, "vendor_docs_host", Basis.HOST),
+        (
+            "https://platform.openai.com/docs/models",
+            SourceType.DOCS,
+            "vendor_docs_host",
+            Basis.HOST,
+        ),
+        ("https://console.groq.com/docs/models", SourceType.DOCS, "vendor_docs_host", Basis.HOST),
+        (
+            "https://learn.microsoft.com/en-us/azure/x",
+            SourceType.DOCS,
+            "vendor_docs_host",
+            Basis.HOST,
+        ),
+        ("https://developers.openai.com/api/docs", SourceType.DOCS, "docs_host", Basis.HOST),
+        (
+            "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+            SourceType.DOCS,
+            "vendor_docs_path",
+            Basis.PATH,
+        ),
+        ("https://cloud.google.com/blog/products/x", SourceType.BLOG, "blog_path", Basis.PATH),
+        ("https://cloud.google.com/about", SourceType.UNKNOWN, "no_rule", Basis.DEFAULT),
+        (
+            "https://github.com/org/repo/blob/main/README.md",
+            SourceType.DOCS,
+            "github_docs_path",
+            Basis.PATH,
+        ),
+        (
+            "https://github.com/org/repo/issues/3",
+            SourceType.COMMUNITY,
+            "community_path",
+            Basis.PATH,
+        ),
+        (
+            "https://docsbot.ai/models/compare",
+            SourceType.UNKNOWN,
+            "comparison_site_host",
+            Basis.HOST,
+        ),
+        ("https://benchlm.ai/models", SourceType.UNKNOWN, "benchmark_site_host", Basis.HOST),
+        ("https://openrouter.ai/models", SourceType.UNKNOWN, "aggregator_host", Basis.HOST),
+    ],
+)
+def test_vendor_docs_and_comparison_sites(url: str, source_type, rule: str, basis) -> None:
+    result = classify_source_detailed(url)
+    assert (result.source_type, result.rule_id, result.basis) == (source_type, rule, basis)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://ai.google.dev.evil.example/pricing",
+        "https://evilai.google.dev.example/",
+        "https://notopenrouter.ai/models",
+        "https://openrouter.ai.evil.example/models",
+        "https://example.com/?u=platform.openai.com",
+        "https://example.com/cloud.google.com/pricing",
+        "https://cloud.google.com.evil.example/pricing",
+        "https://fake-cloud.google.com.example/docs",
+    ],
+)
+def test_vendor_and_site_rules_are_not_substring_matches(url: str) -> None:
+    assert classify_source_detailed(url).rule_id in {"no_rule", "docs_path"}
+    assert classify_source(url) in {SourceType.UNKNOWN, SourceType.DOCS}
+
+
+def test_comparison_sites_do_not_gain_authority() -> None:
+    from backend.research.evaluation import authority_rating
+
+    result = classify_source_detailed("https://docsbot.ai/x")
+    authority, _ = authority_rating(result.source_type, result.basis)
+    assert authority == authority_rating(SourceType.UNKNOWN)[0]
+    # a path-based vendor docs decision stays capped below a host-table one
+    path = classify_source_detailed("https://cloud.google.com/pricing")
+    assert authority_rating(path.source_type, path.basis)[0] < authority_rating(SourceType.DOCS)[0]
+
+
+# ----- subject_official_host -----
+
+
+@pytest.mark.parametrize(
+    ("url", "kind", "rule"),
+    [
+        ("https://www.sqlite.org/wal.html", SourceType.DOCS, "subject_official_host"),
+        ("https://sqlite.org/howtocorrupt.html", SourceType.DOCS, "subject_official_host"),
+        ("https://www.postgresql.org/about/", SourceType.DOCS, "subject_official_host"),
+        ("https://sqlite.org/forum/forumpost/abc", SourceType.FORUM, "forum_path"),
+        ("https://sqlite.org/blog/post", SourceType.BLOG, "blog_path"),
+        ("https://blog.sqlite.org/x", SourceType.BLOG, "blog_host"),
+        ("https://sqlite.org/docs/index", SourceType.DOCS, "docs_path"),
+        # not a whole-label match of the registrable domain
+        ("https://sqlite.org.evil.example/wal.html", SourceType.UNKNOWN, "no_rule"),
+        ("https://sqlite.evil.com/wal.html", SourceType.UNKNOWN, "no_rule"),
+        ("https://mysqlite.org/wal.html", SourceType.UNKNOWN, "no_rule"),
+        ("https://sqlite-docs.org/wal.html", SourceType.UNKNOWN, "no_rule"),
+        ("https://evil.example/sqlite.org/wal.html", SourceType.UNKNOWN, "no_rule"),
+        # anyone can publish on these, whatever the question says
+        ("https://github.com/someone/repo", SourceType.UNKNOWN, "no_rule"),
+    ],
+)
+def test_subject_official_host(url: str, kind: SourceType, rule: str) -> None:
+    result = classify_source_detailed(
+        url, subject_terms={"sqlite", "postgresql", "wal", "github"}
+    )
+    assert (result.source_type, result.rule_id) == (kind, rule)
+
+
+def test_subject_official_needs_the_terms_and_keeps_existing_callers_working() -> None:
+    assert classify_source_detailed("https://www.sqlite.org/wal.html").rule_id == "no_rule"
+    empty = classify_source_detailed("https://www.sqlite.org/wal.html", subject_terms=())
+    assert empty.rule_id == "no_rule"
+    # case-insensitive and plural-insensitive on the term side
+    folded = classify_source_detailed("https://sqlite.org/a.html", subject_terms={"SQLite"})
+    assert folded.rule_id == "subject_official_host"

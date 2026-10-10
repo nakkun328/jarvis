@@ -87,6 +87,7 @@ class RatingReason(StrEnum):
     AUTHORITY_BY_TYPE = "authority_by_type"
     AUTHORITY_CAPPED_WEAK_BASIS = "authority_capped_weak_basis"
     AUTHORITY_UNCLASSIFIED = "authority_unclassified"
+    AUTHORITY_SUBJECT_OFFICIAL = "authority_subject_official"
     FRESHNESS_DECAY = "freshness_decay"
     FRESHNESS_UNKNOWN_DATE = "freshness_unknown_date"
     FRESHNESS_FUTURE_DATE = "freshness_future_date"
@@ -112,6 +113,7 @@ RATING_REASONS: Mapping[RatingName, frozenset[RatingReason]] = MappingProxyType(
                 RatingReason.AUTHORITY_BY_TYPE,
                 RatingReason.AUTHORITY_CAPPED_WEAK_BASIS,
                 RatingReason.AUTHORITY_UNCLASSIFIED,
+                RatingReason.AUTHORITY_SUBJECT_OFFICIAL,
             }
         ),
         RatingName.FRESHNESS: frozenset(

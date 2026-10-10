@@ -122,6 +122,9 @@ def test_switches_off_leave_candidates_pending_and_the_response_unchanged(tmp_pa
     body = env.stage(env.session()).json()
     assert [c["status"] for c in body["candidates"]] == ["pending"]
     assert "auto_approved" not in body
+    assert body["auto_approval"] is False
+    listed = env.client.get(f"/api/research/sessions/{env.session()}/memory-candidates")
+    assert listed.json()["auto_approval"] is False
     assert env.notes() == []
     (row,) = env.client.get("/api/memory/candidates").json()["candidates"]
     assert "auto_approved" not in row
@@ -135,7 +138,7 @@ def test_safe_claim_is_approved_through_the_writer_once_and_idempotently(env: En
     first = env.stage(session_id)
     assert first.status_code == 201
     body = first.json()
-    assert body["auto_approved"] == 1
+    assert body["auto_approved"] == 1 and body["auto_approval"] is True
     (candidate,) = body["candidates"]
     assert candidate["status"] == "approved" and candidate["revision"]
     memory_id = UUID(candidate["id"])
