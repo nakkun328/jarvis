@@ -71,9 +71,14 @@ Open `http://127.0.0.1:8000/` for the chat UI. The `/health/live` and `/health/r
 node --test frontend/test/*.test.mjs
 ```
 
+## Use from other devices
+
+To reach JARVIS from a phone or another computer, turn on the single-owner login and deliver it over HTTPS with Tailscale Serve while JARVIS stays on loopback. Step by step: [remote access](docs/remote-access.md); threat model and settings: [login](docs/auth.md).
+
 ## Project documents
 
 - [Architecture](docs/architecture.md)
+- [Use from other devices (Tailscale)](docs/remote-access.md)
 - [Chat API and context](docs/chat.md)
 - [Personality settings](docs/personality.md)
 - [Memory](docs/memory.md)
