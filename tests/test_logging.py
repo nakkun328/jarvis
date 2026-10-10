@@ -620,3 +620,12 @@ def test_request_id_reaches_sync_async_and_streaming_handlers(
     assert by_event["in.sync"]["request_id"] == ids["/sync"]
     assert by_event["in.async"]["request_id"] == ids["/async"]
     assert by_event["in.stream"]["request_id"] == ids["/body"]
+
+
+def test_http_client_request_lines_are_silenced() -> None:
+    """HTTP client libraries log full request URLs at INFO; those lines must never be emitted."""
+    from backend.core.logging import configure_logging
+
+    configure_logging("INFO")
+    for name in ("httpx", "httpx2", "httpcore", "openai", "urllib3"):
+        assert not logging.getLogger(name).isEnabledFor(logging.INFO)
