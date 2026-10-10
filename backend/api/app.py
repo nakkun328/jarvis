@@ -17,6 +17,7 @@ from backend.api.memory import create_memory_router
 from backend.api.models import create_models_router
 from backend.api.request_logging import RequestLoggingMiddleware
 from backend.api.research import create_research_router
+from backend.api.research_memory import create_research_memory_router
 from backend.api.tasks import create_tasks_router
 from backend.auth.middleware import AuthMiddleware
 from backend.auth.routes import create_auth_router
@@ -41,6 +42,7 @@ from backend.personality.settings import PersonalityError, load_personality
 from backend.providers.base import LLMProvider
 from backend.providers.choices import ModelRegistry
 from backend.providers.factory import create_provider
+from backend.research.memory_candidates import ResearchMemoryCandidates
 from backend.research.models import ResearchLevel
 from backend.research.repository import ResearchRepository
 from backend.research.run_control import (
@@ -214,6 +216,12 @@ def create_app(
             research_repository,
             run_service,
             unavailable_reason=research_reason,
+            trusted_proxy=settings.trusted_proxy,
+        )
+    )
+    app.include_router(
+        create_research_memory_router(
+            ResearchMemoryCandidates(research_repository, MemoryRepository(database)),
             trusted_proxy=settings.trusted_proxy,
         )
     )

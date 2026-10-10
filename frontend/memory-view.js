@@ -23,6 +23,7 @@ const ORIGIN_INFO = {
   user_explicit: { label: "ユーザー本人の発言", glyph: "●", tone: "completed" },
   ai_inference: { label: "AIの推測", glyph: "◇", tone: "waiting" },
   tool_observation: { label: "ツールの観測", glyph: "▣", tone: "running" },
+  research: { label: "調査の引用", glyph: "▤", tone: "running" },
 };
 
 const CATEGORY_LABELS = {
