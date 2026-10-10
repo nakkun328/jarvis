@@ -73,6 +73,7 @@ export function normalizeMemory(raw) {
     project: text(raw.project),
     revision: text(raw.revision),
     supersedes_id: text(raw.supersedes_id),
+    auto_approved: raw.auto_approved === true,
     created_at: text(raw.created_at),
     updated_at: text(raw.updated_at),
   };
@@ -101,6 +102,19 @@ export function shortRevision(value) {
   return typeof value === "string" && /^[0-9a-f]{64}$/.test(value) ? value.slice(0, 12) : null;
 }
 
+export const AUTO_APPROVED_LABEL = "自動承認(調査)";
+
+// For an automatically approved research note: the label plus the source URL and retrieval date
+// that the staged content records on its 出典 / 取得日 lines. Null for every other note.
+export function autoApprovalInfo(memory) {
+  if (memory.auto_approved !== true) return null;
+  const line = (term) => {
+    const found = memory.content.match(new RegExp(`^${term}: (.+)$`, "mu"));
+    return found ? found[1].trim() : null;
+  };
+  return { label: AUTO_APPROVED_LABEL, source: line("出典"), date: line("取得日") };
+}
+
 export function itemModel(memory, { timeZone } = {}) {
   const fields = [
     ["確信度", formatScore(memory.confidence)],
@@ -120,6 +134,8 @@ export function itemModel(memory, { timeZone } = {}) {
     origin: originInfo(memory.origin),
     categoryText: categoryLabel(memory.category),
     isInference: memory.origin === "ai_inference",
+    auto: autoApprovalInfo(memory),
+    canWithdraw: memory.auto_approved === true && memory.status === "approved",
     content: memory.content,
     fields,
   };
@@ -213,6 +229,7 @@ function normalizeReview(raw) {
   if (!isRecord(raw)) return null;
   return {
     action: text(raw.action) ?? "",
+    automatic: raw.automatic === true,
     previous_status: text(raw.previous_status) ?? "",
     new_status: text(raw.new_status) ?? "",
     occurred_at: text(raw.occurred_at),
@@ -259,7 +276,7 @@ export function detailModel(detail, { timeZone } = {}) {
   const history = [
     ...detail.reviews.map((event) => ({
       at: event.occurred_at,
-      text: `${lookup(REVIEW_ACTIONS, event.action) ?? OTHER_LABEL}（${statusInfo(event.previous_status).label} → ${statusInfo(event.new_status).label}）`,
+      text: `${event.automatic ? "自動で" : ""}${lookup(REVIEW_ACTIONS, event.action) ?? OTHER_LABEL}（${statusInfo(event.previous_status).label} → ${statusInfo(event.new_status).label}）`,
       revision: shortRevision(event.revision),
       relatedId: null,
     })),

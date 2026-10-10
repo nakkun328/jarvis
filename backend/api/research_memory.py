@@ -3,7 +3,9 @@
 ``POST /api/research/sessions/{id}/memory-candidates`` creates pending candidates for a completed
 session's verified claims; ``GET`` on the same path lists the ones already staged. Nothing is
 approved here and no vault note is written: a person approves a candidate later through the
-normal memory review, which publishes through the memory writer.
+normal memory review, which publishes through the memory writer. The one exception is the
+owner-approved automatic approval (docs/memory.md): when the service was built with it, safe
+research candidates are approved through the same writer, and the response says so.
 
 The POST needs the same-origin check and the fixed ``X-Jarvis-Confirm: 1`` header (as the
 approvals routes do) and is reachable only as an HTTP request from the page. No model, tool or
@@ -39,13 +41,17 @@ _REFUSAL_STATUS = {
 }
 
 
-def _body(result: CandidateSet) -> dict[str, Any]:
-    return {
+def _body(result: CandidateSet, auto: bool = False) -> dict[str, Any]:
+    body: dict[str, Any] = {
         "eligible": result.eligible,
         "created": result.created,
         "omitted": result.omitted,
         "candidates": [memory_dto(stored) for stored in result.candidates],
     }
+    if auto:
+        # Only present when the owner-approved automatic approval is on.
+        body["auto_approved"] = result.auto_approved
+    return body
 
 
 def create_research_memory_router(
@@ -68,7 +74,7 @@ def create_research_memory_router(
             ) from None
         except (ResearchRepositoryError, MemoryRepositoryError, ValueError, KeyError) as exc:
             raise unavailable(exc) from exc
-        return JSONResponse(_body(result), headers=_NO_STORE)
+        return JSONResponse(_body(result, service.auto_approval), headers=_NO_STORE)
 
     @router.post("/api/research/sessions/{session_id}/memory-candidates")
     def create_candidates(session_id: str, request: Request) -> JSONResponse:
@@ -86,7 +92,9 @@ def create_research_memory_router(
         except (ResearchRepositoryError, MemoryRepositoryError, ValueError, KeyError) as exc:
             raise unavailable(exc) from exc
         return JSONResponse(
-            _body(result), status_code=201 if result.created else 200, headers=_NO_STORE
+            _body(result, service.auto_approval),
+            status_code=201 if result.created else 200,
+            headers=_NO_STORE,
         )
 
     return router

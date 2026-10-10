@@ -3,6 +3,12 @@
 import asyncio
 import json
 
+from backend.memory.auto_approval import (
+    CONTEXT_LABEL_AUTO,
+    CONTEXT_LABEL_RESEARCH,
+    is_auto_approved,
+)
+from backend.memory.model import MemoryOrigin, MemoryRecord
 from backend.memory.repository import MemoryRepositoryError, MemoryStatus
 from backend.memory.retrieval import MemoryRetriever, RetrievalResult
 
@@ -41,8 +47,17 @@ class MemoryContext:
             raise MemoryContextError("Memory retrieval unavailable") from exc
         return self._render_result(result)
 
-    @staticmethod
-    def _render_result(result: RetrievalResult) -> str | None:
+    def _research_label(self, record: MemoryRecord) -> str:
+        """A fixed label in front of research-derived text, so a model reads it as web-derived."""
+        if record.origin is not MemoryOrigin.RESEARCH:
+            return ""
+        try:
+            auto = is_auto_approved(self.retriever.repository, record.id)
+        except (MemoryRepositoryError, ValueError) as exc:
+            raise MemoryContextError("Memory approval history unavailable") from exc
+        return (CONTEXT_LABEL_AUTO if auto else CONTEXT_LABEL_RESEARCH) + " "
+
+    def _render_result(self, result: RetrievalResult) -> str | None:
         if result.issues:
             raise MemoryContextError("An approved memory note could not be verified")
         if not result.matches:
@@ -51,6 +66,7 @@ class MemoryContext:
         items: list[dict[str, object]] = []
         for match in result.matches[:_MAX_MATCHES]:
             record = match.record
+            label = self._research_label(record)
             item: dict[str, object] = {
                 "id": str(record.id),
                 "category": record.category.value,
@@ -59,7 +75,7 @@ class MemoryContext:
                 "origin": record.origin.value,
                 "importance": record.importance,
                 "confidence": record.confidence,
-                "content": record.content[:_MAX_CONTENT],
+                "content": label + record.content[:_MAX_CONTENT],
                 "content_truncated": len(record.content) > _MAX_CONTENT,
                 "stale": match.stale,
                 "edited_since_approval": match.edited_since_approval,

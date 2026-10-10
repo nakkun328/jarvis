@@ -244,6 +244,9 @@ def test_only_the_api_handler_reaches_the_staging_code() -> None:
         root / "research" / "memory_candidates.py",
         root / "api" / "research_memory.py",
         root / "api" / "app.py",
+        # The two owner-approved switches (docs/memory.md) are named after the feature.
+        root / "core" / "config.py",
+        root / "doctor.py",
     }
     pattern = re.compile(r"memory_candidates|ResearchMemoryCandidates|research_memory")
     offenders = [

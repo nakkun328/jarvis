@@ -53,3 +53,19 @@ Only the API handler calls the staging code; no chat, router, tool or model path
 tests in `tests/test_research_memory_candidates.py` cover the happy path, idempotency, refusals,
 header/origin/login checks, provenance, no vault write before approval, and a source scan that
 fails if other modules reference the staging code.
+
+## Optional: automatic staging and approval (owner-approved exception)
+
+Off by default; with both switches off everything above is exactly how it works. Details and the
+reasoning are in [memory.md](memory.md) ("Owner-approved exception: research auto-approval").
+
+- `JARVIS_RESEARCH_MEMORY_AUTO_STAGE=true`: when a research session completes with at least one
+  verified claim, the same staging runs automatically (a hook in the research runner; a failure
+  is logged and never affects the research). Needs `JARVIS_RESEARCH_ENABLED`.
+- `JARVIS_RESEARCH_MEMORY_AUTO_APPROVE=true`: staging (button or automatic) also approves each
+  safe candidate through the existing memory writer, recorded as actor `auto:research`. Needs
+  `JARVIS_MEMORY_VAULT_PATH`. Weak sources and instruction-like text stay pending for review.
+  The staging response then also carries `auto_approved` (a count).
+- Combos: stage only = pending, human review; approve only = button stages and approves; both =
+  fully automatic after completion.
+- Withdraw an auto-approved memory from its `/memory` detail page (see memory.md).
