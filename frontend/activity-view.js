@@ -24,8 +24,8 @@ export const DECIDED = ["casual", "memory", "research"];
 // Shown while the router chose a path that is not wired yet and the Main Agent answers instead.
 export const NOT_WIRED_TEXT = "この経路はまだ接続されていないため、メインのエージェントで処理します";
 export const FALLBACK_TEXT = "ルーターが経路を確定できなかったため、既定のメインのエージェントで処理します";
-// The chat emits only `started` (a research was handed to the run service); the other steps are
-// part of the vocabulary but the chat does not follow the run.
+// `started` (a research was handed to the run service) is always sent; the other steps follow
+// the run only on a server with JARVIS_CHAT_RESEARCH_ANSWER on, where the turn waits for it.
 export const STEPS = ["started", "planning", "searching", "reading", "verifying", "writing"];
 // Why a research the router asked for was not started (the Main Agent answers instead).
 export const SKIPS = ["busy", "not_configured", "budget_exhausted", "refused", "low_confidence"];
