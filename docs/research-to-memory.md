@@ -65,7 +65,7 @@ reasoning are in [memory.md](memory.md) ("Owner-approved exception: research aut
 - `JARVIS_RESEARCH_MEMORY_AUTO_APPROVE=true`: staging (button or automatic) also approves each
   safe candidate through the existing memory writer, recorded as actor `auto:research`. Needs
   `JARVIS_MEMORY_VAULT_PATH`. Weak sources and instruction-like text stay pending for review.
-  The staging response then also carries `auto_approved` (a count).
+  The staging response then also carries `auto_approved` (a count). Both the POST and the GET always carry `auto_approval` (a boolean: whether this switch is on), which the Research screen uses to word the 「記憶の候補」 box: with it off the box says nothing enters memory automatically; with it on it says qualifying claims become memory directly and low-trust ones wait for review. After the button press the screen shows how many candidates were created, how many are auto-approved, how many remain pending, and how many were omitted by the cap.
 - Combos: stage only = pending, human review; approve only = button stages and approves; both =
   fully automatic after completion.
 - Withdraw an auto-approved memory from its `/memory` detail page (see memory.md).

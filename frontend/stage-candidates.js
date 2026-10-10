@@ -21,7 +21,15 @@ function reduce(body) {
   }
   const omitted = Number.isInteger(body.omitted) && body.omitted > 0 ? body.omitted : 0;
   const created = Number.isInteger(body.created) && body.created > 0 ? body.created : 0;
-  return { eligible: body.eligible, count: body.candidates.length, omitted, created };
+  const approved = body.candidates.filter((item) => item?.status === "approved").length;
+  return {
+    eligible: body.eligible,
+    count: body.candidates.length,
+    omitted,
+    created,
+    autoApproval: body.auto_approval === true,
+    approved,
+  };
 }
 
 // Resolves to { kind: "ok", ...state } or { kind: <fixed failure word> }. It never throws for
@@ -77,9 +85,21 @@ const FAILURES = {
 };
 
 // phase: "loading" | "idle" | "busy" | "added" | "error". Returns the texts and button state.
-export function memoryPanelModel({ phase, count = 0, omitted = 0, created = 0, errorKind = null }) {
-  const note =
-    "検証済みの主張を、引用・出典・取得日つきで記憶の候補にします。自動で記憶には入りません。「記憶」画面で確認・承認したものだけが記憶になります。";
+// `autoApproval` is the server's flag (the owner switched automatic approval on); the note says
+// which of the two it is. `approved` counts candidates that are already approved memory.
+export function memoryPanelModel({
+  phase,
+  count = 0,
+  omitted = 0,
+  created = 0,
+  approved = 0,
+  autoApproval = false,
+  errorKind = null,
+}) {
+  const base = "検証済みの主張を、引用・出典・取得日つきで記憶の候補にします。";
+  const note = autoApproval
+    ? `${base}自動承認が有効です。条件を満たした主張は、そのまま記憶になります（信頼の低い出典などは確認待ち）。`
+    : `${base}自動で記憶には入りません。「記憶」画面で確認・承認したものだけが記憶になります。`;
   const model = { note, status: "", error: "", buttonLabel: BUTTON_LABEL, disabled: false };
   if (phase === "loading") {
     model.disabled = true;
@@ -88,11 +108,13 @@ export function memoryPanelModel({ phase, count = 0, omitted = 0, created = 0, e
     model.disabled = true;
     model.status = "候補を作成しています…";
   } else if (phase === "added") {
+    const pending = Math.max(count - approved, 0);
     model.disabled = true;
     model.buttonLabel = "追加済み";
     model.status =
-      (created > 0 ? `${count} 件を記憶の候補に追加しました` : `${count} 件は追加済みです`) +
-      "（未承認）。「記憶」画面で確認してください。" +
+      (created > 0 ? `新規 ${created} 件を作成しました。` : "新しい候補はありません（追加済み）。") +
+      `合計 ${count} 件のうち、自動承認 ${approved} 件、確認待ち ${pending} 件。` +
+      (pending > 0 ? "確認待ちは「記憶」画面で確認してください。" : "") +
       (omitted > 0 ? ` 上限のため ${omitted} 件は追加していません。` : "");
   } else if (phase === "error") {
     model.error = FAILURES[errorKind] ?? FAILURES.error;
