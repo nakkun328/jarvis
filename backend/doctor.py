@@ -54,6 +54,14 @@ REASONS: dict[str, str] = {
         "有効です: 調査由来の記憶は人間のレビューなしで自動承認されます(オーナー判断の例外)"
     ),
     "AUTO_STAGE_ONLY": "有効です: 完了した調査の主張を承認待ちとして登録します(承認は人間)",
+    "CHAT_AUTO_APPROVE_ON": (
+        "有効です: 会話の発言から作られた記憶は人間のレビューなしで自動承認されます"
+        "(オーナー判断の例外)。発言ごとに追加のモデル呼び出しが発生します"
+    ),
+    "CHAT_AUTO_STAGE_ONLY": (
+        "有効です: 会話の発言から記憶の候補を自動作成します(承認は人間)。"
+        "発言ごとに追加のモデル呼び出しが発生します"
+    ),
     "SHELL_ROOT_MISSING": "JARVIS_SHELL_ROOT が未設定です",
     "SHELL_ROOT_INVALID": "シェルの実行ルートが使えません(存在しない、/ やホームを含む等)",
     "SHELL_COMMAND_UNKNOWN": "JARVIS_SHELL_COMMANDS に許可表にない名前があります",
@@ -179,6 +187,29 @@ def _research_memory(settings: Settings) -> Check:
     return Check("research_memory", label, OFF, "NOT_CONFIGURED", detail)
 
 
+def _chat_memory(settings: Settings, chat: Check) -> Check:
+    """Owner-approved exception (docs/chat-auto-memory.md): flags only, never any content."""
+    detail = (
+        "JARVIS_CHAT_MEMORY_AUTO=" + ("on" if settings.chat_memory_auto else "off") + ", "
+        "JARVIS_CHAT_MEMORY_AUTO_APPROVE="
+        + ("on" if settings.chat_memory_auto_approve else "off") + ", "
+        f"JARVIS_CHAT_MEMORY_DAILY_LIMIT={settings.chat_memory_daily_limit}, "
+        f"JARVIS_CHAT_MEMORY_MIN_CHARS={settings.chat_memory_min_chars}, "
+        "JARVIS_CHAT_MEMORY_PER_CONVERSATION_LIMIT="
+        f"{settings.chat_memory_per_conversation_limit}, "
+        f"JARVIS_CHAT_MEMORY_PER_DAY_LIMIT={settings.chat_memory_per_day_limit}, "
+        "JARVIS_MEMORY_VAULT_PATH=" + _word(settings.memory_vault_path is not None)
+    )
+    label = "会話記憶の自動作成"
+    if not settings.chat_memory_auto:
+        return Check("chat_memory", label, OFF, "NOT_CONFIGURED", detail)
+    if chat.status != OK:
+        return Check("chat_memory", label, INCOMPLETE, "CHAT_PROVIDER_MISSING", detail)
+    if settings.chat_memory_auto_approve:
+        return Check("chat_memory", label, OK, "CHAT_AUTO_APPROVE_ON", detail)
+    return Check("chat_memory", label, OK, "CHAT_AUTO_STAGE_ONLY", detail)
+
+
 def _router(settings: Settings, chat: Check) -> Check:
     detail = f"router={settings.router}"
     if settings.router == "off":
@@ -296,6 +327,7 @@ def run_checks(host: str = "127.0.0.1") -> list[Check]:
         _models(settings, environment, chat),
         research,
         _research_memory(settings),
+        _chat_memory(settings, chat),
         router,
         _casual(settings, router, chat),
         _chat_research(settings, router, research),

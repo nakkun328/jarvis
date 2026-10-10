@@ -35,6 +35,7 @@ from backend.core.config import ConfigError, Settings
 from backend.core.database import Database
 from backend.core.logging import configure_logging
 from backend.memory.auto_approval import AUTO_APPROVER
+from backend.memory.chat_auto import ChatAutoMemory
 from backend.memory.embedding import EmbeddingProvider
 from backend.memory.obsidian import ObsidianVault
 from backend.memory.repository import MemoryRepository
@@ -141,6 +142,23 @@ def create_app(
         ),
     )
 
+    # Owner-approved exception (docs/chat-auto-memory.md): facts about the owner are extracted
+    # from their chat messages after each reply. Needs a chat provider; off by default.
+    chat_memory = (
+        ChatAutoMemory(
+            provider,
+            MemoryRepository(database),
+            memory_writer,
+            auto_approve=settings.chat_memory_auto_approve,
+            daily_limit=settings.chat_memory_daily_limit,
+            min_chars=settings.chat_memory_min_chars,
+            per_conversation_limit=settings.chat_memory_per_conversation_limit,
+            per_day_limit=settings.chat_memory_per_day_limit,
+        )
+        if settings.chat_memory_auto and provider is not None
+        else None
+    )
+
     def stage_on_completion(session_id: UUID) -> None:
         try:
             research_memory.stage(session_id)
@@ -169,6 +187,7 @@ def create_app(
             memory_context=memory_context,
             personality=personality,
             models=models,
+            turn_observer=chat_memory.observe if chat_memory is not None else None,
             router=router,
             # The casual path needs the switch, a router and a chat provider; any one missing
             # leaves every turn on the Main Agent path as before.

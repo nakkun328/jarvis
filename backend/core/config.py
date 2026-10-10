@@ -125,6 +125,15 @@ class Settings:
     # when a research session completes (needs research). Both default off.
     research_memory_auto_approve: bool = False
     research_memory_auto_stage: bool = False
+    # Owner-approved exception (docs/chat-auto-memory.md): extract facts about the owner from
+    # their chat messages after the reply (an extra model call per eligible turn) and stage them
+    # as candidates; optionally approve them without review (needs the memory vault).
+    chat_memory_auto: bool = False
+    chat_memory_auto_approve: bool = False
+    chat_memory_daily_limit: int = 50
+    chat_memory_min_chars: int = 12
+    chat_memory_per_conversation_limit: int = 5
+    chat_memory_per_day_limit: int = 30
     # Structured shell tool (docs/tool-shell.md). Off by default; it needs an execution root too.
     # The command names pick entries of the fixed allowlist table, they are never command lines.
     shell_enabled: bool = False
@@ -187,6 +196,38 @@ class Settings:
             )
         if self.research_memory_auto_stage and not self.research_enabled:
             raise ConfigError("JARVIS_RESEARCH_MEMORY_AUTO_STAGE requires JARVIS_RESEARCH_ENABLED")
+        for name, value in (
+            ("JARVIS_CHAT_MEMORY_AUTO", self.chat_memory_auto),
+            ("JARVIS_CHAT_MEMORY_AUTO_APPROVE", self.chat_memory_auto_approve),
+        ):
+            if not isinstance(value, bool):
+                raise ConfigError(f"{name} must be true or false")
+        if self.chat_memory_auto_approve and not self.chat_memory_auto:
+            raise ConfigError("JARVIS_CHAT_MEMORY_AUTO_APPROVE requires JARVIS_CHAT_MEMORY_AUTO")
+        if self.chat_memory_auto_approve and self.memory_vault_path is None:
+            raise ConfigError("JARVIS_CHAT_MEMORY_AUTO_APPROVE requires JARVIS_MEMORY_VAULT_PATH")
+        if (
+            isinstance(self.chat_memory_daily_limit, bool)
+            or not isinstance(self.chat_memory_daily_limit, int)
+            or not 1 <= self.chat_memory_daily_limit <= 1000
+        ):
+            raise ConfigError("JARVIS_CHAT_MEMORY_DAILY_LIMIT must be between 1 and 1000")
+        if (
+            isinstance(self.chat_memory_min_chars, bool)
+            or not isinstance(self.chat_memory_min_chars, int)
+            or not 1 <= self.chat_memory_min_chars <= 1000
+        ):
+            raise ConfigError("JARVIS_CHAT_MEMORY_MIN_CHARS must be between 1 and 1000")
+        for name, value, high in (
+            (
+                "JARVIS_CHAT_MEMORY_PER_CONVERSATION_LIMIT",
+                self.chat_memory_per_conversation_limit,
+                50,
+            ),
+            ("JARVIS_CHAT_MEMORY_PER_DAY_LIMIT", self.chat_memory_per_day_limit, 500),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= high:
+                raise ConfigError(f"{name} must be between 1 and {high}")
         if not isinstance(self.shell_enabled, bool):
             raise ConfigError("JARVIS_SHELL_ENABLED must be true or false")
         if self.shell_root is not None and not str(self.shell_root).strip():
@@ -317,4 +358,12 @@ class Settings:
             model_choices=parse_model_choices(os.environ.get("JARVIS_MODEL_CHOICES", "")),
             research_memory_auto_approve=_env_bool("JARVIS_RESEARCH_MEMORY_AUTO_APPROVE", False),
             research_memory_auto_stage=_env_bool("JARVIS_RESEARCH_MEMORY_AUTO_STAGE", False),
+            chat_memory_auto=_env_bool("JARVIS_CHAT_MEMORY_AUTO", False),
+            chat_memory_auto_approve=_env_bool("JARVIS_CHAT_MEMORY_AUTO_APPROVE", False),
+            chat_memory_daily_limit=_env_int("JARVIS_CHAT_MEMORY_DAILY_LIMIT", 50),
+            chat_memory_min_chars=_env_int("JARVIS_CHAT_MEMORY_MIN_CHARS", 12),
+            chat_memory_per_conversation_limit=_env_int(
+                "JARVIS_CHAT_MEMORY_PER_CONVERSATION_LIMIT", 5
+            ),
+            chat_memory_per_day_limit=_env_int("JARVIS_CHAT_MEMORY_PER_DAY_LIMIT", 30),
         )

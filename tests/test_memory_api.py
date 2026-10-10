@@ -284,7 +284,6 @@ def test_router_module_depends_only_on_the_memory_repository() -> None:
         "backend.memory.repository",
         # Owner-approved research auto-approval (docs/memory.md): read-only audit lookups.
         "backend.memory.auto_approval",
-        "backend.memory.model",
     }
     assert not imported & {"httpx", "requests", "urllib.request", "socket", "aiohttp", "pathlib"}
 

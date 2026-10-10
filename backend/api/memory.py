@@ -23,8 +23,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 
-from backend.memory.auto_approval import AUTO_APPROVER, is_auto_approved
-from backend.memory.model import MemoryOrigin
+from backend.memory.auto_approval import AUTO_ACTORS, is_auto_approved
 from backend.memory.repository import (
     MemoryLifecycleEvent,
     MemoryRepository,
@@ -91,14 +90,14 @@ def memory_dto(stored: StoredMemory) -> dict[str, Any]:
 
 
 def with_auto_flag(dto: dict[str, Any], repository: MemoryRepository, stored: StoredMemory) -> dict:
-    """Mark a research note whose approval was automatic (shown as 「自動承認(調査)」).
+    """Mark a research or chat note whose approval was automatic (「自動承認(調査/会話)」).
 
     The key is present, as ``true``, only on such notes, so every other response keeps its shape.
     """
     if (
         stored.status in NOTE_DETAIL_STATUSES
-        and stored.record.origin is MemoryOrigin.RESEARCH
-        and is_auto_approved(repository, stored.record.id)
+        and stored.record.origin in AUTO_ACTORS
+        and is_auto_approved(repository, stored.record.id, stored.record.origin)
     ):
         dto["auto_approved"] = True
     return dto
@@ -122,7 +121,7 @@ def _review_dto(event: MemoryReviewEvent) -> dict[str, Any]:
         "occurred_at": _iso(event.occurred_at),
         "revision": event.vault_revision,
     }
-    if event.actor == AUTO_APPROVER:
+    if event.actor in AUTO_ACTORS.values():
         # The system itself recorded this decision (the actor text is otherwise not exposed).
         dto["automatic"] = True
     return dto

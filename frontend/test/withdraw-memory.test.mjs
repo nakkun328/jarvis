@@ -64,3 +64,22 @@ test("the detail history says the approval was automatic and withdrawal is offer
   const retired = detailModel({ ...detail, status: "retired" });
   assert.equal(retired.canWithdraw, false);
 });
+
+test("an automatically approved chat note shows its label, verbatim quote and date", () => {
+  const chat = normalizeMemory({
+    id: ID,
+    status: "approved",
+    origin: "chat",
+    auto_approved: true,
+    content: "毎朝走っている\n\n引用: 毎朝走っています\n日付: 2026-10-10",
+  });
+  assert.deepEqual(autoApprovalInfo(chat), {
+    label: "自動承認(会話)",
+    source: "毎朝走っています",
+    date: "2026-10-10",
+    sourceLabel: "引用",
+    dateLabel: "日付",
+  });
+  assert.equal(detailModel({ ...chat, reviews: [], lifecycle: [] }).canWithdraw, true);
+  assert.equal(autoApprovalInfo({ ...chat, auto_approved: false }), null);
+});

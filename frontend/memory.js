@@ -110,8 +110,8 @@ function buildTabs() {
 
 function autoNote(auto) {
   const line = [auto.label];
-  if (auto.source) line.push(`出典: ${auto.source}`);
-  if (auto.date) line.push(`取得日: ${auto.date}`);
+  if (auto.source) line.push(`${auto.sourceLabel ?? "出典"}: ${auto.source}`);
+  if (auto.date) line.push(`${auto.dateLabel ?? "取得日"}: ${auto.date}`);
   return el("p", "inference-note", line.join(" / "));
 }
 

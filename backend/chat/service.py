@@ -170,6 +170,7 @@ class ChatService:
         research_starter: ResearchStarter | None = None,
         models: ModelRegistry | None = None,
         casual: CasualService | None = None,
+        turn_observer: Callable[[UUID, str], None] | None = None,
     ) -> None:
         # The default provider. Router and research use this one only; a per-request model
         # choice (see ``provider_for``) affects just the chat answer.
@@ -183,11 +184,24 @@ class ChatService:
         # Off by default. Only used with a router: a confident casual decision is then answered
         # by the casual path (personality and recent turns only) instead of the Main Agent.
         self.casual = casual
+        # Off by default. Called with (conversation id, the user's message) after a turn has been
+        # answered and saved, so a background job can look at the user's own words (automatic
+        # chat memory). It must not block; whatever it raises is logged and ignored. It is never
+        # given the reply, and it is not called for a turn that started a research.
+        self.turn_observer = turn_observer
         self.store = store or ConversationStore()
         self.memory_context = memory_context
         self._system_prompt = (
             SYSTEM_PROMPT if personality is None else render_system_prompt(personality)
         )
+
+    def _observe(self, conversation_id: UUID, message: str) -> None:
+        if self.turn_observer is None:
+            return
+        try:
+            self.turn_observer(conversation_id, message)
+        except Exception as exc:  # the chat turn is never affected by the observer
+            _LOG.warning("chat.observer_failed", extra={"error_type": type(exc).__name__})
 
     def provider_for(self, model_choice: str | None) -> LLMProvider:
         """The provider that answers one turn. Raises ``ModelChoiceError`` for a choice that is
@@ -355,6 +369,7 @@ class ChatService:
                             await self.store.remember(
                                 current_id, conversation, message, casual_reply.text
                             )
+                            self._observe(current_id, message)
                             emit(ActivityEvent.done())
                             return ChatResult(
                                 current_id,
@@ -380,6 +395,7 @@ class ChatService:
                 if not response.text.strip():
                     raise ProviderError("Provider returned no text")
                 await self.store.remember(current_id, conversation, message, response.text)
+                self._observe(current_id, message)
                 emit(ActivityEvent.done())
                 return ChatResult(current_id, response.text, response.provider, response.model)
         except Exception as exc:
@@ -456,6 +472,7 @@ class ChatService:
                                     yield ChatDelta(delta)
                             reply = "".join(chunks)
                             await self.store.remember(current_id, conversation, message, reply)
+                            self._observe(current_id, message)
                             if activity:
                                 yield ActivityEvent.done()
                             yield ChatDone(
@@ -499,6 +516,7 @@ class ChatService:
                 if not reply.strip():
                     raise ProviderError("Provider returned no text")
                 await self.store.remember(current_id, conversation, message, reply)
+                self._observe(current_id, message)
                 if activity:
                     yield ActivityEvent.done()
                 yield ChatDone(
