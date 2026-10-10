@@ -1,4 +1,5 @@
 import { MemoryApiError, loadMemory, loadMemoryDetail } from "./memory-api.js";
+import { WITHDRAW_CONFIRM, WITHDRAW_LABEL, withdrawMemory, withdrawMessage } from "./withdraw-memory.js";
 import {
   TABS,
   TAB_LABELS,
@@ -107,6 +108,13 @@ function buildTabs() {
 
 // ----- list -----
 
+function autoNote(auto) {
+  const line = [auto.label];
+  if (auto.source) line.push(`出典: ${auto.source}`);
+  if (auto.date) line.push(`取得日: ${auto.date}`);
+  return el("p", "inference-note", line.join(" / "));
+}
+
 function itemNode(item) {
   const li = el("li", "memory-card");
   const head = el("div", "card-head");
@@ -115,6 +123,7 @@ function itemNode(item) {
   if (item.isInference) {
     li.append(el("p", "inference-note", "AI の推測です。本人が言ったことではありません。"));
   }
+  if (item.auto) li.append(autoNote(item.auto));
   li.append(el("p", "memory-content", item.content), metaList(item.fields));
   const open = el("button", "card-open", "詳細を見る");
   open.type = "button";
@@ -237,6 +246,28 @@ function relatedNode(link) {
   return wrap;
 }
 
+function withdrawControl(id) {
+  const box = el("div", "detail-section");
+  const button = el("button", "card-open", WITHDRAW_LABEL);
+  button.type = "button";
+  const message = el("p", "list-note", "");
+  message.setAttribute("role", "status");
+  button.addEventListener("click", async () => {
+    if (!window.confirm(WITHDRAW_CONFIRM)) return;
+    button.disabled = true;
+    const result = await withdrawMemory(id);
+    if (result.kind === "ok") {
+      void loadDetail(id);
+      void refresh();
+      return;
+    }
+    button.disabled = false;
+    message.textContent = withdrawMessage(result.kind);
+  });
+  box.append(button, message);
+  return box;
+}
+
 function renderDetail() {
   detailBody.replaceChildren();
   detailStatus.classList.toggle("error", Boolean(state.detailError));
@@ -256,7 +287,9 @@ function renderDetail() {
   if (model.isInference) {
     detailBody.append(el("p", "inference-note", "AI の推測です。本人が言ったことではありません。"));
   }
+  if (model.auto) detailBody.append(autoNote(model.auto));
   detailBody.append(el("p", "memory-content", model.content), metaList(model.fields));
+  if (model.canWithdraw) detailBody.append(withdrawControl(state.detail.id));
   if (model.links.length) {
     const section = el("section", "detail-section");
     section.append(el("h2", "", "関連する記録"));

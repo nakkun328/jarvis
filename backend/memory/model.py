@@ -20,6 +20,8 @@ class MemoryOrigin(StrEnum):
     USER_EXPLICIT = "user_explicit"
     AI_INFERENCE = "ai_inference"
     TOOL_OBSERVATION = "tool_observation"
+    #: A cited claim from a stored research session, staged only by a person pressing a button.
+    RESEARCH = "research"
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,6 @@
 import { ResearchApiError, loadSession, loadSessionList } from "./research-api.js";
 import { initRunPanel } from "./research-run.js";
+import { loadCandidates, memoryPanelModel, stageCandidates } from "./stage-candidates.js";
 import {
   SESSION_STATUSES,
   apiErrorMessage,
@@ -50,6 +51,7 @@ const state = {
   detailAbort: null,
   renderedList: "",
   renderedDetail: "",
+  memory: { id: null, phase: "idle", count: 0, omitted: 0, created: 0, errorKind: null },
 };
 
 function el(tag, className, text) {
@@ -301,6 +303,58 @@ function claimNode(claim) {
   return li;
 }
 
+function memorySection() {
+  const view = memoryPanelModel(state.memory);
+  const box = el("div", "memory-candidates");
+  box.append(el("p", "memory-note", view.note));
+  const button = el("button", "run-secondary", view.buttonLabel);
+  button.type = "button";
+  button.disabled = view.disabled;
+  button.addEventListener("click", () => void stageMemory(state.detail.id));
+  box.append(button);
+  const status = el("p", "memory-status", view.status);
+  status.setAttribute("role", "status");
+  box.append(status);
+  const error = el("p", "error-text", view.error);
+  error.setAttribute("role", "alert");
+  box.append(error);
+  return section("記憶の候補", box);
+}
+
+function setMemory(id, patch) {
+  if (state.selectedId !== id) return;
+  state.memory = { ...state.memory, id, ...patch };
+  renderDetail();
+}
+
+// Reads which candidates already exist, once per selected session, to show the added state.
+async function ensureMemoryState(id) {
+  if (state.memory.id === id) return;
+  state.memory = { id, phase: "loading", count: 0, omitted: 0, created: 0, errorKind: null };
+  const result = await loadCandidates(id);
+  if (result.kind === "ok" && result.count > 0) {
+    setMemory(id, { phase: "added", count: result.count, omitted: result.omitted, created: 0 });
+  } else {
+    setMemory(id, { phase: "idle" });
+  }
+}
+
+async function stageMemory(id) {
+  setMemory(id, { phase: "busy", errorKind: null });
+  const result = await stageCandidates(id);
+  if (result.kind === "ok") {
+    setMemory(id, {
+      phase: "added",
+      count: result.count,
+      omitted: result.omitted,
+      created: result.created,
+    });
+    announce.textContent = "記憶の候補に追加しました（未承認）。";
+  } else {
+    setMemory(id, { phase: "error", errorKind: result.kind });
+  }
+}
+
 function renderDetail() {
   detailPane.setAttribute("aria-busy", String(state.detailLoading));
   layout.dataset.view = state.selectedId ? "detail" : "list";
@@ -322,7 +376,7 @@ function renderDetail() {
   }
   const model = detailViewModel(state.detail);
   // Re-render only when the content changed, so polling does not reset scroll or selection.
-  const key = JSON.stringify([model, state.detailError]);
+  const key = JSON.stringify([model, state.detailError, state.memory]);
   if (key === state.renderedDetail) return;
   state.renderedDetail = key;
   detailHeading.textContent = "調査の詳細";
@@ -360,6 +414,11 @@ function renderDetail() {
   const claims = el("ul", "claims");
   for (const claim of model.claims) claims.append(claimNode(claim));
   parts.push(section(`主張と引用（${model.claims.length}）`, claims));
+
+  if (state.detail.status === "completed" && model.claims.length > 0) {
+    parts.push(memorySection());
+    void ensureMemoryState(state.detail.id);
+  }
 
   const meta = el("dl", "meta");
   for (const [term, value] of model.times) meta.append(field(term, value));

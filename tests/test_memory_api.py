@@ -281,7 +281,10 @@ def test_router_module_depends_only_on_the_memory_repository() -> None:
         elif isinstance(node, ast.Import):
             imported.update(alias.name for alias in node.names)
     assert {name for name in imported if name.startswith("backend.")} == {
-        "backend.memory.repository"
+        "backend.memory.repository",
+        # Owner-approved research auto-approval (docs/memory.md): read-only audit lookups.
+        "backend.memory.auto_approval",
+        "backend.memory.model",
     }
     assert not imported & {"httpx", "requests", "urllib.request", "socket", "aiohttp", "pathlib"}
 

@@ -2,9 +2,11 @@
 
 import asyncio
 import logging
+from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -14,9 +16,11 @@ from backend.api.approvals import create_approvals_router
 from backend.api.chat import build_chat_router
 from backend.api.devices import create_devices_router
 from backend.api.memory import create_memory_router
+from backend.api.memory_withdraw import create_memory_withdraw_router
 from backend.api.models import create_models_router
 from backend.api.request_logging import RequestLoggingMiddleware
 from backend.api.research import create_research_router
+from backend.api.research_memory import create_research_memory_router
 from backend.api.tasks import create_tasks_router
 from backend.auth.middleware import AuthMiddleware
 from backend.auth.routes import create_auth_router
@@ -30,17 +34,23 @@ from backend.chat.service import ChatService
 from backend.core.config import ConfigError, Settings
 from backend.core.database import Database
 from backend.core.logging import configure_logging
+from backend.memory.auto_approval import AUTO_APPROVER
 from backend.memory.embedding import EmbeddingProvider
 from backend.memory.obsidian import ObsidianVault
 from backend.memory.repository import MemoryRepository
 from backend.memory.retrieval import MemoryRetriever
 from backend.memory.semantic import SemanticMemorySearcher
 from backend.memory.vector import VectorIndex
+from backend.memory.writer import MemoryWriter
 from backend.personality.prompt import render_system_prompt
 from backend.personality.settings import PersonalityError, load_personality
 from backend.providers.base import LLMProvider
 from backend.providers.choices import ModelRegistry
 from backend.providers.factory import create_provider
+from backend.research.memory_candidates import (
+    RefusedCandidates,
+    ResearchMemoryCandidates,
+)
 from backend.research.models import ResearchLevel
 from backend.research.repository import ResearchRepository
 from backend.research.run_control import (
@@ -114,8 +124,37 @@ def create_app(
     if provider is None:
         provider = create_provider(settings)
     research_repository = ResearchRepository(database)
+    # Owner-approved exception (docs/memory.md): approve research candidates automatically. It
+    # needs the vault (Settings enforces this) and goes through the normal MemoryWriter.
+    memory_writer = (
+        MemoryWriter(MemoryRepository(database), ObsidianVault(settings.memory_vault_path))
+        if settings.memory_vault_path is not None
+        else None
+    )
+    research_memory = ResearchMemoryCandidates(
+        research_repository,
+        MemoryRepository(database),
+        approve=(
+            (lambda memory_id: memory_writer.approve(memory_id, actor=AUTO_APPROVER))
+            if settings.research_memory_auto_approve and memory_writer is not None
+            else None
+        ),
+    )
+
+    def stage_on_completion(session_id: UUID) -> None:
+        try:
+            research_memory.stage(session_id)
+        except RefusedCandidates:
+            pass  # nothing eligible; not an error
+
     run_service, research_reason = _build_research(
-        settings, database, research_repository, provider, search_provider, page_reader
+        settings,
+        database,
+        research_repository,
+        provider,
+        search_provider,
+        page_reader,
+        on_completed=stage_on_completion if settings.research_memory_auto_stage else None,
     )
     if router is None and settings.router != "off":
         router = _build_router(settings, provider)
@@ -217,6 +256,14 @@ def create_app(
             trusted_proxy=settings.trusted_proxy,
         )
     )
+    app.include_router(
+        create_research_memory_router(research_memory, trusted_proxy=settings.trusted_proxy)
+    )
+    app.include_router(
+        create_memory_withdraw_router(
+            MemoryRepository(database), memory_writer, trusted_proxy=settings.trusted_proxy
+        )
+    )
     app.include_router(create_tasks_router(TaskRepository(database)))
     app.include_router(
         create_approvals_router(ApprovalStore(database), trusted_proxy=settings.trusted_proxy)
@@ -285,6 +332,7 @@ def _build_research(
     chat_provider: LLMProvider | None,
     search_provider: SearchProvider | None,
     page_reader: "PageFetcher | None",
+    on_completed: Callable[[UUID], None] | None = None,
 ):
     """The research run service and, when there is none, the fixed reason why not.
 
@@ -313,6 +361,7 @@ def _build_research(
         reader=page_reader or PageReader(),
         llm=chat_provider,
         is_budget_exhausted=exhausted if callable(exhausted) else None,
+        on_completed=on_completed,
     )
     return service, None
 

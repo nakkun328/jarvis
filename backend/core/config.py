@@ -120,6 +120,11 @@ class Settings:
     # The owner-selectable chat models (JARVIS_MODEL_CHOICES): an allowlist of `provider:model`
     # strings. Empty (the default) means no selector and exactly the single configured model.
     model_choices: tuple[str, ...] = ()
+    # Owner-approved exception to "only reviewed notes reach a model" (docs/memory.md): approve
+    # research-origin memory candidates automatically (needs the memory vault), and stage them
+    # when a research session completes (needs research). Both default off.
+    research_memory_auto_approve: bool = False
+    research_memory_auto_stage: bool = False
     # Structured shell tool (docs/tool-shell.md). Off by default; it needs an execution root too.
     # The command names pick entries of the fixed allowlist table, they are never command lines.
     shell_enabled: bool = False
@@ -170,6 +175,18 @@ class Settings:
             self.model_choices
         ):
             raise ConfigError("JARVIS_MODEL_CHOICES is invalid")
+        for name, value in (
+            ("JARVIS_RESEARCH_MEMORY_AUTO_APPROVE", self.research_memory_auto_approve),
+            ("JARVIS_RESEARCH_MEMORY_AUTO_STAGE", self.research_memory_auto_stage),
+        ):
+            if not isinstance(value, bool):
+                raise ConfigError(f"{name} must be true or false")
+        if self.research_memory_auto_approve and self.memory_vault_path is None:
+            raise ConfigError(
+                "JARVIS_RESEARCH_MEMORY_AUTO_APPROVE requires JARVIS_MEMORY_VAULT_PATH"
+            )
+        if self.research_memory_auto_stage and not self.research_enabled:
+            raise ConfigError("JARVIS_RESEARCH_MEMORY_AUTO_STAGE requires JARVIS_RESEARCH_ENABLED")
         if not isinstance(self.shell_enabled, bool):
             raise ConfigError("JARVIS_SHELL_ENABLED must be true or false")
         if self.shell_root is not None and not str(self.shell_root).strip():
@@ -298,4 +315,6 @@ class Settings:
                 os.environ.get("JARVIS_CHAT_RESEARCH_LEVEL", "quick").strip().lower()
             ),
             model_choices=parse_model_choices(os.environ.get("JARVIS_MODEL_CHOICES", "")),
+            research_memory_auto_approve=_env_bool("JARVIS_RESEARCH_MEMORY_AUTO_APPROVE", False),
+            research_memory_auto_stage=_env_bool("JARVIS_RESEARCH_MEMORY_AUTO_STAGE", False),
         )

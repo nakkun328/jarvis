@@ -50,6 +50,10 @@ REASONS: dict[str, str] = {
     "PATH_INVALID": "指定された内容が不正です",
     "DB_WILL_BE_CREATED": "DB は未作成です(初回起動時に作成されます)",
     "EXISTS": "存在します",
+    "AUTO_APPROVE_ON": (
+        "有効です: 調査由来の記憶は人間のレビューなしで自動承認されます(オーナー判断の例外)"
+    ),
+    "AUTO_STAGE_ONLY": "有効です: 完了した調査の主張を承認待ちとして登録します(承認は人間)",
     "SHELL_ROOT_MISSING": "JARVIS_SHELL_ROOT が未設定です",
     "SHELL_ROOT_INVALID": "シェルの実行ルートが使えません(存在しない、/ やホームを含む等)",
     "SHELL_COMMAND_UNKNOWN": "JARVIS_SHELL_COMMANDS に許可表にない名前があります",
@@ -156,6 +160,23 @@ def _research(settings: Settings, chat: Check) -> Check:
     if not _installed("httpx"):
         return Check("research", "リサーチ", INCOMPLETE, "DEPENDENCY_MISSING", detail)
     return Check("research", "リサーチ", OK, "READY", detail + ", JARVIS_SEARCH_API_KEY=set")
+
+
+def _research_memory(settings: Settings) -> Check:
+    """Owner-approved exception (docs/memory.md): flags only, never any stored content."""
+    auto_approve = settings.research_memory_auto_approve
+    auto_stage = settings.research_memory_auto_stage
+    detail = (
+        "JARVIS_RESEARCH_MEMORY_AUTO_APPROVE=" + ("on" if auto_approve else "off") + ", "
+        "JARVIS_RESEARCH_MEMORY_AUTO_STAGE=" + ("on" if auto_stage else "off") + ", "
+        "JARVIS_MEMORY_VAULT_PATH=" + _word(settings.memory_vault_path is not None)
+    )
+    label = "調査記憶の自動承認"
+    if auto_approve:
+        return Check("research_memory", label, OK, "AUTO_APPROVE_ON", detail)
+    if auto_stage:
+        return Check("research_memory", label, OK, "AUTO_STAGE_ONLY", detail)
+    return Check("research_memory", label, OFF, "NOT_CONFIGURED", detail)
 
 
 def _router(settings: Settings, chat: Check) -> Check:
@@ -274,6 +295,7 @@ def run_checks(host: str = "127.0.0.1") -> list[Check]:
         chat,
         _models(settings, environment, chat),
         research,
+        _research_memory(settings),
         router,
         _casual(settings, router, chat),
         _chat_research(settings, router, research),
