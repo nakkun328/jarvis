@@ -194,6 +194,8 @@ const CAVEAT_JA = {
   "The sources did not support any claim that could be verified.": NO_VERIFIED_JA,
   "All verified claims come from one website, so they are not independent.":
     "検証できた主張はすべて同じウェブサイトのものなので、独立した裏付けとは言えません。",
+  "Some listed sources are different pages of the same website, so they are not independent confirmation of each other.":
+    "掲載した出典の一部は同じウェブサイトの別ページなので、互いに独立した裏付けとは言えません。",
 };
 const QUICK_NO_CLAIM = "No claim could be verified against a source.";
 const QUICK_NO_CLAIM_JA = NO_VERIFIED_JA;

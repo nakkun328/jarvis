@@ -40,7 +40,7 @@ sources" decision. None of those says a claim is true.
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
@@ -50,6 +50,7 @@ from backend.providers.base import ChatMessage, CompletionRequest, LLMProvider
 from backend.research.citations import (
     CitationManager,
     DroppedClaim,
+    DropReason,
     EvidenceSource,
     VerifiedClaim,
     has_twin,
@@ -184,6 +185,7 @@ class Caveat(StrEnum):
     CLAIMS_REMOVED = "claims_removed"
     NO_VERIFIED_CLAIMS = "no_verified_claims"
     SINGLE_DOMAIN = "single_domain"
+    SAME_SITE_SOURCES = "same_site_sources"
 
 
 CAVEAT_TEXT: dict[Caveat, str] = {
@@ -205,6 +207,10 @@ CAVEAT_TEXT: dict[Caveat, str] = {
     Caveat.CLAIMS_REMOVED: "Some proposed claims were removed because they could not be verified.",
     Caveat.NO_VERIFIED_CLAIMS: "The sources did not support any claim that could be verified.",
     Caveat.SINGLE_DOMAIN: "All verified claims come from one website, so they are not independent.",
+    Caveat.SAME_SITE_SOURCES: (
+        "Some listed sources are different pages of the same website, so they are not "
+        "independent confirmation of each other."
+    ),
 }
 
 _GAP_CAVEAT = {
@@ -607,6 +613,10 @@ class StandardResearch:
             if isinstance(outcome, str):
                 run.failed_reads.append(FailedRead(hit.url, outcome))
                 continue
+            if _final_key(outcome.final_url) in {
+                _final_key(item.source.final_url) for item in run.evidence
+            }:
+                continue  # the same final page (fragment, trailing slash, utm_*) is one source
             source = self._repository.add_source(
                 run.session.id,
                 url=hit.url,
@@ -672,7 +682,10 @@ class StandardResearch:
         manager = CitationManager(self._repository, run.session.id, run.evidence)
         report = manager.verify(proposed, max_claims=min(limits.max_claims_per_round, max(room, 0)))
         run.dropped.extend(report.dropped)
-        if insufficient and not report.verified:
+        only_absence = any(d.reason is DropReason.ABSENCE_STATEMENT for d in report.dropped)
+        if (insufficient or only_absence) and not report.verified:
+            # A "claim" that only says information is missing counts as the model saying the
+            # sources fall short; it never becomes a verified claim.
             run.insufficient_rounds += 1
         kept: list[VerifiedClaim] = []
         for claim in report.verified:
@@ -733,11 +746,12 @@ class StandardResearch:
             raise ResearchFailed(FailureReason.SYNTHESIS_FAILED)
         state = self._search_state(run)
         gaps = find_gaps(state, self._thresholds)
-        caveats = self._caveats(run, gaps)
+        conflict_lines, conflict_sources = self._conflict_lines(run)
+        caveats = self._caveats(run, gaps, conflict_sources)
 
         manager = CitationManager(self._repository, session.id, run.evidence)
-        lines = [manager.render(RESULT_HEADER, run.verified)]
-        conflict_lines = self._conflict_lines(run)
+        # Every source number used anywhere in the text (claims and conflicts) is listed.
+        lines = [manager.render(RESULT_HEADER, run.verified, also_cited=conflict_sources)]
         if conflict_lines:
             lines += [
                 "",
@@ -754,7 +768,9 @@ class StandardResearch:
         run.caveats = list(caveats)
         self._repository.set_result(session.id, text)
 
-    def _caveats(self, run: _Run, gaps: Sequence[Gap]) -> list[Caveat]:
+    def _caveats(
+        self, run: _Run, gaps: Sequence[Gap], conflict_sources: Collection[int] = ()
+    ) -> list[Caveat]:
         caveats: list[Caveat] = []
         if not run.verified:
             caveats.append(Caveat.NO_VERIFIED_CLAIMS)
@@ -764,6 +780,8 @@ class StandardResearch:
             caveats.append(stop)
         if self._single_domain(run):
             caveats.append(Caveat.SINGLE_DOMAIN)
+        elif self._same_site_listed(run, conflict_sources):
+            caveats.append(Caveat.SAME_SITE_SOURCES)
         for caveat in run.caveats:
             if caveat not in caveats:
                 caveats.append(caveat)
@@ -780,6 +798,17 @@ class StandardResearch:
         return len(cited) >= 2 and len(domains) == 1 and None not in domains
 
     @staticmethod
+    def _same_site_listed(run: _Run, conflict_sources: Collection[int]) -> bool:
+        """Two of the listed sources (claims and conflicts) are pages of one registrable domain."""
+        by_index = {item.index: item.source for item in run.evidence}
+        listed = {claim.source_index for claim in run.verified} | set(conflict_sources)
+        domains = [
+            registrable_domain(by_index[i].final_url) for i in sorted(listed) if i in by_index
+        ]
+        known = [d for d in domains if d is not None]
+        return len(known) != len(set(known))
+
+    @staticmethod
     def _caveat_line(run: _Run, caveat: Caveat) -> str:
         text = CAVEAT_TEXT[caveat]
         if caveat is Caveat.READS_FAILED:
@@ -788,7 +817,8 @@ class StandardResearch:
             return f"{len(run.dropped)} claim(s) removed. {text}"
         return text
 
-    def _conflict_lines(self, run: _Run) -> list[str]:
+    def _conflict_lines(self, run: _Run) -> tuple[list[str], set[int]]:
+        """Lines for the open conflicts and the source numbers they refer to."""
         session_id = run.session.id
         claims = {claim.id: claim for claim in self._repository.list_claims(session_id)}
         index_of = {item.source.id: item.index for item in run.evidence}
@@ -803,7 +833,13 @@ class StandardResearch:
             return f'"{shown[:_MAX_CLAIM_CHARS_IN_LINE]}"'
 
         lines: list[str] = []
+        referenced: set[int] = set()
         for conflict in open_conflicts[:_MAX_CONFLICT_LINES]:
+            referenced.update(
+                index_of[source_id]
+                for source_id in (conflict.source_a_id, conflict.source_b_id)
+                if source_id in index_of
+            )
             label = _KIND_LABEL[conflict.kind]
             a = f"{quoted(conflict.claim_a_id)} [{index_of.get(conflict.source_a_id, '?')}]"
             if conflict.claim_b_id is not None:
@@ -814,7 +850,7 @@ class StandardResearch:
                 lines.append(f"- {label}: {a} against the text of source [{other}]")
         if len(open_conflicts) > _MAX_CONFLICT_LINES:
             lines.append(f"- and {len(open_conflicts) - _MAX_CONFLICT_LINES} more")
-        return lines
+        return lines, referenced
 
     # ----- helpers -----
 
@@ -903,3 +939,9 @@ def _already(verified: Sequence[VerifiedClaim], claim: VerifiedClaim) -> bool:
         (v.text, v.source_id, v.quote) == (claim.text, claim.source_id, claim.quote)
         for v in verified
     )
+
+
+def _final_key(url: str) -> str:
+    """Identity of a final URL for 'one source per page': normalised, no trailing slash."""
+    base, mark, query = _url_key(url).partition("?")
+    return base.rstrip("/") + mark + query

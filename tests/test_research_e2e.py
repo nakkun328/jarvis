@@ -578,3 +578,70 @@ def test_chat_with_research_switched_off_just_answers(tmp_path: Path) -> None:
         assert client.get("/api/research/sessions").json() == {"sessions": []}
     assert event["route"] == "main" and "research_skip" not in event
     assert len(provider.chat_requests) == 1
+
+
+# ----- regressions seen in the first real Standard run (source quality) -----
+
+
+def sources_section(detail: dict) -> list[str]:
+    lines = result_lines(detail)
+    start = lines.index("Sources:") + 1
+    return [line for line in lines[start:] if line.startswith("[")]
+
+
+def test_every_source_referenced_in_the_text_is_listed(tmp_path: Path) -> None:
+    # Source 3 carries no claim, but its text contradicts claim 1: the conflict cites [3].
+    pages = {**AGREEING_PAGES, URL_C: foo_page("Foo Cache News", TWO_MIN)}
+    claims = {URL_A: [claim(SIXTY_A)], URL_B: [claim(SIXTY_B)]}
+    with Env(tmp_path, pages=pages, claims=claims) as env:
+        detail = env.run("standard")
+    text = detail["result_text"]
+    assert "against the text of source [3]" in text
+    listed = sources_section(detail)
+    assert [line.split("]")[0] for line in listed] == ["[1", "[2", "[3"]
+    assert URL_C in listed[2]
+
+
+def test_a_statement_that_information_is_missing_is_not_a_verified_claim(tmp_path: Path) -> None:
+    absence = "提供された資料からは価格を確認できません。"
+    claims = {
+        URL_A: [(absence, SIXTY_A), claim(SIXTY_A)],
+        URL_B: [("Price is not specified.", SIXTY_B)],
+    }
+    with Env(tmp_path, search=FakeSearch(AGREEING_HITS[:2]), claims=claims) as env:
+        detail = env.run("standard")
+    assert [c["claim_text"] for c in detail["claims"]] == [SIXTY_A]
+    assert absence not in detail["result_text"] and "not specified" not in detail["result_text"]
+
+
+def test_only_absence_statements_end_as_no_verified_claims_not_a_failure(tmp_path: Path) -> None:
+    claims = {URL_A: [("The price cannot be confirmed from the provided materials.", SIXTY_A)]}
+    with Env(tmp_path, search=FakeSearch(AGREEING_HITS[:1]), claims=claims) as env:
+        detail = env.run("standard")
+    assert detail["claims"] == []
+    assert CAVEAT_TEXT[Caveat.NO_VERIFIED_CLAIMS] in detail["result_text"]
+
+
+def test_the_same_final_page_is_one_source(tmp_path: Path) -> None:
+    hits = [hit(URL_A, "Foo Cache Docs"), hit(URL_A + "/", "Foo Cache Docs again")]
+    pages = {URL_A: AGREEING_PAGES[URL_A], URL_A + "/": AGREEING_PAGES[URL_A]}
+    with Env(
+        tmp_path, search=FakeSearch(hits), pages=pages, claims={URL_A: [claim(SIXTY_A)]}
+    ) as env:
+        detail = env.run("standard")
+    assert len(detail["sources"]) == 1
+
+
+def test_two_listed_pages_of_one_site_get_a_caveat_and_no_mutual_agreement(tmp_path: Path) -> None:
+    urls = ["https://docs.a.test/foo-cache-1", "https://www.a.test/foo-cache-2", URL_C]
+    pages = {u: foo_page(f"Foo Cache {n}", SIXTY_A) for n, u in enumerate(urls)}
+    hits = [hit(u, f"Foo Cache {n}") for n, u in enumerate(urls)]
+    claims = {u: [claim(SIXTY_A)] for u in urls}
+    with Env(tmp_path, search=FakeSearch(hits), pages=pages, claims=claims) as env:
+        detail = env.run("standard")
+    text = detail["result_text"]
+    assert CAVEAT_TEXT[Caveat.SAME_SITE_SOURCES] in text
+    assert CAVEAT_TEXT[Caveat.SINGLE_DOMAIN] not in text
+    same_site = [s for s in detail["sources"] if "a.test" in s["url"]]
+    # Each page of a.test is compared only with the other domain, never with its sibling.
+    assert all(s["evaluation"]["agreement"] == 1.0 for s in same_site)
