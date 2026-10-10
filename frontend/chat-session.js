@@ -26,9 +26,14 @@ export class ChatSession {
   #controller = null;
   #retry = null;
 
-  constructor({ send, view }) {
+  #onConversation;
+
+  // `onConversation(id | null)` is told when the current conversation changes (a completed
+  // reply, or a reset), so the page can remember it across navigation.
+  constructor({ send, view, onConversation = () => {} }) {
     this.#send = send;
     this.#view = view;
+    this.#onConversation = onConversation;
   }
 
   submit(raw) {
@@ -69,6 +74,7 @@ export class ChatSession {
   reset() {
     if (this.busy) return false;
     this.conversationId = null;
+    this.#onConversation(null);
     this.#dropRetry();
     return true;
   }
@@ -101,6 +107,7 @@ export class ChatSession {
         return;
       }
       this.conversationId = result.conversation_id;
+      this.#onConversation(this.conversationId);
       turn.complete(result);
       this.#view.setStatus("");
     } catch (error) {

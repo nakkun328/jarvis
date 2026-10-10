@@ -2,6 +2,7 @@ import { sendChat } from "./chat-api.js";
 import { createActivityView } from "./activity.js";
 import { mountModelSelect } from "./model-select.js";
 import { renderReply } from "./chat-links.js";
+import { createConversationMemory, restoreConversation } from "./chat-restore.js";
 import { ChatSession, MAX_MESSAGE_LENGTH, messageLength } from "./chat-session.js";
 
 const conversation = document.querySelector("#conversation");
@@ -14,18 +15,21 @@ const newChatButton = document.querySelector("#new-chat");
 const status = document.querySelector("#status");
 const counter = document.querySelector("#counter");
 
+function safeStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+const memory = createConversationMemory(safeStorage());
 const activity = createActivityView(document, document.querySelector("#activity"), window);
 
 const modelMount = document.querySelector("#model-select");
 let modelSelect = null;
 void mountModelSelect(document, modelMount, {
-  storage: (() => {
-    try {
-      return window.localStorage;
-    } catch {
-      return null;
-    }
-  })(),
+  storage: safeStorage(),
 }).then((control) => {
   modelSelect = control;
 });
@@ -147,6 +151,7 @@ function beginTurn(text, onRetry) {
 }
 
 const session = new ChatSession({
+  onConversation: (id) => (id ? memory.set(id) : memory.clear()),
   send: (options) =>
     sendChat({
       ...options,
@@ -215,8 +220,23 @@ stopButton.addEventListener("click", () => session.stop());
 
 newChatButton.addEventListener("click", () => {
   if (!session.reset()) return;
+  memory.clear();
   conversation.replaceChildren(welcome);
   activity.reset();
   setStatus("");
   input.focus();
+});
+
+void restoreConversation({
+  memory,
+  session,
+  view: {
+    setStatus,
+    showHistory(messages) {
+      for (const message of messages) {
+        const created = createMessage(message.role, message.content);
+        if (message.role === "assistant") renderReply(document, created.content, message.content);
+      }
+    },
+  },
 });

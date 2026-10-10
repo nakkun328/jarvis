@@ -62,6 +62,12 @@ class ConversationStore:
             async with self._lock:
                 conversation.active_requests -= 1
 
+    async def history(self, conversation_id: UUID) -> list[ChatMessage] | None:
+        """Read-only copy of the retained messages, or None when the conversation is unknown."""
+        async with self._lock:
+            conversation = self._conversations.get(conversation_id)
+        return None if conversation is None else list(conversation.messages)
+
     async def remember(
         self, conversation_id: UUID, conversation: Conversation, user: str, assistant: str
     ) -> None:
