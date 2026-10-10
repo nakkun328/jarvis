@@ -1,0 +1,14 @@
+/* Devices screen. Builds on shell.css (palette, header, shared components). No inline styles are used. */
+.devices-main { width: min(100%, 760px); margin: 0 auto; padding: 1rem 1rem 3rem; flex: 1; display: grid; gap: .75rem; align-content: start; }
+.devices-main h1 { margin: 0; font-size: 1.25rem; font-weight: 650; }
+.devices-main h2 { margin: 0 0 .5rem; font-size: 1.02rem; font-weight: 650; }
+.list-status { min-height: 1.2rem; margin: 0; color: var(--text-muted); font-size: .85rem; }
+.device-card { padding: .85rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface-card); }
+.device-fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .25rem .75rem; margin: 0; font-size: .85rem; }
+.device-fields dt { color: var(--text-muted); overflow-wrap: anywhere; }
+.device-fields dd { margin: 0; color: var(--text-soft); overflow-wrap: anywhere; }
+.not-connected { margin: 0; color: var(--text-muted); font-size: .85rem; }
+
+@media (max-width: 480px) {
+  .device-fields { grid-template-columns: minmax(0, 1fr); }
+}

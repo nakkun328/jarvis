@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 10
 _HISTORY_MISMATCH = "SQLite schema version and migration history disagree"
 
 
@@ -188,10 +188,273 @@ class Database:
                         )
                         self._record_migration(connection, 5)
                         connection.execute("PRAGMA user_version = 5")
+                    if version < 6:
+                        self._create_research_tables(connection)
+                        self._record_migration(connection, 6)
+                        connection.execute("PRAGMA user_version = 6")
+                    if version < 7:
+                        self._create_task_tables(connection)
+                        self._record_migration(connection, 7)
+                        connection.execute("PRAGMA user_version = 7")
+                    if version < 8:
+                        self._extend_research_tables(connection)
+                        self._record_migration(connection, 8)
+                        connection.execute("PRAGMA user_version = 8")
+                    if version < 9:
+                        self._create_approval_tables(connection)
+                        self._record_migration(connection, 9)
+                        connection.execute("PRAGMA user_version = 9")
+                    if version < 10:
+                        self._add_research_reuse_columns(connection)
+                        self._record_migration(connection, 10)
+                        connection.execute("PRAGMA user_version = 10")
                     if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
                         raise DatabaseError("SQLite foreign key check failed during migration")
         except (OSError, sqlite3.Error) as exc:
             raise DatabaseError(f"Could not initialize SQLite database at {self.path}") from exc
+
+    @staticmethod
+    def _create_research_tables(connection: sqlite3.Connection) -> None:
+        """v6: research sessions, planned queries, sources, and cited claims."""
+        connection.execute(
+            "CREATE TABLE research_sessions ("
+            "id TEXT PRIMARY KEY, "
+            "question TEXT NOT NULL CHECK(length(question) BETWEEN 1 AND 2000), "
+            "level TEXT NOT NULL CHECK(level IN "
+            "('memory', 'quick', 'standard', 'deep', 'extensive')), "
+            "status TEXT NOT NULL CHECK(status IN "
+            "('pending', 'running', 'waiting', 'failed', 'completed', 'cancelled')), "
+            "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, "
+            "result_text TEXT CHECK(result_text IS NULL OR length(result_text) <= 50000), "
+            "failure_reason TEXT CHECK(failure_reason IS NULL OR failure_reason IN "
+            "('search_failed', 'no_results', 'reader_failed', 'synthesis_failed', "
+            "'timeout', 'budget_exceeded', 'internal_error')), "
+            "CHECK (result_text IS NULL OR status = 'completed'), "
+            "CHECK ((failure_reason IS NOT NULL) = (status = 'failed')))"
+        )
+        connection.execute(
+            "CREATE INDEX research_sessions_by_status ON research_sessions(status, created_at)"
+        )
+        connection.execute(
+            "CREATE TABLE research_queries ("
+            "id TEXT PRIMARY KEY, "
+            "session_id TEXT NOT NULL REFERENCES research_sessions(id) ON DELETE CASCADE, "
+            "text TEXT NOT NULL CHECK(length(text) BETWEEN 1 AND 500), "
+            "position INTEGER NOT NULL CHECK(position >= 0), "
+            "created_at TEXT NOT NULL, "
+            "UNIQUE (session_id, position))"
+        )
+        connection.execute(
+            "CREATE TABLE research_sources ("
+            "id TEXT PRIMARY KEY, "
+            "session_id TEXT NOT NULL REFERENCES research_sessions(id) ON DELETE CASCADE, "
+            "url TEXT NOT NULL CHECK(length(url) BETWEEN 1 AND 2048), "
+            "final_url TEXT NOT NULL CHECK(length(final_url) BETWEEN 1 AND 2048), "
+            "title TEXT, publisher TEXT, published_at TEXT, retrieved_at TEXT NOT NULL, "
+            "content_digest TEXT NOT NULL CHECK(length(content_digest) = 64), "
+            "source_type TEXT NOT NULL CHECK(source_type IN "
+            "('official', 'docs', 'academic', 'news', 'community', 'blog', 'forum', "
+            "'unknown')), "
+            "authority REAL CHECK(authority IS NULL OR authority BETWEEN 0 AND 1), "
+            "freshness REAL CHECK(freshness IS NULL OR freshness BETWEEN 0 AND 1), "
+            "is_primary REAL CHECK(is_primary IS NULL OR is_primary BETWEEN 0 AND 1), "
+            "relevance REAL CHECK(relevance IS NULL OR relevance BETWEEN 0 AND 1), "
+            "agreement REAL CHECK(agreement IS NULL OR agreement BETWEEN 0 AND 1), "
+            "UNIQUE (session_id, final_url, content_digest), "
+            "UNIQUE (session_id, id))"
+        )
+        connection.execute(
+            "CREATE TABLE research_claims ("
+            "id TEXT PRIMARY KEY, "
+            "session_id TEXT NOT NULL REFERENCES research_sessions(id) ON DELETE CASCADE, "
+            "claim_text TEXT NOT NULL CHECK(length(claim_text) BETWEEN 1 AND 2000), "
+            "source_id TEXT NOT NULL, "
+            "quote TEXT NOT NULL CHECK(length(quote) BETWEEN 1 AND 500), "
+            "quote_start INTEGER CHECK(quote_start IS NULL OR quote_start >= 0), "
+            "quote_end INTEGER CHECK(quote_end IS NULL OR quote_end >= 0), "
+            "CHECK ((quote_start IS NULL) = (quote_end IS NULL)), "
+            "CHECK (quote_start IS NULL OR quote_start < quote_end), "
+            "FOREIGN KEY (session_id, source_id) "
+            "REFERENCES research_sources(session_id, id) ON DELETE CASCADE)"
+        )
+        connection.execute("CREATE INDEX research_claims_by_session ON research_claims(session_id)")
+        connection.execute("CREATE INDEX research_claims_by_source ON research_claims(source_id)")
+
+    @staticmethod
+    def _add_research_reuse_columns(connection: sqlite3.Connection) -> None:
+        """v10 (additive): the past-research reuse decision of a session.
+
+        All three columns are nullable, so every existing session stays valid with "no
+        decision recorded". ``reuse_of`` points at the earlier session that was reused, or
+        shown as the stale previous result; deleting that session clears the pointer.
+        """
+        connection.execute(
+            "ALTER TABLE research_sessions ADD COLUMN reuse_reason TEXT "
+            "CHECK(reuse_reason IS NULL OR reuse_reason IN "
+            "('reused_fresh', 'no_prior_research', 'prior_stale', 'time_sensitive_topic'))"
+        )
+        connection.execute(
+            "ALTER TABLE research_sessions ADD COLUMN reuse_of TEXT "
+            "REFERENCES research_sessions(id) ON DELETE SET NULL"
+        )
+        connection.execute("ALTER TABLE research_sessions ADD COLUMN reuse_prior_at TEXT")
+
+    @staticmethod
+    def _extend_research_tables(connection: sqlite3.Connection) -> None:
+        """v8 (additive): how a source type was decided, rating reason codes, conflicts.
+
+        Existing rows stay valid: the new source columns are nullable and a v7 source simply
+        has no recorded rule or reasons.
+        """
+        connection.execute(
+            "ALTER TABLE research_sources ADD COLUMN classification_rule TEXT "
+            "CHECK(classification_rule IS NULL OR length(classification_rule) BETWEEN 1 AND 64)"
+        )
+        connection.execute(
+            "ALTER TABLE research_sources ADD COLUMN classification_basis TEXT "
+            "CHECK(classification_basis IS NULL OR classification_basis IN "
+            "('host', 'path', 'title', 'default', 'provided'))"
+        )
+        connection.execute(
+            "CREATE TABLE research_source_reasons ("
+            "source_id TEXT NOT NULL REFERENCES research_sources(id) ON DELETE CASCADE, "
+            "rating TEXT NOT NULL CHECK(rating IN "
+            "('authority', 'freshness', 'relevance', 'agreement')), "
+            "position INTEGER NOT NULL CHECK(position BETWEEN 0 AND 3), "
+            "reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 64 "
+            "AND reason NOT GLOB '*[^a-z_]*'), "
+            "PRIMARY KEY (source_id, rating, position))"
+        )
+        # A unique index on (session_id, id) lets conflicts reference claims of the same session.
+        connection.execute(
+            "CREATE UNIQUE INDEX research_claims_by_session_id ON research_claims(session_id, id)"
+        )
+        connection.execute(
+            "CREATE TABLE research_conflicts ("
+            "id TEXT PRIMARY KEY, "
+            "session_id TEXT NOT NULL REFERENCES research_sessions(id) ON DELETE CASCADE, "
+            "kind TEXT NOT NULL CHECK(kind IN "
+            "('number_mismatch', 'date_mismatch', 'negation_mismatch')), "
+            "claim_a_id TEXT NOT NULL, source_a_id TEXT NOT NULL, "
+            "claim_b_id TEXT, source_b_id TEXT NOT NULL, "
+            "status TEXT NOT NULL CHECK(status IN ('open', 'resolved')), "
+            "resolution TEXT CHECK(resolution IS NULL OR resolution IN "
+            "('both_reported', 'first_preferred', 'second_preferred', 'not_a_conflict')), "
+            "detected_at TEXT NOT NULL, resolved_at TEXT, "
+            "CHECK ((status = 'resolved') = (resolution IS NOT NULL)), "
+            "CHECK ((status = 'resolved') = (resolved_at IS NOT NULL)), "
+            "CHECK (claim_b_id IS NULL OR claim_b_id <> claim_a_id), "
+            "CHECK (source_a_id <> source_b_id), "
+            "FOREIGN KEY (session_id, claim_a_id) "
+            "REFERENCES research_claims(session_id, id) ON DELETE CASCADE, "
+            "FOREIGN KEY (session_id, claim_b_id) "
+            "REFERENCES research_claims(session_id, id) ON DELETE CASCADE, "
+            "FOREIGN KEY (session_id, source_a_id) "
+            "REFERENCES research_sources(session_id, id) ON DELETE CASCADE, "
+            "FOREIGN KEY (session_id, source_b_id) "
+            "REFERENCES research_sources(session_id, id) ON DELETE CASCADE)"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX research_conflicts_unique ON research_conflicts("
+            "claim_a_id, COALESCE(claim_b_id, ''), source_b_id, kind)"
+        )
+        connection.execute(
+            "CREATE INDEX research_conflicts_by_session ON research_conflicts(session_id, status)"
+        )
+
+    @staticmethod
+    def _create_approval_tables(connection: sqlite3.Connection) -> None:
+        """v9: human approvals for tool calls that need confirmation.
+
+        See docs/tool-confirmation.md.
+
+        A row binds one decision to one tool name and the SHA-256 of the normalized arguments.
+        `consumed_at` is write-once; the trigger refuses every change that would let a decided
+        row be re-decided, re-bound to other arguments, or consumed twice.
+        """
+        connection.execute(
+            "CREATE TABLE tool_approvals ("
+            "id TEXT PRIMARY KEY, "
+            "tool_name TEXT NOT NULL CHECK(length(tool_name) BETWEEN 1 AND 64), "
+            "args_digest TEXT NOT NULL CHECK(length(args_digest) = 64), "
+            "summary TEXT NOT NULL CHECK(length(summary) <= 4000), "
+            "state TEXT NOT NULL CHECK(state IN ('pending', 'approved', 'denied', 'expired')), "
+            "requested_at TEXT NOT NULL, expires_at TEXT NOT NULL, "
+            "resolved_at TEXT, consumed_at TEXT, "
+            "CHECK ((resolved_at IS NOT NULL) = (state IN ('approved', 'denied'))), "
+            "CHECK (consumed_at IS NULL OR state = 'approved'))"
+        )
+        connection.execute(
+            "CREATE INDEX tool_approvals_by_state ON tool_approvals(state, expires_at)"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX tool_approvals_one_pending ON "
+            "tool_approvals(tool_name, args_digest) WHERE state = 'pending'"
+        )
+        connection.execute(
+            "CREATE TRIGGER tool_approvals_final_once_resolved BEFORE UPDATE ON tool_approvals "
+            "WHEN NEW.id != OLD.id OR NEW.tool_name != OLD.tool_name "
+            "OR NEW.args_digest != OLD.args_digest OR NEW.requested_at != OLD.requested_at "
+            "OR NEW.expires_at != OLD.expires_at "
+            "OR (OLD.state != 'pending' AND NEW.state != OLD.state) "
+            "OR (OLD.consumed_at IS NOT NULL AND NEW.consumed_at IS NOT OLD.consumed_at) "
+            "BEGIN SELECT RAISE(ABORT, 'approval is final'); END"
+        )
+
+    @staticmethod
+    def _create_task_tables(connection: sqlite3.Connection) -> None:
+        """v7: durable tasks and their steps."""
+        connection.execute(
+            "CREATE TABLE tasks ("
+            "id TEXT PRIMARY KEY, "
+            "goal TEXT NOT NULL CHECK(length(goal) BETWEEN 1 AND 2000), "
+            "target_device TEXT CHECK(target_device IS NULL "
+            "OR length(target_device) BETWEEN 1 AND 100), "
+            "status TEXT NOT NULL CHECK(status IN "
+            "('pending', 'running', 'waiting', 'failed', 'completed', 'cancelled')), "
+            "current_step INTEGER CHECK(current_step IS NULL OR current_step >= 0), "
+            "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, "
+            "started_at TEXT, finished_at TEXT, "
+            "result_summary TEXT CHECK(result_summary IS NULL "
+            "OR length(result_summary) BETWEEN 1 AND 4000), "
+            "failure_code TEXT CHECK(failure_code IS NULL OR failure_code IN "
+            "('execution_failed', 'verification_failed', 'timeout', 'interrupted', "
+            "'internal_error')), "
+            "waiting_reason TEXT CHECK(waiting_reason IS NULL OR waiting_reason IN "
+            "('needs_confirmation', 'needs_input', 'dependency')), "
+            "attempt INTEGER NOT NULL DEFAULT 1 CHECK(attempt BETWEEN 1 AND 10), "
+            "verified TEXT NOT NULL DEFAULT 'not_verified' CHECK(verified IN "
+            "('not_verified', 'verified', 'verification_failed')), "
+            "retry_of TEXT REFERENCES tasks(id), "
+            "CHECK ((failure_code IS NOT NULL) = (status = 'failed')), "
+            "CHECK ((waiting_reason IS NOT NULL) = (status = 'waiting')), "
+            "CHECK ((result_summary IS NOT NULL) = (status = 'completed')), "
+            "CHECK (status != 'completed' OR verified = 'verified'), "
+            "CHECK ((finished_at IS NOT NULL) = "
+            "(status IN ('failed', 'completed', 'cancelled'))), "
+            "CHECK (status IN ('pending', 'cancelled') OR started_at IS NOT NULL), "
+            "CHECK (retry_of IS NULL OR attempt > 1))"
+        )
+        connection.execute("CREATE INDEX tasks_by_status ON tasks(status, created_at)")
+        connection.execute(
+            "CREATE UNIQUE INDEX tasks_by_retry_of ON tasks(retry_of) WHERE retry_of IS NOT NULL"
+        )
+        connection.execute(
+            "CREATE TRIGGER tasks_terminal_is_immutable BEFORE UPDATE ON tasks "
+            "WHEN OLD.status IN ('failed', 'completed', 'cancelled') "
+            "BEGIN SELECT RAISE(ABORT, 'task is finished'); END"
+        )
+        connection.execute(
+            "CREATE TABLE task_steps ("
+            "task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, "
+            "step_index INTEGER NOT NULL CHECK(step_index >= 0), "
+            "description TEXT NOT NULL CHECK(length(description) BETWEEN 1 AND 500), "
+            "status TEXT NOT NULL CHECK(status IN "
+            "('pending', 'running', 'completed', 'failed', 'skipped', 'cancelled')), "
+            "started_at TEXT, finished_at TEXT, "
+            "note TEXT CHECK(note IS NULL OR length(note) BETWEEN 1 AND 500), "
+            "PRIMARY KEY (task_id, step_index))"
+        )
 
     def is_ready(self) -> bool:
         try:

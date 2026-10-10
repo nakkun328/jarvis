@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<title>JSON-LD Article</title>
+<script type="application/ld+json">
+{"@context": "https://schema.org",
+ "@graph": [
+  {"@type": "WebSite", "name": "Example Site"},
+  {"@type": "NewsArticle", "headline": "JSON-LD Article",
+   "author": [{"@type": "Person", "name": "First Author"}, {"@type": "Person", "name": "Second Author"}],
+   "datePublished": "2023-12-31T23:30:00-05:00"}
+ ]}
+</script>
+<script>var ignored = "SCRIPT-IGNORED";</script>
+</head>
+<body><article><h1>JSON-LD Article</h1><p>Body text of the article.</p></article>
+<time datetime="2019-01-01">An unrelated time element</time></body>
+</html>

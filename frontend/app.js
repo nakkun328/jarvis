@@ -1,15 +1,38 @@
-import { ChatError, sendChat } from "./chat-api.js";
+import { sendChat } from "./chat-api.js";
+import { createActivityView } from "./activity.js";
+import { mountModelSelect } from "./model-select.js";
+import { renderReply } from "./chat-links.js";
+import { ChatSession, MAX_MESSAGE_LENGTH, messageLength } from "./chat-session.js";
 
 const conversation = document.querySelector("#conversation");
 const welcome = document.querySelector("#welcome");
 const form = document.querySelector("#chat-form");
 const input = document.querySelector("#message");
 const sendButton = document.querySelector("#send");
+const stopButton = document.querySelector("#stop");
 const newChatButton = document.querySelector("#new-chat");
 const status = document.querySelector("#status");
+const counter = document.querySelector("#counter");
 
-let conversationId = null;
-let busy = false;
+const activity = createActivityView(document, document.querySelector("#activity"), window);
+
+const modelMount = document.querySelector("#model-select");
+let modelSelect = null;
+void mountModelSelect(document, modelMount, {
+  storage: (() => {
+    try {
+      return window.localStorage;
+    } catch {
+      return null;
+    }
+  })(),
+}).then((control) => {
+  modelSelect = control;
+});
+
+const PENDING_TEXT = "考えています…";
+const COUNTER_FROM = 3600;
+let limitNoticeShown = false;
 
 function setStatus(message, error = false) {
   status.textContent = message;
@@ -20,7 +43,7 @@ function scrollToLatest() {
   window.scrollTo(0, document.documentElement.scrollHeight);
 }
 
-function addMessage(role, text = "") {
+function createMessage(role, text) {
   welcome.remove();
   const item = document.createElement("article");
   item.className = `message message-${role}`;
@@ -42,77 +65,158 @@ function addMessage(role, text = "") {
   return { item, body, content };
 }
 
-function setBusy(value) {
-  busy = value;
-  sendButton.disabled = value;
-  newChatButton.disabled = value;
-  conversation.setAttribute("aria-busy", String(value));
+// One user message plus the assistant reply slot that answers it. Retry reuses the same slot.
+function beginTurn(text, onRetry) {
+  createMessage("user", text);
+  const assistant = createMessage("assistant", PENDING_TEXT);
+  assistant.item.classList.add("message-pending");
+  let extras = [];
+  let retryButton = null;
+
+  function clearExtras() {
+    for (const element of extras) element.remove();
+    extras = [];
+    retryButton = null;
+    assistant.item.classList.remove("message-error", "message-aborted");
+  }
+
+  return {
+    showText(full) {
+      assistant.item.classList.remove("message-pending");
+      renderReply(document, assistant.content, full);
+      scrollToLatest();
+    },
+    complete({ provider, model }) {
+      activity.settle("done");
+      assistant.item.classList.remove("message-pending");
+      if (typeof provider === "string" && typeof model === "string") {
+        const meta = document.createElement("div");
+        meta.className = "message-meta";
+        meta.textContent = `${provider} · ${model}`;
+        assistant.body.append(meta);
+        extras.push(meta);
+      }
+      scrollToLatest();
+    },
+    // Text received before a failure is shown as an unsaved partial, never as the reply.
+    fail({ message, partial, kind, retryable }) {
+      activity.settle(kind === "aborted" ? "cancelled" : "error");
+      assistant.item.classList.remove("message-pending");
+      assistant.item.classList.add(kind === "aborted" ? "message-aborted" : "message-error");
+      if (partial) {
+        assistant.content.textContent = partial;
+        assistant.content.classList.add("message-partial");
+        const tag = document.createElement("div");
+        tag.className = "message-tag";
+        tag.textContent = "途中まで受信した内容です（未完了・保存されていません）";
+        assistant.body.insertBefore(tag, assistant.content);
+        extras.push(tag);
+      } else {
+        assistant.content.textContent = "";
+      }
+      const note = document.createElement("div");
+      note.className = "message-note";
+      note.setAttribute("role", "alert");
+      note.textContent = message;
+      assistant.body.append(note);
+      extras.push(note);
+      if (retryable) {
+        retryButton = document.createElement("button");
+        retryButton.type = "button";
+        retryButton.className = "retry";
+        retryButton.textContent = "再試行";
+        retryButton.addEventListener("click", onRetry);
+        assistant.body.append(retryButton);
+        extras.push(retryButton);
+      }
+      scrollToLatest();
+    },
+    reset() {
+      activity.begin();
+      clearExtras();
+      assistant.content.classList.remove("message-partial");
+      assistant.content.textContent = PENDING_TEXT;
+      assistant.item.classList.add("message-pending");
+    },
+    clearRetry() {
+      retryButton?.remove();
+      extras = extras.filter((element) => element !== retryButton);
+      retryButton = null;
+    },
+  };
 }
 
-async function submitMessage() {
-  if (busy) return;
-  const message = input.value.trim();
-  if (!message) return;
+const session = new ChatSession({
+  send: (options) =>
+    sendChat({
+      ...options,
+      modelChoice: modelSelect?.value ?? null,
+      onActivity: (data) => activity.handle(data),
+    }),
+  view: {
+    setStatus,
+    clearInput() {
+      input.value = "";
+      resizeInput();
+    },
+    beginTurn: (text) => {
+      activity.begin();
+      return beginTurn(text, () => session.retry());
+    },
+    setBusy(value) {
+      sendButton.disabled = value;
+      newChatButton.disabled = value;
+      modelSelect?.setDisabled(value);
+      stopButton.hidden = !value;
+      conversation.setAttribute("aria-busy", String(value));
+      if (!value) input.focus();
+    },
+  },
+});
 
-  input.value = "";
-  input.style.height = "";
-  addMessage("user", message);
-  const assistant = addMessage("assistant", "考えています…");
-  let reply = "";
-  setBusy(true);
-  setStatus("JARVIS が応答しています…");
+function resizeInput() {
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, 176)}px`;
+  if (!input.value) input.style.height = "";
+  updateCounter();
+}
 
-  try {
-    const result = await sendChat({
-      message,
-      conversationId,
-      onDelta(text) {
-        reply += text;
-        assistant.content.textContent = reply;
-        scrollToLatest();
-      },
-    });
-    conversationId = result.conversation_id;
-    if (!reply) assistant.content.textContent = "応答がありませんでした。";
-    if (typeof result.provider === "string" && typeof result.model === "string") {
-      const meta = document.createElement("div");
-      meta.className = "message-meta";
-      meta.textContent = `${result.provider} · ${result.model}`;
-      assistant.body.append(meta);
-    }
+function updateCounter() {
+  const length = messageLength(input.value);
+  counter.hidden = length < COUNTER_FROM;
+  counter.textContent = `${length.toLocaleString("en-US")} / ${MAX_MESSAGE_LENGTH.toLocaleString("en-US")}`;
+  counter.classList.toggle("limit", length >= MAX_MESSAGE_LENGTH);
+  // Browsers truncate pasted text at maxlength without telling the user.
+  if (input.value.length >= input.maxLength) {
+    limitNoticeShown = true;
+    setStatus(`${MAX_MESSAGE_LENGTH.toLocaleString("en-US")} 文字の上限です。超えた分は入力されません。`, true);
+  } else if (limitNoticeShown) {
+    limitNoticeShown = false;
     setStatus("");
-  } catch (error) {
-    assistant.item.classList.add("message-error");
-    const explanation = error instanceof ChatError ? error.message : "通信に失敗しました。接続を確認してください。";
-    assistant.content.textContent = reply ? `${reply}\n\n${explanation}` : explanation;
-    setStatus("応答を完了できませんでした。", true);
-  } finally {
-    setBusy(false);
-    input.focus();
-    scrollToLatest();
   }
 }
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
-  void submitMessage();
+  session.submit(input.value);
 });
 
 input.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+  // keyCode 229 covers Safari, which reports IME confirmation Enter with isComposing false.
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
     event.preventDefault();
     form.requestSubmit();
   }
 });
 
-input.addEventListener("input", () => {
-  input.style.height = "auto";
-  input.style.height = `${Math.min(input.scrollHeight, 176)}px`;
-});
+input.addEventListener("input", resizeInput);
+
+stopButton.addEventListener("click", () => session.stop());
 
 newChatButton.addEventListener("click", () => {
-  conversationId = null;
+  if (!session.reset()) return;
   conversation.replaceChildren(welcome);
+  activity.reset();
   setStatus("");
   input.focus();
 });

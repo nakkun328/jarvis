@@ -1,23 +1,23 @@
 """Chat HTTP and SSE endpoints."""
 
 import json
-import logging
 from contextlib import aclosing
+from typing import Annotated
 from uuid import UUID
 
 from anyio import CancelScope
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.types import Receive, Scope, Send
 
+from backend.chat.activity import ActivityEvent
 from backend.chat.context import ConversationCapacityError, ConversationNotFound
 from backend.chat.memory_context import MemoryContextError
 from backend.chat.persistence import ConversationStorageError
 from backend.chat.service import ChatDelta, ChatService
 from backend.providers.base import ProviderError
-
-_LOG = logging.getLogger(__name__)
+from backend.providers.choices import ModelUnavailable, UnknownModelChoice
 
 
 class _ClosingStreamingResponse(StreamingResponse):
@@ -33,6 +33,9 @@ class _ClosingStreamingResponse(StreamingResponse):
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     conversation_id: UUID | None = None
+    # Exactly one entry of the server's JARVIS_MODEL_CHOICES allowlist, or absent for the
+    # default model. Validated strictly in ``check_model``; never forwarded as given.
+    model_choice: str | None = Field(default=None, max_length=100)
 
 
 class ChatResponse(BaseModel):
@@ -42,7 +45,12 @@ class ChatResponse(BaseModel):
     model: str
 
 
-def _sse(event: str, data: dict[str, str]) -> str:
+# A client opts in to `activity` SSE events by sending this header with the value "1". Without
+# it the stream is exactly the delta/done/error stream it always was.
+ACTIVITY_HEADER = "X-Jarvis-Activity"
+
+
+def _sse(event: str, data: dict[str, str | int | bool]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
@@ -58,24 +66,33 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
         if not request.message.strip():
             raise HTTPException(status_code=422, detail="message must contain text")
 
+    def check_model(chat_service: ChatService, request: ChatRequest) -> None:
+        """Refuse a bad choice with a fixed 400/503 before anything (a stream, a provider)."""
+        try:
+            chat_service.provider_for(request.model_choice)
+        except UnknownModelChoice:
+            raise HTTPException(status_code=400, detail="unknown model choice") from None
+        except ModelUnavailable:
+            raise HTTPException(status_code=503, detail="model choice unavailable") from None
+
     @router.post("/api/chat", response_model=ChatResponse)
     async def chat(request: ChatRequest) -> ChatResponse:
         validate_message(request)
         chat_service = require_service()
+        check_model(chat_service, request)
         try:
-            result = await chat_service.complete(request.message, request.conversation_id)
+            result = await chat_service.complete(
+                request.message, request.conversation_id, model_choice=request.model_choice
+            )
         except ConversationNotFound as exc:
             raise HTTPException(status_code=404, detail="conversation not found") from exc
         except ConversationCapacityError as exc:
             raise HTTPException(status_code=503, detail="conversation capacity reached") from exc
         except ConversationStorageError as exc:
-            _LOG.warning("Conversation storage failed: %s", type(exc).__name__)
             raise HTTPException(status_code=503, detail="conversation storage unavailable") from exc
         except MemoryContextError as exc:
-            _LOG.warning("Memory context failed: %s", type(exc).__name__)
             raise HTTPException(status_code=503, detail="memory context unavailable") from exc
         except ProviderError as exc:
-            _LOG.warning("Chat provider failed: %s", type(exc).__name__)
             raise HTTPException(status_code=502, detail="chat provider failed") from exc
         return ChatResponse(
             conversation_id=result.conversation_id,
@@ -85,17 +102,33 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
         )
 
     @router.post("/api/chat/stream")
-    async def stream_chat(request: ChatRequest) -> StreamingResponse:
+    async def stream_chat(
+        request: ChatRequest,
+        x_jarvis_activity: Annotated[str | None, Header(alias=ACTIVITY_HEADER)] = None,
+    ) -> StreamingResponse:
         validate_message(request)
         chat_service = require_service()
+        check_model(chat_service, request)
+        with_activity = x_jarvis_activity == "1"
 
         async def events():
             try:
+                turn = (
+                    chat_service.stream_with_activity
+                    if with_activity
+                    else chat_service.stream
+                )
                 async with aclosing(
-                    chat_service.stream(request.message, request.conversation_id)
+                    turn(
+                        request.message,
+                        request.conversation_id,
+                        model_choice=request.model_choice,
+                    )
                 ) as items:
                     async for item in items:
-                        if isinstance(item, ChatDelta):
+                        if isinstance(item, ActivityEvent):
+                            yield _sse("activity", item.to_payload())
+                        elif isinstance(item, ChatDelta):
                             yield _sse("delta", {"text": item.text})
                         else:
                             yield _sse(
@@ -110,14 +143,11 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
                 yield _sse("error", {"message": "conversation not found"})
             except ConversationCapacityError:
                 yield _sse("error", {"message": "conversation capacity reached"})
-            except ConversationStorageError as exc:
-                _LOG.warning("Conversation storage stream failed: %s", type(exc).__name__)
+            except ConversationStorageError:
                 yield _sse("error", {"message": "conversation storage unavailable"})
-            except MemoryContextError as exc:
-                _LOG.warning("Memory context stream failed: %s", type(exc).__name__)
+            except MemoryContextError:
                 yield _sse("error", {"message": "memory context unavailable"})
-            except ProviderError as exc:
-                _LOG.warning("Chat provider stream failed: %s", type(exc).__name__)
+            except ProviderError:
                 yield _sse("error", {"message": "chat provider failed"})
 
         return _ClosingStreamingResponse(

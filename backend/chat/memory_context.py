@@ -3,6 +3,14 @@
 import asyncio
 import json
 
+from backend.memory.auto_approval import (
+    CONTEXT_LABEL_AUTO,
+    CONTEXT_LABEL_CHAT,
+    CONTEXT_LABEL_CHAT_AUTO,
+    CONTEXT_LABEL_RESEARCH,
+    is_auto_approved,
+)
+from backend.memory.model import MemoryOrigin, MemoryRecord
 from backend.memory.repository import MemoryRepositoryError, MemoryStatus
 from backend.memory.retrieval import MemoryRetriever, RetrievalResult
 
@@ -10,6 +18,20 @@ _MAX_MATCHES = 3
 _MAX_CONTENT = 500
 _MAX_SOURCE = 200
 _MAX_CONTEXT = 2400
+
+
+def rendered_note_count(rendered: str | None) -> int:
+    """How many notes a rendered memory reference holds (0 when nothing matched).
+
+    Activity events carry only this number, never the notes themselves.
+    """
+    if not rendered:
+        return 0
+    try:
+        items = json.loads(rendered)
+    except ValueError:
+        return 0
+    return len(items) if isinstance(items, list) else 0
 
 
 class MemoryContextError(RuntimeError):
@@ -25,14 +47,33 @@ class MemoryContext:
             result = await asyncio.to_thread(self._verified_search, query)
         except (MemoryRepositoryError, OSError, TypeError, ValueError) as exc:
             raise MemoryContextError("Memory retrieval unavailable") from exc
+        return self._render_result(result)
+
+    def _research_label(self, record: MemoryRecord) -> str:
+        """A fixed label in front of research- or chat-derived text (web text, or a fact a system
+        extracted from the owner's own message), so a model reads it as lower-trust."""
+        labels = {
+            MemoryOrigin.RESEARCH: (CONTEXT_LABEL_AUTO, CONTEXT_LABEL_RESEARCH),
+            MemoryOrigin.CHAT: (CONTEXT_LABEL_CHAT_AUTO, CONTEXT_LABEL_CHAT),
+        }.get(record.origin)
+        if labels is None:
+            return ""
+        try:
+            auto = is_auto_approved(self.retriever.repository, record.id, record.origin)
+        except (MemoryRepositoryError, ValueError) as exc:
+            raise MemoryContextError("Memory approval history unavailable") from exc
+        return (labels[0] if auto else labels[1]) + " "
+
+    def _render_result(self, result: RetrievalResult) -> str | None:
         if result.issues:
             raise MemoryContextError("An approved memory note could not be verified")
         if not result.matches:
             return None
 
         items: list[dict[str, object]] = []
-        for match in result.matches:
+        for match in result.matches[:_MAX_MATCHES]:
             record = match.record
+            label = self._research_label(record)
             item: dict[str, object] = {
                 "id": str(record.id),
                 "category": record.category.value,
@@ -41,7 +82,7 @@ class MemoryContext:
                 "origin": record.origin.value,
                 "importance": record.importance,
                 "confidence": record.confidence,
-                "content": record.content[:_MAX_CONTENT],
+                "content": label + record.content[:_MAX_CONTENT],
                 "content_truncated": len(record.content) > _MAX_CONTENT,
                 "stale": match.stale,
                 "edited_since_approval": match.edited_since_approval,

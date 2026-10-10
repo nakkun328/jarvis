@@ -61,9 +61,19 @@ def verify(args: argparse.Namespace) -> int:
     output.mkdir(parents=True, exist_ok=False)
     print(f"Verification output: {output}", flush=True)
     environment = dict(os.environ)
-    for key in ("OPENAI_API_KEY", "GEMINI_API_KEY", "JARVIS_MEMORY_VAULT_PATH"):
+    for key in (
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GROQ_API_KEY",
+        "JARVIS_SEARCH_API_KEY",
+        "JARVIS_MEMORY_VAULT_PATH",
+    ):
         environment.pop(key, None)
-    environment.update(JARVIS_LLM_PROVIDER="none", JARVIS_DB_PATH=str(output / "test.sqlite3"))
+    environment.update(
+        JARVIS_LLM_PROVIDER="none",
+        JARVIS_SEARCH_PROVIDER="none",
+        JARVIS_DB_PATH=str(output / "test.sqlite3"),
+    )
     result = {
         "run_id": run_id,
         "started_at": datetime.now(UTC).isoformat(),
@@ -86,7 +96,8 @@ def verify(args: argparse.Namespace) -> int:
             ("ruff", [args.python, "-m", "ruff", "check", "."]),
             ("compileall", [args.python, "-m", "compileall", "-q", "backend", "tests", "scripts"]),
             ("frontend", [args.node, "--test", "--test-reporter=junit",
-                          "frontend/test/chat-api.test.mjs"]),
+                          *[str(path.relative_to(repo)) for path in sorted(
+                              (repo / "frontend/test").glob("*.test.mjs"))]]),
             *[(f"syntax-{path.name}", [args.node, "--check", str(path)])
               for path in sorted((repo / "frontend").glob("*.js"))],
             ("diff-worktree", ["git", "diff", "--check"]),

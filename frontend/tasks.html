@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b1420" />
+    <title>JARVIS · タスク</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+    <link rel="stylesheet" href="/static/shell.css" />
+    <link rel="stylesheet" href="/static/tasks.css" />
+    <script type="module" src="/static/shell.js"></script>
+    <script type="module" src="/static/tasks.js"></script>
+  </head>
+  <body class="tasks-page">
+    <div class="app-shell">
+      <header class="app-header" data-app-header></header>
+
+      <main class="tasks-main">
+        <p class="readonly-note" id="readonly-note">
+          <strong>ローカル専用・読み取り専用</strong>
+          このページは保存されたタスクの状態を表示するだけです。作成・取り消し・再試行などの操作はできません。
+        </p>
+
+        <div class="tasks-layout" id="layout" data-view="list">
+          <section class="list-pane" aria-labelledby="list-heading">
+            <h1 id="list-heading">タスク</h1>
+            <div class="filters" id="filters" role="group" aria-label="状態で絞り込む"></div>
+            <p class="list-status" id="list-status" role="status" aria-live="polite">読み込み中…</p>
+            <ul class="task-list" id="task-list" aria-label="タスク一覧"></ul>
+            <p class="list-note" id="list-note"></p>
+          </section>
+
+          <section class="detail-pane" id="detail" aria-labelledby="detail-heading" aria-busy="false">
+            <div class="detail-head">
+              <button class="back-button" id="back" type="button">← 一覧へ戻る</button>
+              <h2 id="detail-heading" tabindex="-1">詳細</h2>
+            </div>
+            <p class="connection" id="connection"></p>
+            <button class="reconnect" id="reconnect" type="button" hidden>再接続</button>
+            <div class="detail-body" id="detail-body">
+              <p class="placeholder">一覧からタスクを選ぶと、ここに詳細が表示されます。</p>
+            </div>
+          </section>
+        </div>
+
+        <p class="sr-only" id="announce" role="status" aria-live="polite"></p>
+      </main>
+    </div>
+  </body>
+</html>

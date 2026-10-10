@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b1420" />
+    <meta name="referrer" content="no-referrer" />
+    <title>JARVIS · ログイン</title>
+    <link rel="stylesheet" href="/static/login.css" />
+    <script type="module" src="/static/login.js"></script>
+  </head>
+  <body>
+    <main class="login">
+      <span class="login-mark" aria-hidden="true">J</span>
+      <h1>JARVIS</h1>
+      <p class="login-lead">続けるにはパスフレーズを入力してください。</p>
+      <!-- The passphrase input has no name on purpose: without JavaScript nothing is submitted,
+           so it can never end up in a URL. -->
+      <form id="login-form" method="post" action="/login" novalidate>
+        <label for="passphrase">パスフレーズ</label>
+        <input
+          id="passphrase"
+          type="password"
+          autocomplete="current-password"
+          autocapitalize="off"
+          spellcheck="false"
+          maxlength="1024"
+          required
+        />
+        <button id="submit" type="submit">ログイン</button>
+        <p id="message" class="message" role="alert" aria-live="assertive"></p>
+      </form>
+    </main>
+  </body>
+</html>

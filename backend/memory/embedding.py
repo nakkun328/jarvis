@@ -51,10 +51,12 @@ class EmbeddingSpace:
             raise ValueError("embedding dimension does not match this space")
         return vector
 
-    def record(self, memory_id: str, values: Sequence[float]) -> VectorRecord:
+    def record(
+        self, memory_id: str, values: Sequence[float], *, source_revision: str | None = None
+    ) -> VectorRecord:
         """Build an index record only after checking the configured dimension."""
 
-        return VectorRecord(memory_id, self.identifier, self.validate(values))
+        return VectorRecord(memory_id, self.identifier, self.validate(values), source_revision)
 
     def query(self, values: Sequence[float], *, limit: int = 10) -> VectorQuery:
         """Build a query in the same versioned space as its record vectors."""
@@ -71,7 +73,7 @@ class EmbeddingProvider(Protocol):
 
 
 async def embed_texts(
-    provider: EmbeddingProvider, texts: Sequence[str]
+    provider: EmbeddingProvider, texts: Sequence[str], *, query: bool = False
 ) -> tuple[tuple[float, ...], ...]:
     """Validate provider output before it reaches a derived vector index.
 
@@ -91,7 +93,11 @@ async def embed_texts(
         raise ValueError("texts must be a sequence of nonempty strings")
     if not batch:
         return ()
-    result = await provider.embed(batch)
+    # Asymmetric encoders may prepend different query/document prompts. Their
+    # declared space must include both preprocessing rules. Legacy providers
+    # retain their existing embed method for both roles.
+    encode = getattr(provider, "embed_query", provider.embed) if query else provider.embed
+    result = await encode(batch)
     if isinstance(result, (str, bytes)):
         raise ValueError("provider must return one vector per text")
     try:

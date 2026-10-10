@@ -38,6 +38,18 @@ def _restore_v4_layout(database: Database) -> None:
     with database.connect() as connection:
         connection.execute("PRAGMA foreign_keys = OFF")
         with connection:
+            for table in (
+                "tool_approvals",
+                "task_steps",
+                "tasks",
+                "research_conflicts",
+                "research_source_reasons",
+                "research_claims",
+                "research_sources",
+                "research_queries",
+                "research_sessions",
+            ):
+                connection.execute(f"DROP TABLE {table}")
             connection.execute("DROP TABLE memory_lifecycle_events")
             connection.execute("DROP INDEX memory_records_by_status")
             connection.execute("DROP INDEX memory_records_by_supersedes")
@@ -60,7 +72,7 @@ def _restore_v4_layout(database: Database) -> None:
             connection.execute(
                 "CREATE INDEX memory_records_by_status ON memory_records(status, created_at)"
             )
-            connection.execute("DELETE FROM schema_migrations WHERE version = 5")
+            connection.execute("DELETE FROM schema_migrations WHERE version IN (5, 6, 7, 8, 9, 10)")
             connection.execute("PRAGMA user_version = 4")
             assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
@@ -149,6 +161,11 @@ def test_v2_migration_preserves_conversation_and_records_v3(tmp_path: Path) -> N
             3,
             4,
             5,
+            6,
+            7,
+            8,
+            9,
+            10,
         ]
     assert MemoryRepository(database).add(_candidate()).status is MemoryStatus.PENDING
 
@@ -320,3 +337,43 @@ def test_missing_database_is_not_recreated_by_memory_repository(tmp_path: Path) 
     with pytest.raises(MemoryRepositoryError, match="unavailable"):
         MemoryRepository(database).add(_candidate())
     assert not path.exists()
+
+
+def test_search_by_status_is_a_parameterised_substring_match(tmp_path: Path) -> None:
+    database = Database(tmp_path / "search.sqlite3")
+    database.initialize()
+    repository = MemoryRepository(database)
+    hit = replace(_candidate(), content="100% Tea", tags=("a_b",), project="Proj")
+    miss = replace(_candidate(), content="1000 coffee", tags=("axb",), project=None)
+    repository.add(hit)
+    repository.add(miss)
+    pending = (MemoryStatus.PENDING,)
+    assert [s.record.id for s in repository.search_by_status(pending, ["tea"])] == [hit.id]
+    assert [s.record.id for s in repository.search_by_status(pending, ["%"])] == [hit.id]
+    assert [s.record.id for s in repository.search_by_status(pending, ["a_b"])] == [hit.id]
+    assert [s.record.id for s in repository.search_by_status(pending, ["proj"])] == [hit.id]
+    assert repository.search_by_status(pending, ["tea", "coffee"]) == []
+    assert repository.search_by_status(pending, ["' OR 1=1 --"]) == []
+    assert repository.search_by_status((MemoryStatus.APPROVED,), ["tea"]) == []
+    assert len(repository.search_by_status(pending, ["user"], limit=1)) == 1  # category value
+
+
+@pytest.mark.parametrize(
+    ("statuses", "terms", "limit"),
+    [
+        ((), ["x"], 5),
+        (("pending",), ["x"], 5),
+        ((MemoryStatus.PENDING,), [], 5),
+        ((MemoryStatus.PENDING,), [""], 5),
+        ((MemoryStatus.PENDING,), [1], 5),
+        ((MemoryStatus.PENDING,), ["x"], 0),
+        ((MemoryStatus.PENDING,), ["x"], True),
+    ],
+)
+def test_search_by_status_rejects_bad_arguments(
+    tmp_path: Path, statuses: tuple, terms: list, limit: int
+) -> None:
+    database = Database(tmp_path / "search-bad.sqlite3")
+    database.initialize()
+    with pytest.raises(ValueError):
+        MemoryRepository(database).search_by_status(statuses, terms, limit=limit)

@@ -40,7 +40,9 @@ def test_spaces_persist_without_storing_memory_content(tmp_path: Path) -> None:
         for collection in reopened.client.list_collections():
             stored = collection.get(include=["documents", "metadatas"])
             assert stored["documents"] == [None] * len(stored["ids"])
-            assert stored["metadatas"] == [None] * len(stored["ids"])
+            assert stored["metadatas"] == [
+                {"source_revision": "unknown"} for _ in stored["ids"]
+            ]
 
         await reopened.delete(["alpha"])
         assert [
@@ -67,6 +69,21 @@ def test_upsert_replaces_embedding_and_rejects_dimension_mismatch(tmp_path: Path
             await index.search(VectorQuery("model-a-v1", (0.0, 1.0, 0.0)))
         still_indexed = await index.search(VectorQuery("model-a-v1", (0.0, 1.0)))
         assert [match.memory_id for match in still_indexed] == ["alpha"]
+
+    asyncio.run(run())
+
+
+def test_source_revisions_persist_and_plain_upsert_clears_old_revision(tmp_path: Path) -> None:
+    root = tmp_path / "vectors"
+    index = ChromaVectorIndex(root)
+
+    async def run() -> None:
+        assert await index.list_entries("model-a-v1") == ()
+        await index.upsert([VectorRecord("alpha", "model-a-v1", (1.0, 0.0), "r1")])
+        reopened = ChromaVectorIndex(root)
+        assert await reopened.list_entries("model-a-v1") == (("alpha", "r1"),)
+        await reopened.upsert([VectorRecord("alpha", "model-a-v1", (0.0, 1.0))])
+        assert await reopened.list_entries("model-a-v1") == (("alpha", None),)
 
     asyncio.run(run())
 

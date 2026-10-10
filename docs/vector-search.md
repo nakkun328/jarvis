@@ -28,8 +28,9 @@ linked capabilities and this project's current single-user scope, not a benchmar
 
 SQLite memory IDs, content, provenance, importance and confidence, plus editable
 Obsidian notes, remain authoritative. The vector index is a derived cache. Each
-record carries only a memory ID, an embedding and a `space` identifying the exact
-model/version. Retrieval resolves returned IDs through the canonical memory store
+record carries a memory ID, an embedding, a `space` identifying the exact
+model/version, and optionally the source note revision hash for stale index
+audits. It never stores note text. Retrieval resolves returned IDs through the canonical memory store
 and applies its access, freshness and conflict rules there. Scores are only ranked
 within one space; they are not confidence values or probabilities.
 
@@ -99,6 +100,35 @@ provider, model selection, active-index configuration and retrieval quality
 measurement remain follow-up work. Do not reuse an
 old space after a model or text preparation change; build a parallel derived
 index and switch after validating its IDs and search results.
+
+## Semantic query path
+
+`SemanticMemorySearcher` takes a configured `EmbeddingProvider` and a
+`MemoryRetriever` with a vector index. It validates and embeds a bounded query
+in the provider's exact `EmbeddingSpace`, then uses Chroma only for candidate
+IDs. The retriever resolves each ID through current SQLite review state and
+the current Obsidian note. Pending and rejected IDs are excluded, conflicts
+remain separate, and a human-edited approved note supplies the returned text
+even if its cached vector is stale. Queries may be sent to a remote embedding
+provider when one is explicitly configured; this class does not choose one or
+connect itself to chat. Search quality still needs evaluation with real queries
+and a deliberately selected embedding model.
+
+A semantic query pins the embedding model/version/dimension across encoding
+and canonical retrieval. If the provider declaration changes, even to another
+model/version with the same dimension, the query fails instead of querying a
+new namespace or returning context under a different contract. Restore the
+intended contract before retrying. This contract check does not certify semantic
+quality or replace current approved-note resolution.
+
+Before returning semantic facts, the searcher reuses the final canonical checks
+from the chat consumer: resolve the approved record again, then compare the
+current vault revision/content/provenance and latest SQLite review state. A
+retirement or edit inside the earlier resolution fails the query instead of
+returning that old fact; retry resolves the current note or excludes the retired
+ID. Chat repeats this shared check after its async context boundary. These checks
+do not make external edits after the final check atomic, and do not change the
+default lexical path or delete canonical or derived records.
 
 ## Optional OpenAI embedding adapter
 

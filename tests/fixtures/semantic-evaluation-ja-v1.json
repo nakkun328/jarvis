@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "jarvis-synthetic-ja-v1",
+  "synthetic": true,
+  "description": "架空の工作・観測・菜園に関する人工資料。実ユーザーの記憶ではない。",
+  "notes": [
+    {"id": "robot-old", "status": "superseded", "replacement_id": "robot-current", "content": "架空の観測試作機ミズキの制御基板はRP2040である。"},
+    {"id": "robot-current", "status": "approved", "content": "訂正：架空の観測試作機ミズキの制御基板はESP32へ変更済みで、RP2040ではない。"},
+    {"id": "design-paper", "status": "approved", "content": "架空の工作室では設計メモを厚手の方眼紙に鉛筆で書く。購入価格は記録していない。"},
+    {"id": "observing-time", "status": "approved", "content": "架空の星見会は火曜日の19時に始まる。", "edit_to": "架空の星見会は水曜日の19時に始まる。"},
+    {"id": "garden-water", "status": "approved", "content": "架空の菜園の給水タイマーは毎朝7時に10分間作動する。"},
+    {"id": "lens-storage", "status": "approved", "content": "架空の光学実験に使う予備レンズは銀色の棚の右端の箱に収納する。"},
+    {"id": "data-format", "status": "approved", "content": "架空の温度実験の記録はCSV形式にして、測定時刻と摂氏温度を列に記入する。"},
+    {"id": "retired-venue", "status": "retired", "content": "廃止された架空の工作会は港の倉庫で開いていた。この会場情報は現在使わない。"},
+    {"id": "pending-runtime", "status": "pending", "content": "未承認候補：観測試作機ミズキの電池は2時間持つらしい。根拠は未確認。"},
+    {"id": "pending-paint", "status": "pending", "content": "未承認候補：試験用の青い塗料には架空成分ユメライトが含まれている。"},
+    {"id": "conflict-time", "status": "conflict", "content": "矛盾候補：架空の星見会は木曜日の20時に始まる。まだ採択していない。"}
+  ],
+  "queries": [
+    {"id": "controller-paraphrase", "kind": "paraphrase", "text": "あの星を観測する試作機、制御用のチップを何に替えたっけ？", "relevant_ids": ["robot-current"], "supporting_ids": ["robot-current"], "rationale": "名称と部品の言い換え。訂正後のESP32だけが根拠。"},
+    {"id": "paper-paraphrase", "kind": "paraphrase", "text": "工作の設計を書き留めるとき、どんな紙と筆記具を使う？", "relevant_ids": ["design-paper"], "supporting_ids": ["design-paper"], "rationale": "設計メモの保存方法を別表現で問う。"},
+    {"id": "current-observing-time", "kind": "revision", "text": "星を見る架空の集まりは何曜日の何時から？", "relevant_ids": ["observing-time"], "supporting_ids": ["observing-time"], "rationale": "index作成後に編集された正本の水曜19時を使う。木曜候補を使わない。"},
+    {"id": "garden-paraphrase", "kind": "paraphrase", "text": "菜園に自動で水をやるのは朝の何時から、どれくらい？", "relevant_ids": ["garden-water"], "supporting_ids": ["garden-water"], "rationale": "給水タイマーの言い換え。"},
+    {"id": "lens-paraphrase", "kind": "paraphrase", "text": "光学実験の交換用レンズを探している。どこにしまった？", "relevant_ids": ["lens-storage"], "supporting_ids": ["lens-storage"], "rationale": "予備レンズの保管位置。"},
+    {"id": "csv-paraphrase", "kind": "paraphrase", "text": "温度測定の結果はどのファイル形式で、何を記録する？", "relevant_ids": ["data-format"], "supporting_ids": ["data-format"], "rationale": "形式と列の根拠を問う。"},
+    {"id": "controller-correction", "kind": "correction", "text": "観測試作機は今もRP2040で動かすことになっている？", "relevant_ids": ["robot-current"], "supporting_ids": ["robot-current"], "rationale": "訂正済みの旧factを復活させない。"},
+    {"id": "unrelated-railway", "kind": "unrelated", "text": "架空王国の鉄道の始発時刻は何時？", "relevant_ids": [], "supporting_ids": [], "rationale": "corpusに鉄道の情報はない。非empty top-kを診断し、採用する閾値は未定。"},
+    {"id": "unsupported-battery", "kind": "insufficient_evidence", "text": "観測試作機ミズキの電池は何時間使える？", "relevant_ids": ["robot-current"], "supporting_ids": [], "rationale": "制御基板のnoteは関連するが電池持ちを裏づけない。2時間の候補は未承認。"},
+    {"id": "unsupported-price", "kind": "insufficient_evidence", "text": "設計メモに使う方眼紙の購入価格はいくら？", "relevant_ids": ["design-paper"], "supporting_ids": [], "rationale": "noteに価格がないことを明記。関連性と回答可能性を分ける。"},
+    {"id": "retired-venue-query", "kind": "retirement", "text": "廃止した工作会の会場はどこだった？", "relevant_ids": [], "supporting_ids": [], "rationale": "退役した旧会場をapproved contextへ戻さない。元noteは削除しない。"},
+    {"id": "pending-paint-query", "kind": "unapproved", "text": "採用保留の青い塗料にはどんな成分が入っている？", "relevant_ids": [], "supporting_ids": [], "rationale": "未承認候補の成分を事実として使わない。"}
+  ]
+}
