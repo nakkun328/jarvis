@@ -24,7 +24,7 @@ _ROUTER_MODES = frozenset({"off", "rule", "llm"})
 DEFAULT_CASUAL_DAILY_CALL_LIMIT = 200
 _MAX_CASUAL_DAILY_CALL_LIMIT = 10_000
 # The research level a routed chat turn starts. Quick is the cheaper one (and the default).
-_CHAT_RESEARCH_LEVELS = frozenset({"quick", "standard"})
+_CHAT_RESEARCH_LEVELS = frozenset({"quick", "standard", "deep"})
 # Chat model allowlist (JARVIS_MODEL_CHOICES): at most this many `provider:model` entries.
 _MODEL_CHOICE_PROVIDERS = frozenset({"openai", "gemini", "groq"})
 MAX_MODEL_CHOICES = 8

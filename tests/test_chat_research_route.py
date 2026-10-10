@@ -479,7 +479,7 @@ def test_the_run_service_starter_without_a_service_is_not_configured() -> None:
         StartKind.NOT_CONFIGURED
     )
     with pytest.raises(ValueError):
-        RunServiceStarter(FakeRuns(), ResearchLevel.DEEP)
+        RunServiceStarter(FakeRuns(), ResearchLevel.EXTENSIVE)
 
 
 def test_start_outcomes_are_consistent() -> None:
@@ -489,7 +489,7 @@ def test_start_outcomes_are_consistent() -> None:
         StartOutcome(StartKind.BUSY, SESSION)
     with pytest.raises(ValueError):
         StartOutcome("started", SESSION)  # type: ignore[arg-type]
-    assert CHAT_RESEARCH_LEVELS == ("quick", "standard")
+    assert CHAT_RESEARCH_LEVELS == ("quick", "standard", "deep")
 
 
 # --- the event type ------------------------------------------------------------------------
@@ -748,15 +748,15 @@ def test_the_chat_research_level_is_a_fixed_setting(
     monkeypatch.setenv("JARVIS_DB_PATH", "test.sqlite3")
     monkeypatch.delenv("JARVIS_CHAT_RESEARCH_LEVEL", raising=False)
     assert Settings.from_env().chat_research_level == "quick"
-    for raw, expected in (("quick", "quick"), (" Standard ", "standard")):
+    for raw, expected in (("quick", "quick"), (" Standard ", "standard"), ("DEEP", "deep")):
         monkeypatch.setenv("JARVIS_CHAT_RESEARCH_LEVEL", raw)
         assert Settings.from_env().chat_research_level == expected
-    for bad in ("deep", "extensive", "memory", "", "  ", "fast"):
+    for bad in ("extensive", "memory", "", "  ", "fast"):
         monkeypatch.setenv("JARVIS_CHAT_RESEARCH_LEVEL", bad)
         with pytest.raises(ConfigError, match="JARVIS_CHAT_RESEARCH_LEVEL"):
             Settings.from_env()
     with pytest.raises(ConfigError, match="JARVIS_CHAT_RESEARCH_LEVEL"):
-        Settings(db_path=Path("x.sqlite3"), chat_research_level="deep")
+        Settings(db_path=Path("x.sqlite3"), chat_research_level="extensive")
 
 
 def test_the_reply_carries_the_canonical_session_path_once() -> None:

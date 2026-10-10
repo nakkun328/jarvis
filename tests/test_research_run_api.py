@@ -245,7 +245,7 @@ def test_cancel_errors_are_fixed_codes(client: TestClient) -> None:
         ({"question": "hello\x00world", "level": "quick"}, "question_invalid_characters"),
         ({"question": "bell\x07", "level": "quick"}, "question_invalid_characters"),
         ({"question": "esc\x1b[31m", "level": "standard"}, "question_invalid_characters"),
-        ({"question": "ok", "level": "deep"}, "invalid_level"),
+        ({"question": "ok", "level": "fast"}, "invalid_level"),
         ({"question": "ok", "level": "extensive"}, "invalid_level"),
         ({"question": "ok", "level": "memory"}, "invalid_level"),
         ({"question": "ok", "level": "QUICK"}, "invalid_level"),

@@ -23,7 +23,7 @@ See [.env.example](.env.example). Copy it to `.env` if useful, but export the va
 | `JARVIS_ROUTER` | `off` | `off`, `rule` (offline keyword baseline) or `llm` (one extra short call to the configured chat provider per turn; the message goes to that provider). Shows the routing decision in the Activity View; every turn is still answered by the Main Agent, except that with research also enabled (below) a real `research` decision starts a research. See [router](docs/router.md); the planned casual/voice path is in [realtime design](docs/realtime-design.md). |
 | `JARVIS_MODEL_CHOICES` | unset | Comma list of `provider:model` (`openai` / `gemini` / `groq`, at most 8) the owner may pick from in the chat header. Unset: no selector, exactly the single configured model. Keys stay in `OPENAI_API_KEY` / `GEMINI_API_KEY` / `GROQ_API_KEY`. See [model selection](docs/model-select.md). |
 | `JARVIS_CHAT_RESEARCH_ANSWER` | off | Opt in: a chat turn that started a research waits for it and answers from its verified claims, with a source list. Related: `JARVIS_CHAT_RESEARCH_ANSWER_TIMEOUT_SECONDS` (default 180, 20..900), `JARVIS_CHAT_RESEARCH_FALLBACK_MAIN` (default off). See [chat-research-answer](docs/chat-research-answer.md). |
-| `JARVIS_CHAT_RESEARCH_LEVEL` | `quick` | `quick` or `standard`: the research a chat turn starts when the router chooses research. Needs `JARVIS_ROUTER`, `JARVIS_RESEARCH_ENABLED=1`, a search provider and a chat provider; the whole message is sent to the search service. See [research](docs/research.md#research-from-chat-off-by-default). |
+| `JARVIS_CHAT_RESEARCH_LEVEL` | `quick` | `quick`, `standard` or `deep` (the most search credits): the research a chat turn starts when the router chooses research. Needs `JARVIS_ROUTER`, `JARVIS_RESEARCH_ENABLED=1`, a search provider and a chat provider; the whole message is sent to the search service. See [research](docs/research.md#research-from-chat-off-by-default). |
 | `JARVIS_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Logs are JSON lines on stderr; see [logging](docs/logging.md). |
 | `JARVIS_LLM_PROVIDER` | `none` | Select `none`, `openai`, `gemini`, or `groq`. |
 | `OPENAI_API_KEY` | unset | Server-side key for the optional OpenAI provider. |
@@ -85,6 +85,7 @@ node --test frontend/test/*.test.mjs
 - [Research](docs/research.md)
 - [Quick Research](docs/research-quick.md)
 - [Standard Research and follow-up queries](docs/research-standard.md)
+- [Deep Research (planned, multi-round)](docs/research-deep.md)
 - [Tools](docs/tools.md)
 - [Read-only filesystem tools](docs/tools-filesystem.md)
 - [Tool confirmation (human approval)](docs/tool-confirmation.md)

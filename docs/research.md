@@ -21,6 +21,8 @@ Status transitions are compare-and-swap with an allowed-transition table: `pendi
 
 The repository offers no physical deletion. The Quick Research pipeline that fills these tables is described in [research-quick.md](research-quick.md).
 
+Deep Research (a planned run over 2-5 sub-questions) is described in [research-deep.md](research-deep.md).
+
 Standard Research (several passes, cross-check, conflicts, bounded follow-up searches) and the follow-up query generator are described in [research-standard.md](research-standard.md).
 
 Level selection, the deterministic query planner, source type classification and the authority, freshness and relevance ratings (R2, not yet wired into Quick Research) are described in [research-quality.md](research-quality.md).
@@ -71,13 +73,13 @@ A task is **verified** only when its session ended `completed` and either has at
 
 **Progress.** While the server runs a session, `GET /api/research/sessions/{id}` adds `"progress": {"stage": planning|searching|reading|verifying|writing, "round", "queries", "pages", "sources", "claims"}` (numbers and a stage code only). The screen polls this every 2 seconds (backing off to 15 s on errors, paused while the tab is hidden) and also picks up a run that is still going after a page reload. Results show the verified claims with their quotes and a link to each source, the open conflicts and the caveats in separate boxes, and a line that citations are verified verbatim quotes while ratings are heuristic. A failure shows the fixed reason in Japanese.
 
-Not available: deep and extensive research, retry, deleting a research, memory notes as search input (queries are built from the question only), and more than one research at a time. To try the screen without any service, run `python scripts/dev_research_run_demo_server.py` (loopback, port 18971, a temporary database, fake search, pages and model only; markers such as `#fail`, `#slow`, `#hostile`, `#conflict` and `#nothing` in the question pick the scenario; `--research-off` shows the unavailable state). It never reads `.env` or a key.
+Not available: extensive research, retry, deleting a research, memory notes as search input (queries are built from the question only), and more than one research at a time. To try the screen without any service, run `python scripts/dev_research_run_demo_server.py` (loopback, port 18971, a temporary database, fake search, pages and model only; markers such as `#fail`, `#slow`, `#hostile`, `#conflict` and `#nothing` in the question pick the scenario; `--research-off` shows the unavailable state). It never reads `.env` or a key.
 
 ## Research from chat (off by default)
 
 With a conversation router ([router.md](router.md)) and research fully configured (`JARVIS_ROUTER=rule|llm`, `JARVIS_RESEARCH_ENABLED=1`, a search provider and a chat provider), a chat turn the router really decides is `research` starts a research the same way the form does: `ChatService` calls `ResearchRunService.submit` through a small port (`backend/chat/research_start.py`, `RunServiceStarter`), so the one-at-a-time rule, the local search budget, the worker, the task queue and the Research screen are all the existing ones. There is no other execution path.
 
-- **Level.** `JARVIS_CHAT_RESEARCH_LEVEL` is `quick` (default; the cheaper one) or `standard`. Nothing else is accepted.
+- **Level.** `JARVIS_CHAT_RESEARCH_LEVEL` is `quick` (default; the cheaper one), `standard` or `deep` (see [research-deep.md](research-deep.md); it spends the most search credits). Nothing else is accepted.
 - **Question and privacy consequence.** The research question is the user's whole message, unchanged, and nothing else: no memory note, no history, no earlier turn. That whole message is therefore sent to the search service (Tavily) as a query source and its text is subject to that service's retention, exactly as for a question typed into the form, and it is also sent to the router first (to the chat model with `JARVIS_ROUTER=llm`). The router cannot tell a question from a message that merely contains private text, so only enable this where that is acceptable. The fixed reply states that the message text is sent to the search service. A message the run service would refuse (blank, over 2000 characters, control characters) is not started; the Main Agent answers.
 - **Reply.** A fixed Japanese message, no model call, with the link `/research#<session id>`. The Research screen selects a session from the URL hash, so the link opens that research and follows it while it runs. The chat itself does not follow the run, and a failed or cancelled research is shown only on the Research screen.
 - **Not started.** A router fallback or a low-confidence decision never starts a research. When the run service answers busy, budget exhausted, not available or refused, the Main Agent answers as before and the Activity View says why (`research_skip`, see [chat.md](chat.md#research-from-chat)).

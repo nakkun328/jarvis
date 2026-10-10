@@ -11,8 +11,14 @@ from uuid import UUID
 
 from backend.research.models import MAX_QUESTION_CHARS, ResearchLevel
 
-#: Levels a person may request. Deep and extensive research are not available.
-REQUESTABLE_LEVELS: tuple[ResearchLevel, ...] = (ResearchLevel.QUICK, ResearchLevel.STANDARD)
+#: Levels a person may request. Extensive research is not available. Deep is only ever chosen
+#: by a human (the Research screen or ``JARVIS_CHAT_RESEARCH_LEVEL=deep``); nothing selects it
+#: automatically.
+REQUESTABLE_LEVELS: tuple[ResearchLevel, ...] = (
+    ResearchLevel.QUICK,
+    ResearchLevel.STANDARD,
+    ResearchLevel.DEEP,
+)
 
 #: Fixed codes of `/api/research/status` `reason` when research cannot be started.
 REASON_DISABLED = "disabled"
