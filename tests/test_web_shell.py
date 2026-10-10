@@ -326,3 +326,18 @@ def test_docs_explain_the_pwa_and_auth_decision() -> None:
         assert "/static/icons/icon-192.png" in text
         assert "use-credentials" in text
     assert "/sw.js" in auth and "logout" in auth.lower()
+
+
+def test_static_files_must_be_revalidated_by_the_browser(tmp_path) -> None:
+    """Old and new ES modules must never be mixed from a heuristic browser cache."""
+    from fastapi.testclient import TestClient
+
+    from backend.api.app import create_app
+    from backend.core.config import Settings
+
+    settings = Settings(db_path=tmp_path / "jarvis.sqlite3")
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/static/app.js")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+        assert response.headers.get("etag") or response.headers.get("last-modified")
