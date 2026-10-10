@@ -18,6 +18,7 @@ At 600 px and below the header becomes two rows (brand and page actions, then th
 `frontend/session.js` (loaded by `shell.js`, never by the login page) does two things, both inert when login is off:
 
 - It asks `GET /api/auth/status`. Only when the answer is `{"authenticated": true}` it adds a **ログアウト** button to the header; the button sends `POST /api/auth/logout` and goes to `/login`. With login off the route does not exist (404), so there is no button.
+- The chat page keeps only the current conversation id in `localStorage` and restores that conversation when it is opened again, so moving to another page and back no longer starts a new conversation (see [chat](chat.md#restoring-a-conversation)). Chat reply links to `/research#<id>` open in a new tab.
 - Fetch helpers (`chat-api.js`, `tasks-api.js`, `approvals-api.js`, `research-api.js`, `research-run-api.js`, `memory-api.js`, `tasks-stream.js`) call `sessionEnded()` when a response is `401`: the page goes to `/login` once (never from `/login` itself, never a second time) and the screen shows a fixed "session ended" message while it leaves. A task event stream stops instead of reconnecting.
 
 ## Memory screen (read-only)

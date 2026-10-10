@@ -54,6 +54,27 @@ def _sse(event: str, data: dict[str, str | int | bool]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+class HistoryMessage(BaseModel):
+    role: str
+    content: str
+
+
+class HistoryResponse(BaseModel):
+    conversation_id: UUID
+    messages: list[HistoryMessage]
+
+
+def _parse_conversation_id(raw: str) -> UUID:
+    # Canonical lowercase hyphenated form only; anything else is the same 404 as an unknown id.
+    try:
+        conversation_id = UUID(raw)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="conversation not found") from None
+    if str(conversation_id) != raw:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    return conversation_id
+
+
 def build_chat_router(service: ChatService | None) -> APIRouter:
     router = APIRouter()
 
@@ -99,6 +120,24 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
             reply=result.reply,
             provider=result.provider,
             model=result.model,
+        )
+
+    @router.get(
+        "/api/chat/conversations/{conversation_id}/messages", response_model=HistoryResponse
+    )
+    async def conversation_messages(conversation_id: str) -> HistoryResponse:
+        """Read-only: the retained messages of one known conversation (role and content only)."""
+        parsed = _parse_conversation_id(conversation_id)
+        chat_service = require_service()
+        try:
+            messages = await chat_service.store.history(parsed)
+        except ConversationStorageError as exc:
+            raise HTTPException(status_code=503, detail="conversation storage unavailable") from exc
+        if messages is None:
+            raise HTTPException(status_code=404, detail="conversation not found")
+        return HistoryResponse(
+            conversation_id=parsed,
+            messages=[HistoryMessage(role=m.role, content=m.content) for m in messages],
         )
 
     @router.post("/api/chat/stream")

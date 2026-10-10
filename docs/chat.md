@@ -38,6 +38,12 @@ The plain HTML/JS client (`frontend/`) shows text as it streams, but only a stre
 
 Server error strings are English and are mapped to Japanese in `frontend/chat-api.js`; unknown text is never shown verbatim. `tests/test_chat_ui_contract.py` fails if the backend and that table drift apart. One request runs at a time per browser tab. Two tabs can still target one conversation; the server serializes them but the UI does not reconcile the transcripts.
 
+## Restoring a conversation
+
+The chat page remembers only the current conversation id in the browser (`localStorage`, key `jarvis.chat.conversation`; no message text is stored). It is saved when a reply completes and removed by 新しい会話. When the page is opened again (for example after visiting Research and coming back, or after a reload), `frontend/chat-restore.js` asks `GET /api/chat/conversations/{id}/messages`, draws the returned messages with the normal message rendering (text nodes; a `/research#<uuid>` path is still the only link), continues that conversation on the next send and shows 前回の会話を復元しました。 If the server answers 404 the stored id is dropped and the welcome screen stays (前回の会話は見つかりませんでした。…); on a temporary failure the id is kept, the welcome screen stays and a fixed error line is shown. Without usable storage the page works as before, with no restore. The `/research#<uuid>` links in replies open in a new tab (`target="_blank"`, `rel="noopener noreferrer"`) so the chat is not left.
+
+`GET /api/chat/conversations/{id}/messages` is read-only and behind the login layer like other `/api` routes. It accepts only the canonical lowercase hyphenated UUID and returns `{"conversation_id": "...", "messages": [{"role": "user" | "assistant", "content": "..."}]}` with at most the store's retained window (the last 20 messages). An unknown or malformed id gives the same fixed `404 {"detail": "conversation not found"}`; a storage failure gives 503. There is no endpoint that lists conversations; a conversation list or history screen is not part of this change.
+
 ## Testing the UI without a provider
 
 `scripts/dev_fake_provider_server.py` is a dev/test-only harness. It starts the real app with a scripted provider on a temporary SQLite file, binds only to loopback, and is never imported by production code:

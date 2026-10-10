@@ -48,6 +48,10 @@ class SQLiteConversationStore(ConversationStore):
             raise ConversationStorageError("Conversation storage unavailable") from exc
         return [ChatMessage(role=row["role"], content=row["content"]) for row in rows]
 
+    async def history(self, conversation_id: UUID) -> list[ChatMessage] | None:
+        """The last `max_messages` stored messages, or None when the conversation is unknown."""
+        return await asyncio.to_thread(self._load, conversation_id)
+
     @asynccontextmanager
     async def open(self, conversation_id: UUID | None) -> AsyncIterator[tuple[UUID, Conversation]]:
         is_new = conversation_id is None

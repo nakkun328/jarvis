@@ -31,6 +31,9 @@ export function renderReply(doc, container, text) {
     const link = doc.createElement("a");
     link.className = "reply-link";
     link.setAttribute("href", segment.href);
+    // Opens in a new tab so the chat (and its conversation) is never left.
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
     link.textContent = segment.text;
     return link;
   });

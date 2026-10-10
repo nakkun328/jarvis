@@ -218,3 +218,77 @@ def test_closing_stream_before_completion_does_not_save_turn(tmp_path: Path) -> 
     asyncio.run(run())
     with sqlite3.connect(database.path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == 0
+
+
+def test_history_endpoint_restores_after_simulated_page_load(tmp_path: Path) -> None:
+    db_path = tmp_path / "history.sqlite3"
+    provider = Provider()
+    with TestClient(create_app(Settings(db_path=db_path), provider)) as client:
+        first = client.post("/api/chat", json={"message": "first"}).json()
+        other = client.post("/api/chat", json={"message": "secret other"}).json()
+    # A new app and client stand in for navigating away and coming back.
+    with TestClient(create_app(Settings(db_path=db_path), provider)) as client:
+        url = f"/api/chat/conversations/{first['conversation_id']}/messages"
+        response = client.get(url)
+        assert response.status_code == 200
+        assert response.json() == {
+            "conversation_id": first["conversation_id"],
+            "messages": [
+                {"role": "user", "content": "first"},
+                {"role": "assistant", "content": "reply"},
+            ],
+        }
+        assert "secret other" not in response.text
+        assert other["conversation_id"] not in response.text
+        # The restored id continues the same conversation.
+        follow = client.post(
+            "/api/chat", json={"message": "again", "conversation_id": first["conversation_id"]}
+        )
+        assert follow.status_code == 200
+        assert len(client.get(url).json()["messages"]) == 4
+
+
+def test_history_endpoint_is_bounded_by_the_store_window(tmp_path: Path) -> None:
+    provider = Provider()
+    with TestClient(create_app(Settings(db_path=tmp_path / "b.sqlite3"), provider)) as client:
+        conversation_id = None
+        for index in range(12):
+            body = {"message": f"m{index}"}
+            if conversation_id:
+                body["conversation_id"] = conversation_id
+            conversation_id = client.post("/api/chat", json=body).json()["conversation_id"]
+        messages = client.get(f"/api/chat/conversations/{conversation_id}/messages").json()[
+            "messages"
+        ]
+    assert len(messages) == 20
+    assert messages[0] == {"role": "user", "content": "m2"}
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "00000000-0000-4000-8000-000000000000",
+        "not-a-uuid",
+        "0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D",
+        "0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d",
+    ],
+)
+def test_history_endpoint_unknown_or_malformed_id_is_a_fixed_404(tmp_path: Path, raw: str) -> None:
+    with TestClient(create_app(Settings(db_path=tmp_path / "n.sqlite3"), Provider())) as client:
+        response = client.get(f"/api/chat/conversations/{raw}/messages")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "conversation not found"}
+
+
+def test_history_endpoint_with_the_process_memory_store() -> None:
+    from fastapi import FastAPI
+
+    from backend.api.chat import build_chat_router
+
+    app = FastAPI()
+    app.include_router(build_chat_router(ChatService(Provider())))
+    with TestClient(app) as client:
+        created = client.post("/api/chat", json={"message": "hi"}).json()
+        response = client.get(f"/api/chat/conversations/{created['conversation_id']}/messages")
+    assert response.status_code == 200
+    assert [m["role"] for m in response.json()["messages"]] == ["user", "assistant"]
