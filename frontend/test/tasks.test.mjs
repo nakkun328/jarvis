@@ -527,3 +527,22 @@ test("a chat-tool task offers a link to its conversation and a cancel button", a
   const done = detailViewModel(normalizeTask({ ...base, status: "completed", conversation_id: id }));
   assert.equal(done.cancellable, false);
 });
+
+test("a chat-tool task shows its own title and step labels, never the stored goal", async () => {
+  const { normalizeTask, detailViewModel, listItemModel, CHAT_TOOL_TITLE } = await import(
+    "../tasks-view.js"
+  );
+  const id = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+  const goal = `chat tool ${id} ${"a".repeat(32)}`;
+  const steps = ["承認待ち 1", "ツール実行 1", "会話へ投稿", "something else"].map((d, index) => ({
+    index, description: d, status: "pending",
+  }));
+  const task = normalizeTask({ id: "t1", goal, status: "running", conversation_id: id, steps });
+  assert.equal(task.goal, CHAT_TOOL_TITLE);
+  assert.equal(listItemModel(task).goal, "チャットのツール作業");
+  const model = detailViewModel(task);
+  assert.deepEqual(model.steps.map((s) => s.description), [
+    "承認待ち", "ツール実行", "会話へ投稿", "something else",
+  ]);
+  assert.equal(JSON.stringify(model).includes(id.slice(0, 8)), model.conversationHref !== null);
+});

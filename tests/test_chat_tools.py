@@ -17,7 +17,7 @@ from backend.api.app import create_app
 from backend.chat.activity import ActivityEvent, ActivityStage
 from backend.chat.persistence import SQLiteConversationStore
 from backend.chat.service import ChatDelta, ChatDone, ChatService
-from backend.chat.tool_jobs import ChatToolService
+from backend.chat.tool_jobs import CANCELLED_MESSAGE, ChatToolService
 from backend.chat.tool_protocol import (
     DENIED_MESSAGE,
     EXPIRED_MESSAGE,
@@ -322,6 +322,8 @@ def test_yellow_shell_call_waits_for_a_human_and_runs_once(env: Env) -> None:
     assert seen[0]["tool"] == "shell.run"
     (task,) = env.tasks()
     assert task.status is TaskStatus.COMPLETED
+    assert (task.steps[0].status.value, task.steps[0].note) == ("completed", "approved")
+    assert (task.steps[1].status.value, task.steps[1].note) == ("completed", "shell.run: ok")
     assert go(env.history(conversation_id))[-1] == ("assistant", "It printed hello world.")
     assert "hello world" in provider.requests[1].messages[-1].content
     assert env.approvals.list_pending() == []
@@ -442,6 +444,9 @@ def test_cancelling_a_waiting_task_stops_it_and_leaves_the_approval_pending(env:
     go(scenario())
     (task,) = env.tasks()
     assert task.status is TaskStatus.CANCELLED
+    conversation = conversation_of_goal(task.goal)
+    assert go(env.history(conversation))[-1] == ("assistant", CANCELLED_MESSAGE)
+    assert [s.description for s in task.steps][:2] == ["承認待ち 1", "ツール実行 1"]
     assert len(env.approvals.list_pending()) == 1  # nobody ran it; it expires on its own
     assert len(provider.requests) == 1
 
@@ -571,3 +576,75 @@ def test_app_wires_the_worker_only_when_enabled(tmp_path: Path) -> None:
         assert client.get("/health/ready").status_code == 200
     with TestClient(create_app(on, Scripted())) as client:
         assert client.get("/health/ready").status_code == 200
+
+
+def test_cancelling_a_task_that_never_started_posts_the_message_once(env: Env) -> None:
+    provider = Scripted(call("fs.list", root="work", path=""))
+    chat = env.chat(provider)
+
+    async def scenario():
+        result = await chat.complete("list")
+        env.tools._loop_ref = asyncio.get_running_loop()
+        env.tools.cancel(env.tasks()[0].id)
+        await asyncio.sleep(0.1)
+        return result.conversation_id
+
+    conversation_id = go(scenario())
+    history = go(env.history(conversation_id))
+    assert [text for _, text in history].count(CANCELLED_MESSAGE) == 1
+    assert env.tasks()[0].status is TaskStatus.CANCELLED
+
+
+def test_failed_task_posts_a_fixed_message_by_code_and_never_twice(env: Env) -> None:
+    from backend.chat.tool_jobs import _FAILURE_TEXT  # noqa: PLC2701
+    from backend.tasks.models import TaskFailure
+
+    provider = Scripted(call("fs.list", root="work", path=""))
+    chat = env.chat(provider)
+
+    async def scenario():
+        result = await chat.complete("list")
+        # A task claimed after its in-memory job is gone (a restart) fails with a fixed code.
+        env.tools._jobs.clear()
+        await env.run_worker_until(env.all_finished)
+        return result.conversation_id
+
+    conversation_id = go(scenario())
+    (task,) = env.tasks()
+    assert task.status is TaskStatus.FAILED and task.failure_code is TaskFailure.EXECUTION_FAILED
+    last = go(env.history(conversation_id))[-1]
+    assert last == ("assistant", _FAILURE_TEXT[TaskFailure.EXECUTION_FAILED])
+    # Denied tasks already posted their own message; the worker adds nothing more.
+    assert all(isinstance(text, str) and text for text in _FAILURE_TEXT.values())
+
+
+def test_recover_posts_the_interrupted_message(env: Env) -> None:
+    from backend.chat.tool_jobs import _FAILURE_TEXT  # noqa: PLC2701
+    from backend.tasks.models import TaskFailure
+
+    chat = env.chat(Scripted(call("fs.list", root="work", path="")))
+
+    async def scenario():
+        result = await chat.complete("list")
+        env.tools.queue.repository.claim_next(chat_tool_goal(result.conversation_id, "x")[:10])
+        env.tools._jobs.clear()
+        assert await env.tools.recover() == 1
+        return result.conversation_id
+
+    conversation_id = go(scenario())
+    assert go(env.history(conversation_id))[-1] == (
+        "assistant",
+        _FAILURE_TEXT[TaskFailure.INTERRUPTED],
+    )
+
+
+def test_tool_steps_have_wait_and_run_pairs(env: Env) -> None:
+    provider = Scripted(call("fs.list", root="work", path=""), "ok")
+    go(env.chat(provider).complete("list"))
+    go(env.run_worker_until(env.all_finished))
+    (task,) = env.tasks()
+    names = [s.description for s in task.steps]
+    assert names[:2] == ["承認待ち 1", "ツール実行 1"] and names[-1] == "会話へ投稿"
+    assert len(names) == 2 * env.settings.chat_tools_max_steps + 1
+    statuses = [s.status.value for s in task.steps]
+    assert statuses[0] == "skipped" and statuses[1] == "completed"  # Green: no approval wait

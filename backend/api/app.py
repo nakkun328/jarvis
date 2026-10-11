@@ -263,7 +263,7 @@ def create_app(
                 worker = asyncio.create_task(run_service.run_worker(), name="research-worker")
                 logging.getLogger(__name__).info("Web research is enabled")
             if tools_service is not None:
-                tools_service.recover()
+                await tools_service.recover()
                 tools_worker = asyncio.create_task(
                     tools_service.run_worker(), name="chat-tools-worker"
                 )

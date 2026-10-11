@@ -86,6 +86,21 @@ function normalizeStep(raw, position) {
   };
 }
 
+// Chat-tool tasks (docs/chat-tools.md) get their own fixed title and step labels. The stored goal
+// holds a conversation id, which is never shown; neither is any user text.
+export const CHAT_TOOL_TITLE = "チャットのツール作業";
+const CHAT_TOOL_GOAL = /^chat tool /;
+const STEP_LABELS = [
+  [/^承認待ち \d+$/, "承認待ち"],
+  [/^ツール実行 \d+$/, "ツール実行"],
+  [/^会話へ投稿$/, "会話へ投稿"],
+];
+
+export function stepLabel(description) {
+  const found = STEP_LABELS.find(([pattern]) => pattern.test(description));
+  return found ? found[1] : description;
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // Accepts a decoded API object and returns a task with only the fields this screen reads,
@@ -96,7 +111,7 @@ export function normalizeTask(raw) {
   }
   const task = {
     id: raw.id,
-    goal: text(raw.goal) ?? "",
+    goal: CHAT_TOOL_GOAL.test(text(raw.goal) ?? "") ? CHAT_TOOL_TITLE : (text(raw.goal) ?? ""),
     status: raw.status,
     current_step: count(raw.current_step),
     steps_total: count(raw.steps_total),
@@ -222,7 +237,7 @@ export function detailViewModel(task, { timeZone } = {}) {
     const info = stepStatusInfo(step.status);
     return {
       number: position + 1,
-      description: step.description,
+      description: stepLabel(step.description),
       status: info,
       startedText: step.started_at ? formatTimestamp(step.started_at, { timeZone }) : null,
       finishedText: step.finished_at ? formatTimestamp(step.finished_at, { timeZone }) : null,

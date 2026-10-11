@@ -42,6 +42,8 @@ from backend.tasks.models import (
     TERMINAL_STATUSES,
     StepStatus,
     Task,
+    TaskFailure,
+    TaskStatus,
     chat_tool_goal,
     conversation_of_goal,
     parse_chat_tool_goal,
@@ -64,6 +66,14 @@ _ENDINGS = {
     Ending.DENIED: DENIED_MESSAGE,
     Ending.EXPIRED: EXPIRED_MESSAGE,
     Ending.TIMEOUT: TIMEOUT_MESSAGE,
+}
+CANCELLED_MESSAGE = "タスクが取り消されました。"
+_FAILURE_TEXT = {
+    TaskFailure.EXECUTION_FAILED: FAILED_MESSAGE,
+    TaskFailure.VERIFICATION_FAILED: "結果を会話で確認できなかったため、タスクを失敗にしました。",
+    TaskFailure.TIMEOUT: "ツールのタスクが制限時間内に終わらなかったため、中断しました。",
+    TaskFailure.INTERRUPTED: "サーバーの再起動などで、ツールのタスクが中断されました。",
+    TaskFailure.INTERNAL_ERROR: "内部エラーのため、ツールのタスクを完了できませんでした。",
 }
 POSTED_SUMMARY = "ツールの結果を会話に投稿しました。"
 
@@ -118,6 +128,7 @@ class ChatToolService:
         self._max_pending = max_pending
         self._poll = worker_poll_seconds
         self._jobs: dict[str, _Job] = {}
+        self._loop_ref: asyncio.AbstractEventLoop | None = None
         self.rules = render_rules(toolbox.descriptors, max_steps)
         self.task_timeout_seconds = max_steps * (approval_timeout_seconds + 90.0) + 120.0
 
@@ -170,7 +181,11 @@ class ChatToolService:
             raise ToolBusy
         job_id = uuid4().hex
         job = _Job(provider, request.messages, call)
-        steps = [f"ツール実行 {i + 1}" for i in range(self._max_steps)] + ["会話へ投稿"]
+        steps = [
+            label
+            for i in range(self._max_steps)
+            for label in (f"承認待ち {i + 1}", f"ツール実行 {i + 1}")
+        ] + ["会話へ投稿"]
         self._jobs[job_id] = job
         try:
             task = self.queue.submit(chat_tool_goal(conversation_id, job_id), steps)
@@ -197,16 +212,57 @@ class ChatToolService:
     # ----- cancel / recover / worker -----
 
     def cancel(self, task_id: UUID) -> Task:
+        """Cancel a chat-tool task. A task that had not started is cancelled here and the fixed
+        message is posted; a running one is stopped by the worker, which posts it."""
         task = self.queue.repository.get_task(task_id)
         if task is not None and conversation_of_goal(task.goal) is None:
             raise NotAToolTask
-        return self.queue.cancel(task_id)
+        after = self.queue.cancel(task_id)
+        if after.status is TaskStatus.CANCELLED:
+            self._post_soon(after)
+        return after
 
-    def recover(self) -> int:
-        return len(self.queue.repository.recover_in_flight())
+    def _post_soon(self, task: Task) -> None:
+        loop = self._loop_ref
+        if loop is None:
+            return
+        asyncio.run_coroutine_threadsafe(self._post_ending(task), loop)
+
+    async def _post_ending(self, task: Task) -> None:
+        """Fixed message for a cancelled or failed task whose loop did not post its own."""
+        parsed = parse_chat_tool_goal(task.goal)
+        if parsed is None:
+            return
+        job = self._jobs.get(parsed[1])
+        if job is not None and job.posted is not None:
+            return  # the loop already posted its message: never post twice
+        if task.status is TaskStatus.CANCELLED:
+            text = CANCELLED_MESSAGE
+        elif task.status is TaskStatus.FAILED and task.failure_code is not None:
+            text = _FAILURE_TEXT.get(task.failure_code, FAILED_MESSAGE)
+        else:
+            return
+        try:
+            await self._store.append_assistant_message(parsed[0], text)
+        except ConversationNotFound:
+            return  # the conversation is gone: nothing to post into
+        except Exception as error:
+            _LOG.warning("chat_tools.post_failed", extra={"error_type": type(error).__name__})
+            return
+        if job is not None:
+            job.posted = text
+
+    async def recover(self) -> int:
+        """Settle tasks a previous process left running; each gets its fixed message."""
+        self._loop_ref = asyncio.get_running_loop()
+        recovered = self.queue.repository.recover_in_flight()
+        for task in recovered:
+            await self._post_ending(task)
+        return len(recovered)
 
     async def run_worker(self, stop: asyncio.Event | None = None) -> None:
         stop = stop or asyncio.Event()
+        self._loop_ref = asyncio.get_running_loop()
         executor = _Executor(self)
         verifier = _Verifier(self)
         while not stop.is_set():
@@ -223,6 +279,7 @@ class ChatToolService:
             except Exception as error:
                 _LOG.error("chat_tools.worker_failed", extra={"error_type": type(error).__name__})
             if ran is not None:
+                await self._post_ending(ran)
                 parsed = parse_chat_tool_goal(ran.goal)
                 if parsed is not None:
                     self._jobs.pop(parsed[1], None)
@@ -255,20 +312,21 @@ class ChatToolService:
             token.cancel()
         # Unused tool steps are skipped; the last step posts to the conversation. A step that
         # was started but not finished (a failure inside it) is closed as failed first.
+        post = 2 * self._max_steps
         if state.open_step is not None:
             progress.finish_step(state.open_step, status=StepStatus.FAILED)
-        for index in range(state.next_step, self._max_steps):
+        for index in range(state.next_step, post):
             progress.start_step(index)
             progress.finish_step(index, status=StepStatus.SKIPPED)
-        progress.start_step(self._max_steps)
+        progress.start_step(post)
         text = clean_posted_text(final)
         try:
             await self._store.append_assistant_message(conversation_id, text)
         except ConversationNotFound:
-            progress.finish_step(self._max_steps, status=StepStatus.FAILED, note="not_posted")
+            progress.finish_step(post, status=StepStatus.FAILED, note="not_posted")
             return ExecutionOutcome.failure()
         job.posted = text
-        progress.finish_step(self._max_steps, note="posted")
+        progress.finish_step(post, note="posted")
         return ExecutionOutcome.failure() if ended else ExecutionOutcome.succeeded(POSTED_SUMMARY)
 
     async def _loop(
@@ -281,25 +339,48 @@ class ChatToolService:
         while True:
             if step >= self._max_steps:
                 return STOPPED_MESSAGE, True
-            progress.start_step(step)
-            state.open_step = step
+            descriptor = self.toolbox.descriptor(call.name)
+            wait_index, run_index = 2 * step, 2 * step + 1
+            progress.start_step(wait_index)
+            state.open_step = wait_index
+
+            def on_granted(wait_index: int = wait_index, run_index: int = run_index) -> None:
+                # The human approved: the waiting step is done, the tool step starts.
+                if state.open_step == wait_index:
+                    progress.finish_step(wait_index, note="approved")
+                    progress.start_step(run_index)
+                    state.open_step = run_index
+
+            if descriptor is not None and not descriptor.needs_approval:
+                progress.finish_step(wait_index, status=StepStatus.SKIPPED)
+                progress.start_step(run_index)
+                state.open_step = run_index
             try:
                 prepared = self.toolbox.prepare(call.name, call.arguments)
             except ToolRefused:
                 result = StepResult("denied", "permission_denied", None)
                 prepared = None
             else:
-                result = await self.toolbox.execute(prepared, cancellation=token)
+                result = await self.toolbox.execute(
+                    prepared, on_granted=on_granted, cancellation=token
+                )
                 if not result.ok:
                     self.toolbox.discard(prepared)
-            progress.finish_step(
-                step,
-                status=StepStatus.COMPLETED if result.ok else StepStatus.FAILED,
-                note=f"{call.name}: {result.status}",
-            )
+            if state.open_step == wait_index:
+                # Never granted: the wait itself ended (denied, expired, timed out or refused).
+                progress.finish_step(
+                    wait_index, status=StepStatus.FAILED, note=f"{call.name}: {result.status}"
+                )
+                state.next_step = run_index  # the tool step is skipped later
+            else:
+                progress.finish_step(
+                    run_index,
+                    status=StepStatus.COMPLETED if result.ok else StepStatus.FAILED,
+                    note=f"{call.name}: {result.status}",
+                )
+                state.next_step = run_index + 1
             state.open_step = None
             step += 1
-            state.next_step = step
             if result.ending is not None:
                 return _ENDINGS[result.ending], True
             messages.append(ChatMessage(role="assistant", content=call_text(call)))
