@@ -235,3 +235,16 @@ def test_finalize_queries_gate() -> None:
     assert finalize_queries(["q"], 0) == []
     with pytest.raises(ValueError):
         finalize_queries(["q"], "1")  # type: ignore[arg-type]
+
+
+def test_single_letter_model_designator_is_kept() -> None:
+    plan = DeterministicQueryPlanner().plan_detailed(
+        "Raspberry Pi Zero 2 W と Raspberry Pi 4 の違いと、常時起動サーバーに向くのはどちらか", 4
+    )
+    assert "W" in plan.hints.keywords
+    assert any("Zero 2 W" in query.text for query in plan.queries)
+
+
+def test_ordinary_single_letters_are_still_dropped() -> None:
+    plan = DeterministicQueryPlanner().plan_detailed("What is a good X for I", 2)
+    assert "a" not in plan.hints.keywords and "I" not in plan.hints.keywords

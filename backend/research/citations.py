@@ -81,6 +81,38 @@ def is_absence_statement(text: str) -> bool:
     return bool(_ABSENCE_EN_WEAK.search(folded) and _MATERIAL_EN.search(folded))
 
 
+# A claim is what ONE source says. A conclusion or recommendation the model drew from several
+# claims is a synthesis: the quote requirement cannot support it, so it is not a verified claim
+# unless the cited quote itself contains the same marker or recommendation wording.
+_SYNTHESIS_LEAD = re.compile(
+    r"^[\s\-・*]*(?:したがって|従って|よって|ゆえに|故に|つまり|すなわち|結論(?:として|から)?"
+    r"|以上(?:から|より|のことから)|このことから|その結果|総合(?:的に|すると)"
+    r"|(?:therefore|thus|hence|consequently|accordingly|overall|in conclusion|in summary"
+    r"|to sum up|to summari[sz]e|in short|as a result|so)\b[\s,:]*)",
+)
+_RECOMMENDATION = (
+    "無難", "おすすめ", "お勧め", "オススメ", "推奨", "適して", "向いて", "向く", "最適", "ベスト",
+    "良いでしょう", "よいでしょう", "べきです", "をお勧め", "選ぶとよい",
+    "recommend", "best choice", "better choice", "safer", "safest", "ideal for",
+    "you should", "is preferable", "go with",
+)  # fmt: skip
+
+
+def is_synthesis_statement(text: str, quote: str) -> bool:
+    """True when the claim is a conclusion or recommendation that its quote does not contain.
+
+    Deterministic surface check on the NFKC, case-folded claim: it opens with a discourse
+    marker of inference (``したがって``, ``therefore``, ``so`` ...) or uses recommendation
+    wording (``無難``, ``おすすめ``, ``recommend`` ...) that the cited quote does not itself use.
+    """
+    claim = unicodedata.normalize("NFKC", text).casefold().strip()
+    cited = unicodedata.normalize("NFKC", quote).casefold()
+    lead = _SYNTHESIS_LEAD.match(claim)
+    if lead is not None and lead.group().strip(" \t-・*,:") not in cited:
+        return True
+    return any(word in claim and word not in cited for word in _RECOMMENDATION)
+
+
 class DropReason(StrEnum):
     """Fixed codes for claims that were not kept."""
 
@@ -94,6 +126,7 @@ class DropReason(StrEnum):
     OVER_LIMIT = "over_limit"
     NEAR_DUPLICATE = "near_duplicate"
     ABSENCE_STATEMENT = "absence_statement"
+    SYNTHESIS = "synthesis"
 
 
 @dataclass(frozen=True)
@@ -247,6 +280,8 @@ class CitationManager:
         span = find_quote(evidence.text, quote)
         if span is None:
             return DropReason.QUOTE_NOT_FOUND
+        if is_synthesis_statement(text, quote):
+            return DropReason.SYNTHESIS
         return VerifiedClaim(text, evidence.index, evidence.source.id, quote, span[0], span[1])
 
     def persist(self, claims: Sequence[VerifiedClaim]) -> tuple[ResearchClaim, ...]:
