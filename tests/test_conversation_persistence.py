@@ -237,6 +237,7 @@ def test_history_endpoint_restores_after_simulated_page_load(tmp_path: Path) -> 
                 {"role": "user", "content": "first"},
                 {"role": "assistant", "content": "reply"},
             ],
+            "total": 2,
         }
         assert "secret other" not in response.text
         assert other["conversation_id"] not in response.text

@@ -1,4 +1,5 @@
-import { TasksApiError, cancelTask, loadTask, loadTaskList } from "./tasks-api.js";
+import { TasksApiError, loadTask, loadTaskList } from "./tasks-api.js";
+import { cancelTask } from "./chat-task-cancel.js";
 import { backoffDelay, followTask } from "./tasks-stream.js";
 import {
   TASK_STATUSES,

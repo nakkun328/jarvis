@@ -96,3 +96,13 @@ test("a research-backed answer with a source list renders as text plus the one s
   );
   assert.ok(container.children.every((n) => n.tag === "#text" || n.tag === "a"));
 });
+
+test("the approvals path on its own becomes a link, and nothing longer does", () => {
+  const segments = replySegments("確認は /approvals から。");
+  assert.deepEqual(segments.filter((s) => s.type === "link"), [
+    { type: "link", text: "/approvals", href: "/approvals" },
+  ]);
+  for (const text of ["https://example.com/approvals", "/approvals/x", "x/approvals", "/approvalsX"]) {
+    assert.equal(replySegments(text).some((s) => s.type === "link"), false, text);
+  }
+});

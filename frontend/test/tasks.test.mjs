@@ -513,3 +513,17 @@ test("follow: injected task text cannot forge frames or change state", async () 
   assert.equal(await run.promise, "not_found");
   assert.ok(run.states.every(([, phase]) => phase !== "done"));
 });
+
+test("a chat-tool task offers a link to its conversation and a cancel button", async () => {
+  const { normalizeTask, detailViewModel } = await import("../tasks-view.js");
+  const id = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+  const base = { id: "t1", goal: "chat tool", status: "running", steps: [] };
+  const chat = detailViewModel(normalizeTask({ ...base, conversation_id: id }));
+  assert.equal(chat.conversationHref, `/?c=${id}`);
+  assert.equal(chat.cancellable, true);
+  const other = detailViewModel(normalizeTask({ ...base, conversation_id: "javascript:alert(1)" }));
+  assert.equal(other.conversationHref, null);
+  assert.equal(other.cancellable, false);
+  const done = detailViewModel(normalizeTask({ ...base, status: "completed", conversation_id: id }));
+  assert.equal(done.cancellable, false);
+});
