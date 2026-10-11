@@ -6,7 +6,7 @@ from typing import Annotated
 from uuid import UUID
 
 from anyio import CancelScope
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.types import Receive, Scope, Send
@@ -54,29 +54,6 @@ def _sse(event: str, data: dict[str, str | int | bool]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-class HistoryMessage(BaseModel):
-    role: str
-    content: str
-
-
-class HistoryResponse(BaseModel):
-    conversation_id: UUID
-    messages: list[HistoryMessage]
-    # How many messages the conversation holds in all (the list above may be a window).
-    total: int
-
-
-def _parse_conversation_id(raw: str) -> UUID:
-    # Canonical lowercase hyphenated form only; anything else is the same 404 as an unknown id.
-    try:
-        conversation_id = UUID(raw)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="conversation not found") from None
-    if str(conversation_id) != raw:
-        raise HTTPException(status_code=404, detail="conversation not found")
-    return conversation_id
-
-
 def build_chat_router(service: ChatService | None) -> APIRouter:
     router = APIRouter()
 
@@ -122,36 +99,6 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
             reply=result.reply,
             provider=result.provider,
             model=result.model,
-        )
-
-    @router.get(
-        "/api/chat/conversations/{conversation_id}/messages", response_model=HistoryResponse
-    )
-    async def conversation_messages(
-        conversation_id: str, after: Annotated[int | None, Query(ge=0, le=100_000)] = None
-    ) -> HistoryResponse:
-        """Read-only: the retained messages of one known conversation (role and content only).
-
-        With ``after=<n>`` it returns the messages that follow the first n stored ones (at most
-        one window), which is how a page picks up an answer a background task posted."""
-        parsed = _parse_conversation_id(conversation_id)
-        chat_service = require_service()
-        try:
-            if after is None:
-                messages = await chat_service.store.history(parsed)
-                counted = await chat_service.store.messages_after(parsed, 100_000)
-                total = counted[0] if counted is not None else 0
-            else:
-                counted = await chat_service.store.messages_after(parsed, after)
-                total, messages = counted if counted is not None else (0, None)
-        except ConversationStorageError as exc:
-            raise HTTPException(status_code=503, detail="conversation storage unavailable") from exc
-        if messages is None:
-            raise HTTPException(status_code=404, detail="conversation not found")
-        return HistoryResponse(
-            conversation_id=parsed,
-            messages=[HistoryMessage(role=m.role, content=m.content) for m in messages],
-            total=total,
         )
 
     @router.post("/api/chat/stream")

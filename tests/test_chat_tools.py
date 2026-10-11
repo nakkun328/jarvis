@@ -546,25 +546,36 @@ def test_task_api_links_conversation_and_cancel_is_guarded(env: Env) -> None:
     assert app is not None
 
 
-def test_messages_endpoint_supports_after_and_total(env: Env) -> None:
+def test_messages_endpoint_supports_after_alongside_paging(env: Env) -> None:
     chat = env.chat(Scripted("one", "two"))
     result = go(chat.complete("a"))
     go(chat.complete("b", result.conversation_id))
     go(env.store.append_assistant_message(result.conversation_id, "posted later"))
     from fastapi import FastAPI
 
-    from backend.api.chat import build_chat_router
+    from backend.api.chat_history import build_chat_history_router
 
     api = FastAPI()
-    api.include_router(build_chat_router(chat))
+    api.include_router(build_chat_history_router(chat))
     client = TestClient(api)
     url = f"/api/chat/conversations/{result.conversation_id}/messages"
     full = client.get(url).json()
     assert full["total"] == 5 and full["messages"][-1]["content"] == "posted later"
     tail = client.get(url, params={"after": 4}).json()
     assert tail["total"] == 5 and [m["content"] for m in tail["messages"]] == ["posted later"]
+    assert tail["has_more"] is False and tail["next_before"] is None
+    window = client.get(url, params={"after": 1, "limit": 2}).json()
+    assert [m["content"] for m in window["messages"]] == ["one", "b"]
+    assert window["has_more"] is True
     assert client.get(url, params={"after": 5}).json()["messages"] == []
-    assert client.get(url, params={"after": -1}).status_code == 422
+    paged = client.get(url, params={"limit": 2}).json()
+    assert paged["has_more"] is True and paged["total"] == 5 and paged["next_before"]
+    for bad in ({"after": -1}, {"after": "x"}, {"after": 1, "before": 3}):
+        assert client.get(url, params=bad).status_code == 422
+    assert client.get(url + "?after=1&after=2").status_code == 422
+    assert client.get(
+        f"/api/chat/conversations/{UUID(int=9)}/messages", params={"after": 0}
+    ).status_code == 404
 
 
 def test_app_wires_the_worker_only_when_enabled(tmp_path: Path) -> None:
@@ -648,3 +659,22 @@ def test_tool_steps_have_wait_and_run_pairs(env: Env) -> None:
     assert len(names) == 2 * env.settings.chat_tools_max_steps + 1
     statuses = [s.status.value for s in task.steps]
     assert statuses[0] == "skipped" and statuses[1] == "completed"  # Green: no approval wait
+
+
+def test_in_memory_store_after_and_total_count_dropped_messages() -> None:
+    from backend.chat.context import ConversationStore
+
+    async def scenario():
+        store = ConversationStore(max_messages=4)
+        service = ChatService(Scripted("1", "2", "3"), store)
+        first = await service.complete("a")
+        await service.complete("b", first.conversation_id)
+        await service.complete("c", first.conversation_id)
+        await store.append_assistant_message(first.conversation_id, "posted")
+        total, page = await store.messages_after(first.conversation_id, 6, 10)
+        assert total == 7 and [m.content for m in page.messages] == ["posted"]
+        total, page = await store.messages_after(first.conversation_id, 0, 10)
+        assert total == 7 and len(page.messages) == 4  # only what is retained
+        assert await store.messages_after(UUID(int=3), 0, 1) is None
+
+    go(scenario())
