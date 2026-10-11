@@ -1,4 +1,5 @@
 import { TasksApiError, loadTask, loadTaskList } from "./tasks-api.js";
+import { cancelTask } from "./chat-task-cancel.js";
 import { backoffDelay, followTask } from "./tasks-stream.js";
 import {
   TASK_STATUSES,
@@ -256,6 +257,27 @@ function renderDetail() {
   summary.append(segments);
 
   const parts = [summary];
+  if (model.conversationHref || model.cancellable) {
+    const actions = el("p", "detail-actions");
+    if (model.conversationHref) {
+      const link = el("a", "conversation-link", "会話を開く");
+      link.setAttribute("href", model.conversationHref);
+      link.setAttribute("target", "_blank");
+      link.setAttribute("rel", "noopener noreferrer");
+      actions.append(link);
+    }
+    if (model.cancellable) {
+      const button = el("button", "cancel-task", "このタスクを取り消す");
+      button.setAttribute("type", "button");
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        const ok = await cancelTask(model.id);
+        button.textContent = ok ? "取り消しを依頼しました" : "取り消せませんでした";
+      });
+      actions.append(button);
+    }
+    parts.push(actions);
+  }
   if (state.detailError) parts.push(el("p", "error-text", apiErrorMessage(state.detailError)));
   const goal = el("p", "goal", model.goal);
   parts.push(section("目的", goal));

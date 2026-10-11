@@ -1,6 +1,6 @@
 # Tool confirmation (human approval)
 
-Some tools must never run on the model's say-so alone: anything the permission policy marks Red, or Yellow and not allow-listed (see [tools.md](tools.md)). This slice adds the missing human step so later write or shell tools can be registered safely. **It registers no tools.** There is no filesystem write tool, no shell registration and no LLM wiring here; the tests use fake tools only.
+Some tools must never run on the model's say-so alone: anything the permission policy marks Red, or Yellow and not allow-listed (see [tools.md](tools.md)). This slice adds the missing human step so later write or shell tools can be registered safely. **It registers no tools by itself**; the opt-in chat wiring is described in [chat-tools.md](chat-tools.md).
 
 ## Flow
 
@@ -61,4 +61,4 @@ With login enabled (see [auth.md](auth.md)) the auth middleware is deny-by-defau
 
 - Who the confirming human is. Any authenticated session may approve; no per-person identity or audit actor is recorded.
 - Finished rows are kept (no pruning) and there is no history screen.
-- The executor is not wired into chat or the task queue yet; nothing registers a Red tool. Waiting inside a request handler is not provided: callers either poll by calling `execute` again or pass `wait_seconds` from a background task.
+- Chat wiring exists but is opt-in: with `JARVIS_CHAT_TOOLS` a background task waits for approvals (see [chat-tools.md](chat-tools.md)). The chat holds only the requester; the model has no path to `decide`. Waiting inside a request handler is still not provided.

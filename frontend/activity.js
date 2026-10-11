@@ -27,6 +27,7 @@ const NODE_BOX = {
   main: { x: 225, y: 62, w: 100, h: 26 },
   researcher: { x: 225, y: 115, w: 100, h: 26 },
   memory: { x: 8, y: 115, w: 84, h: 26 },
+  tools: { x: 122, y: 115, w: 84, h: 26 },
 };
 const EDGE_PATH = {
   "input-router": "M38,63 C38,28 78,28 108,28",
@@ -35,6 +36,7 @@ const EDGE_PATH = {
   "router-researcher": "M156,40 C156,100 190,128 225,128",
   "input-main": "M68,75 L225,75",
   "main-memory": "M225,82 C160,86 110,92 70,115",
+  "main-tools": "M250,88 C250,104 214,100 190,115",
 };
 
 function svg(doc, tag, attributes = {}, text) {
@@ -136,6 +138,16 @@ export function createActivityView(doc, mount, env = {}) {
 
   // The MEMORY part: one polite sentence when a memory was made, a link to /memory, and the
   // last few events as plain text.
+  // While a tool task is queued: a fixed line and a link to the approvals screen (new tab).
+  const approvalBox = html(doc, "p", "activity-approval");
+  approvalBox.hidden = true;
+  const approvalLink = doc.createElement("a");
+  approvalLink.setAttribute("href", "/approvals");
+  approvalLink.setAttribute("target", "_blank");
+  approvalLink.setAttribute("rel", "noopener noreferrer");
+  approvalLink.textContent = "承認画面を開く";
+  approvalBox.append(approvalLink);
+
   const memoryBox = html(doc, "div", "activity-memory");
   memoryBox.hidden = true;
   const memoryStatus = html(doc, "p", "activity-memory-status");
@@ -154,7 +166,7 @@ export function createActivityView(doc, mount, env = {}) {
   const { diagram, edges, nodes } = buildDiagram(doc, initial);
   stage.append(orb, diagram);
   body.append(stage);
-  root.append(bar, live, routeNote, memoryBox, body);
+  root.append(bar, live, routeNote, approvalBox, memoryBox, body);
   mount.append(root);
 
   function setCollapsed(collapsed) {
@@ -188,6 +200,7 @@ export function createActivityView(doc, mount, env = {}) {
       routeNote.removeAttribute("data-decided");
       routeNote.hidden = true;
     }
+    approvalBox.hidden = !model.approvalHint;
     renderMemory();
     diagram.setAttribute("aria-label", model.diagramLabel);
     for (const edge of model.edges) {

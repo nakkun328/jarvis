@@ -20,6 +20,7 @@ from uuid import UUID, uuid4
 from backend.core.database import Database
 from backend.tasks.models import (
     ALLOWED_TRANSITIONS,
+    CHAT_TOOL_GOAL_PREFIX,
     DEFAULT_MAX_ATTEMPTS,
     FINISHING_STEP_STATUSES,
     MAX_ATTEMPTS_LIMIT,
@@ -237,16 +238,22 @@ class TaskRepository:
             )
             return _load(connection, task_id)
 
-    def claim_next(self) -> Task | None:
+    def claim_next(self, goal_prefix: str | None = None) -> Task | None:
         """Atomically move the oldest pending task to running.
+
+        Without `goal_prefix` chat-tool tasks are skipped (only their own worker runs them);
+        with it only tasks whose goal starts with that prefix are considered.
 
         The select and the guarded update share one immediate transaction, so
         two callers on separate connections can never claim the same task.
         """
         with self._write() as connection:
+            prefix = CHAT_TOOL_GOAL_PREFIX if goal_prefix is None else goal_prefix
+            match = "=" if goal_prefix is not None else "!="
             row = connection.execute(
-                "SELECT id FROM tasks WHERE status = ? ORDER BY created_at, rowid LIMIT 1",
-                (TaskStatus.PENDING.value,),
+                "SELECT id FROM tasks WHERE status = ? "
+                f"AND substr(goal, 1, ?) {match} ? ORDER BY created_at, rowid LIMIT 1",
+                (TaskStatus.PENDING.value, len(prefix), prefix),
             ).fetchone()
             if row is None:
                 return None

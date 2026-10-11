@@ -49,6 +49,8 @@ class HistoryResponse(BaseModel):
     messages: list[HistoryMessage]
     has_more: bool
     next_before: str | None
+    # How many messages the conversation holds in all (a page is only a part of them).
+    total: int
 
 
 def _single(request: Request, name: str) -> str | None:
@@ -123,10 +125,36 @@ def build_chat_history_router(service: ChatService | None) -> APIRouter:
     async def conversation_messages(
         conversation_id: str, request: Request, response: Response
     ) -> HistoryResponse:
-        """Read-only: the stored transcript, newest page first; `before` pages to older."""
+        """Read-only: the stored transcript, newest page first; `before` pages to older.
+
+        ``after=<n>`` is the other direction: the messages that follow the first n stored ones,
+        oldest first (how a page picks up an answer a background task posted). It cannot be
+        combined with ``before`` (422 ``invalid_after``). ``total`` is always present."""
         parsed = _parse_conversation_id(conversation_id)
         limit = _bounded(request, "limit", DEFAULT_MESSAGES_LIMIT, MAX_MESSAGES_LIMIT)
         raw_before = _single(request, "before")
+        raw_after = _single(request, "after")
+        if raw_after is not None:
+            if raw_before is not None or not _INT.fullmatch(raw_after):
+                raise HTTPException(status_code=422, detail="invalid_after")
+            chat_service = require_service()
+            try:
+                found = await chat_service.store.messages_after(parsed, int(raw_after), limit)
+            except ConversationStorageError as exc:
+                raise HTTPException(
+                    status_code=503, detail="conversation storage unavailable"
+                ) from exc
+            if found is None:
+                raise HTTPException(status_code=404, detail="conversation not found")
+            response.headers.update(_NO_STORE)
+            total, forward = found
+            return HistoryResponse(
+                conversation_id=parsed,
+                messages=[HistoryMessage(role=m.role, content=m.content) for m in forward.messages],
+                has_more=forward.has_more,
+                next_before=None,
+                total=total,
+            )
         if raw_before is not None and (
             not _INT.fullmatch(raw_before) or int(raw_before) < 1
         ):
@@ -145,6 +173,7 @@ def build_chat_history_router(service: ChatService | None) -> APIRouter:
             messages=[HistoryMessage(role=m.role, content=m.content) for m in page.messages],
             has_more=page.has_more,
             next_before=str(page.messages[0].id) if page.has_more and page.messages else None,
+            total=page.total,
         )
 
     return router

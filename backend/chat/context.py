@@ -74,6 +74,7 @@ class MessagePage:
 
     messages: list[StoredMessage]
     has_more: bool
+    total: int = 0  # how many messages the conversation holds in all
 
 
 @dataclass
@@ -162,9 +163,10 @@ class ConversationStore:
                 StoredMessage(conversation.dropped + index, m.role, m.content)
                 for index, m in enumerate(conversation.messages)
             ]
+        all_count = conversation.dropped + len(stored)
         if before is not None:
             stored = [m for m in stored if m.id < before]
-        return MessagePage(stored[-limit:], len(stored) > limit)
+        return MessagePage(stored[-limit:], len(stored) > limit, all_count)
 
     async def remember(
         self, conversation_id: UUID, conversation: Conversation, user: str, assistant: str
@@ -182,3 +184,49 @@ class ConversationStore:
         if excess > 0:
             conversation.dropped += excess
             del conversation.messages[:excess]
+
+    async def append_assistant_message(self, conversation_id: UUID, text: str) -> None:
+        """Add one assistant message to a known conversation (a finished background task's
+        answer). It waits for a turn in progress, so it never lands in the middle of one.
+        Raises ``ConversationNotFound`` for an unknown conversation."""
+        text = clean_posted_text(text)
+        async with self.open(conversation_id) as (current_id, conversation):
+            await self._append(current_id, conversation, text)
+
+    async def _append(self, conversation_id: UUID, conversation: Conversation, text: str) -> None:
+        conversation.updated_at = now_stamp()
+        conversation.messages.append(ChatMessage(role="assistant", content=text))
+        excess = len(conversation.messages) - self.max_messages
+        if excess > 0:
+            conversation.dropped += excess
+            del conversation.messages[:excess]
+
+    async def messages_after(
+        self, conversation_id: UUID, after: int, limit: int
+    ) -> tuple[int, MessagePage] | None:
+        """(total stored messages, up to `limit` messages after the first `after` ones), or
+        None. `has_more` on the page says even newer ones exist beyond it."""
+        async with self._lock:
+            conversation = self._conversations.get(conversation_id)
+            if conversation is None:
+                return None
+            stored = [
+                StoredMessage(conversation.dropped + index, m.role, m.content)
+                for index, m in enumerate(conversation.messages)
+            ]
+            total = conversation.dropped + len(stored)
+        wanted = [m for m in stored if m.id >= after]
+        return total, MessagePage(wanted[:limit], len(wanted) > limit, total)
+
+
+#: Longest text a background task may post into a conversation.
+MAX_POSTED_CHARS = 8000
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
+
+
+def clean_posted_text(text: str) -> str:
+    """Bounded text without control or bidi characters (newlines and tabs stay)."""
+    cleaned = _CONTROL.sub(" ", text).strip()
+    if not cleaned:
+        raise ValueError("nothing to post")
+    return cleaned if len(cleaned) <= MAX_POSTED_CHARS else cleaned[: MAX_POSTED_CHARS - 1] + "…"

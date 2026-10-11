@@ -3,6 +3,7 @@ import { createActivityView } from "./activity.js";
 import { createMemoryPoller } from "./activity-memory.js";
 import { mountModelSelect } from "./model-select.js";
 import { renderReply } from "./chat-links.js";
+import { createMessagePoller, isToolRequested } from "./chat-poll.js";
 import { createConversationMemory, restoreConversation } from "./chat-restore.js";
 import { createHistoryController } from "./chat-history.js";
 import { createHistoryPanel } from "./history-panel.js";
@@ -39,6 +40,17 @@ const memoryPoller = createMemoryPoller({
   isHidden: () => document.hidden,
 });
 void memoryPoller.baseline();
+
+// Answers that a background tool task posts into the open conversation appear without a reload.
+const poller = createMessagePoller({
+  isHidden: () => document.hidden,
+  onMessages: (messages) => {
+    for (const message of messages) {
+      const created = createMessage(message.role, message.content);
+      if (message.role === "assistant") renderReply(document, created.content, message.content);
+    }
+  },
+});
 
 const modelMount = document.querySelector("#model-select");
 let modelSelect = null;
@@ -106,6 +118,8 @@ function beginTurn(text, onRetry) {
     },
     complete({ provider, model }) {
       activity.settle("done");
+      poller.turnDone(session.conversationId);
+      poller.watch();
       memoryPoller.watch();
       assistant.item.classList.remove("message-pending");
       if (typeof provider === "string" && typeof model === "string") {
@@ -172,7 +186,10 @@ const session = new ChatSession({
     sendChat({
       ...options,
       modelChoice: modelSelect?.value ?? null,
-      onActivity: (data) => activity.handle(data),
+      onActivity: (data) => {
+        activity.handle(data);
+        if (isToolRequested(data)) poller.noteTask();
+      },
     }),
   view: {
     setStatus,
@@ -181,6 +198,7 @@ const session = new ChatSession({
       resizeInput();
     },
     beginTurn: (text) => {
+      poller.stop();
       memoryPoller.stop();
       activity.begin();
       return beginTurn(text, () => session.retry());
@@ -238,6 +256,7 @@ stopButton.addEventListener("click", () => session.stop());
 
 newChatButton.addEventListener("click", () => {
   if (!session.reset()) return;
+  poller.sync(null, null);
   memory.clear();
   chatHistory.forget();
   conversation.replaceChildren(welcome);
@@ -254,7 +273,11 @@ olderButton.textContent = "さらに前を読み込む";
 olderButton.hidden = true;
 olderButton.addEventListener("click", () => void chatHistory.loadOlder());
 
-function showHistory(messages, { hasMore = false, nextBefore = null } = {}) {
+function showHistory(messages, { hasMore = false, nextBefore = null, total } = {}) {
+  // Whatever selected this conversation (restore, ?c=, the history panel) is the one a tool
+  // task will post into: poll that id, starting from how many messages it holds now.
+  poller.sync(session.conversationId, total);
+  poller.watchAlways();
   for (const message of messages) {
     const created = createMessage(message.role, message.content, { scroll: false });
     if (message.role === "assistant") renderReply(document, created.content, message.content);

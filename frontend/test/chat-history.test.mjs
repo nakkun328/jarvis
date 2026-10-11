@@ -145,13 +145,13 @@ test("select resumes a conversation: id, storage key, history, status", async ()
   const t = setup({
     fetchImpl: async (url) => {
       assert.equal(url, historyUrl(A));
-      return reply(200, page(A, messages, { has_more: true, next_before: "42" }));
+      return reply(200, page(A, messages, { has_more: true, next_before: "42", total: 7 }));
     },
   });
   assert.equal(await t.controller.select(A), "resumed");
   assert.equal(t.session.conversationId, A);
   assert.equal(t.storage.data.get(STORAGE_KEY), A);
-  assert.deepEqual(t.log.conversations[0], { messages, hasMore: true, nextBefore: "42" });
+  assert.deepEqual(t.log.conversations[0], { messages, hasMore: true, nextBefore: "42", total: 7 });
   assert.equal(t.log.closed, 1);
   assert.deepEqual(t.log.statuses.at(-1), { text: RESUMED_MESSAGE, error: false });
 });

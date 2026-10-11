@@ -139,6 +139,7 @@ export function createHistoryController({ session, memory, view, fetchImpl }) {
     view.showConversation(result.messages, {
       hasMore: result.hasMore,
       nextBefore: result.nextBefore,
+      total: result.total,
     });
     view.closePanel();
     view.setStatus(RESUMED_MESSAGE);

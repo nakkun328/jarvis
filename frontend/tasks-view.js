@@ -86,6 +86,23 @@ function normalizeStep(raw, position) {
   };
 }
 
+// Chat-tool tasks (docs/chat-tools.md) get their own fixed title and step labels. The stored goal
+// holds a conversation id, which is never shown; neither is any user text.
+export const CHAT_TOOL_TITLE = "チャットのツール作業";
+const CHAT_TOOL_GOAL = /^chat tool /;
+const STEP_LABELS = [
+  [/^承認待ち \d+$/, "承認待ち"],
+  [/^ツール実行 \d+$/, "ツール実行"],
+  [/^会話へ投稿$/, "会話へ投稿"],
+];
+
+export function stepLabel(description) {
+  const found = STEP_LABELS.find(([pattern]) => pattern.test(description));
+  return found ? found[1] : description;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 // Accepts a decoded API object and returns a task with only the fields this screen reads,
 // or null when it is not a task. Unknown extra fields are dropped, never interpreted.
 export function normalizeTask(raw) {
@@ -94,7 +111,7 @@ export function normalizeTask(raw) {
   }
   const task = {
     id: raw.id,
-    goal: text(raw.goal) ?? "",
+    goal: CHAT_TOOL_GOAL.test(text(raw.goal) ?? "") ? CHAT_TOOL_TITLE : (text(raw.goal) ?? ""),
     status: raw.status,
     current_step: count(raw.current_step),
     steps_total: count(raw.steps_total),
@@ -102,6 +119,10 @@ export function normalizeTask(raw) {
     target_device: text(raw.target_device),
     attempt: count(raw.attempt),
     retry_of: text(raw.retry_of),
+    // Set only for a task made from chat: the conversation it will post its answer into.
+    conversation_id: typeof raw.conversation_id === "string" && UUID.test(raw.conversation_id)
+      ? raw.conversation_id
+      : null,
     verified: text(raw.verified),
     failure_code: text(raw.failure_code),
     waiting_reason: text(raw.waiting_reason),
@@ -216,7 +237,7 @@ export function detailViewModel(task, { timeZone } = {}) {
     const info = stepStatusInfo(step.status);
     return {
       number: position + 1,
-      description: step.description,
+      description: stepLabel(step.description),
       status: info,
       startedText: step.started_at ? formatTimestamp(step.started_at, { timeZone }) : null,
       finishedText: step.finished_at ? formatTimestamp(step.finished_at, { timeZone }) : null,
@@ -244,6 +265,10 @@ export function detailViewModel(task, { timeZone } = {}) {
       ["終了", task.finished_at ? formatTimestamp(task.finished_at, { timeZone }) : "—"],
     ],
     terminal: isTerminal(task),
+    // "会話を開く": the chat page for the conversation a chat-tool task belongs to (same origin).
+    conversationHref: task.conversation_id ? `/?c=${task.conversation_id}` : null,
+    // Only a chat-tool task that has not finished can be cancelled from here.
+    cancellable: Boolean(task.conversation_id) && !isTerminal(task),
   };
 }
 

@@ -34,6 +34,8 @@ from backend.chat.research_answer import RepositoryResearchReader, ResearchAnswe
 from backend.chat.research_start import RunServiceStarter
 from backend.chat.semantic_context import SemanticMemoryContext
 from backend.chat.service import ChatService
+from backend.chat.tool_jobs import ChatToolService
+from backend.chat.tool_wiring import build_chat_toolbox
 from backend.core.config import ConfigError, Settings
 from backend.core.database import Database
 from backend.core.logging import configure_logging
@@ -66,6 +68,7 @@ from backend.research.run_control import (
 from backend.research.search import SearchProvider
 from backend.research.search_factory import create_search_provider
 from backend.router import AuditedRouter, InMemoryAuditSink, LLMRouter, Router, RuleRouter
+from backend.tasks.queue import TaskQueue
 from backend.tasks.repository import TaskRepository
 from backend.tools.approvals import ApprovalStore
 
@@ -202,10 +205,13 @@ def create_app(
     # JARVIS_MODEL_CHOICES) there is no registry and the app is exactly the single-model app.
     if models is None and provider is not None and settings.model_choices:
         models = ModelRegistry(settings.model_choices, provider)
+    conversation_store = SQLiteConversationStore(database)
+    tools_service = _build_chat_tools(settings, database, conversation_store, provider)
     chat_service = (
         ChatService(
             provider,
-            SQLiteConversationStore(database),
+            conversation_store,
+            tools=tools_service,
             memory_context=memory_context,
             personality=personality,
             models=models,
@@ -247,6 +253,7 @@ def create_app(
     async def lifespan(_app: FastAPI):
         configure_logging(settings.log_level)
         worker: asyncio.Task[None] | None = None
+        tools_worker: asyncio.Task[None] | None = None
         try:
             database.initialize()
             logging.getLogger(__name__).info("JARVIS backend started")
@@ -256,6 +263,12 @@ def create_app(
                 run_service.recover()
                 worker = asyncio.create_task(run_service.run_worker(), name="research-worker")
                 logging.getLogger(__name__).info("Web research is enabled")
+            if tools_service is not None:
+                await tools_service.recover()
+                tools_worker = asyncio.create_task(
+                    tools_service.run_worker(), name="chat-tools-worker"
+                )
+                logging.getLogger(__name__).info("Chat tools are enabled")
             logging.getLogger(__name__).info(
                 "Personality (%s): %s",
                 "file" if settings.personality_path is not None else "default",
@@ -267,6 +280,10 @@ def create_app(
                 worker.cancel()
                 with suppress(asyncio.CancelledError):
                     await worker
+            if tools_worker is not None:
+                tools_worker.cancel()
+                with suppress(asyncio.CancelledError):
+                    await tools_worker
             if models is not None:
                 await models.aclose()
             close = getattr(provider, "aclose", None)
@@ -327,7 +344,13 @@ def create_app(
             research_enabled=settings.research_memory_auto_stage,
         )
     )
-    app.include_router(create_tasks_router(TaskRepository(database)))
+    app.include_router(
+        create_tasks_router(
+            TaskRepository(database),
+            cancel_chat_tool=tools_service.cancel if tools_service is not None else None,
+            trusted_proxy=settings.trusted_proxy,
+        )
+    )
     app.include_router(
         create_approvals_router(ApprovalStore(database), trusted_proxy=settings.trusted_proxy)
     )
@@ -386,6 +409,35 @@ def create_app(
             )
 
     return app
+
+
+def _build_chat_tools(
+    settings: Settings,
+    database: Database,
+    store: SQLiteConversationStore,
+    provider: LLMProvider | None,
+) -> ChatToolService | None:
+    """Chat tools (docs/chat-tools.md): off unless JARVIS_CHAT_TOOLS, needs a chat provider.
+
+    The approval store is built here and only its requester (ask, read state, use once; never
+    decide) is handed on. A request lives as long as the chat waits for it."""
+    if not settings.chat_tools or provider is None:
+        return None
+    toolbox = build_chat_toolbox(
+        settings,
+        ApprovalStore(
+            database, ttl_seconds=settings.chat_tools_approval_timeout_seconds
+        ).requester(),
+    )
+    if toolbox is None:
+        return None
+    return ChatToolService(
+        toolbox,
+        TaskQueue(TaskRepository(database)),
+        store,
+        max_steps=settings.chat_tools_max_steps,
+        approval_timeout_seconds=float(settings.chat_tools_approval_timeout_seconds),
+    )
 
 
 def _build_research(
