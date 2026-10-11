@@ -1,6 +1,7 @@
 """Conversation history: list, full transcript paging, titles and continuing old chats."""
 
 import sqlite3
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -256,6 +257,7 @@ def test_in_memory_store_lists_and_pages() -> None:
     app.include_router(build_chat_history_router(service))
     with TestClient(app) as client:
         a = chat(client, "alpha")
+        time.sleep(0.01)  # timestamps have millisecond resolution
         b = chat(client, "beta")
         listing = client.get("/api/chat/conversations?limit=1").json()
         assert [c["title"] for c in listing["conversations"]] == ["beta"]
