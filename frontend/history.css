@@ -1,0 +1,38 @@
+/* Conversation history panel and the "load older" button. */
+.history-backdrop {
+  position: fixed; inset: 0; z-index: 40; display: flex; justify-content: center;
+  align-items: flex-start; padding: 4rem .75rem 1rem; background: rgba(5, 10, 16, .72);
+}
+.history-backdrop[hidden] { display: none; }
+.history-panel {
+  width: min(100%, 36rem); max-height: 100%; display: flex; flex-direction: column;
+  border: 1px solid var(--border-strong); border-radius: .9rem; background: var(--surface);
+  color: var(--text); overflow: hidden;
+}
+.history-head {
+  display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+  padding: .75rem 1rem; border-bottom: 1px solid var(--border);
+}
+.history-head h2 { margin: 0; font-size: 1.05rem; }
+.history-close, .history-more, .history-older {
+  border: 1px solid var(--border-strong); border-radius: .65rem; background: var(--surface-raised);
+  color: var(--text); padding: .5rem .8rem; min-height: var(--tap);
+}
+.history-close:hover, .history-more:hover, .history-older:hover { background: var(--surface-hover); }
+.history-state { margin: 0; padding: .75rem 1rem; color: var(--text-muted); }
+.history-state:empty { display: none; }
+.history-state.error { color: var(--danger); }
+.history-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+.history-item {
+  display: flex; flex-direction: column; gap: .15rem; width: 100%; min-height: var(--tap);
+  padding: .65rem 1rem; border: 0; border-bottom: 1px solid var(--border); background: none;
+  color: var(--text); text-align: left;
+}
+.history-item:hover { background: var(--surface-hover); }
+.history-item-title { overflow-wrap: anywhere; }
+.history-item-meta { color: var(--text-dim); font-size: .8rem; }
+.history-more { margin: .75rem 1rem; }
+.history-older { display: block; margin: 0 auto 1rem; }
+.history-older[hidden] { display: none; }
+.history-close:focus-visible, .history-more:focus-visible, .history-older:focus-visible,
+.history-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
