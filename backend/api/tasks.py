@@ -2,8 +2,8 @@
 
 Everything here reports what the repository has persisted. Nothing is computed
 that the database does not hold: no percentages, no estimates, and no task
-shown as running unless its stored status says so. There are no write, cancel
-or retry routes; those need a separate permission decision.
+shown as running unless its stored status says so. The only write is a guarded
+cancel route for chat-tool tasks (docs/chat-tools.md); there are no retry routes.
 
 Task text (goal, step descriptions, notes, result summary) is untrusted data
 and is only ever placed inside JSON values. Failure and waiting causes are the
@@ -19,12 +19,27 @@ from uuid import UUID
 
 import anyio
 from anyio import CancelScope, to_thread
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from starlette.types import Receive, Scope, Send
 
-from backend.tasks.models import TERMINAL_STATUSES, StepStatus, Task, TaskStatus
-from backend.tasks.repository import TaskRepository, TaskRepositoryError
+from backend.api.origin import is_cross_origin_request
+from backend.chat.tool_jobs import NotAToolTask
+from backend.tasks.models import (
+    TERMINAL_STATUSES,
+    StepStatus,
+    Task,
+    TaskStatus,
+    conversation_of_goal,
+)
+from backend.tasks.queue import TaskNotCancellable
+from backend.tasks.repository import (
+    InvalidTransition,
+    TaskNotFound,
+    TaskRepository,
+    TaskRepositoryError,
+    TaskStateChanged,
+)
 
 _LOG = logging.getLogger(__name__)
 _T = TypeVar("_T")
@@ -114,6 +129,8 @@ def task_summary(task: Task) -> dict[str, Any]:
         "target_device": task.target_device,
         "attempt": task.attempt,
         "retry_of": str(task.retry_of) if task.retry_of is not None else None,
+        # The conversation a chat-tool task belongs to (null for every other task).
+        "conversation_id": _conversation(task),
         "verified": task.verified.value,
         "failure_code": task.failure_code.value if task.failure_code is not None else None,
         "waiting_reason": task.waiting_reason.value if task.waiting_reason is not None else None,
@@ -122,6 +139,11 @@ def task_summary(task: Task) -> dict[str, Any]:
         "started_at": _iso(task.started_at),
         "finished_at": _iso(task.finished_at),
     }
+
+
+def _conversation(task: Task) -> str | None:
+    found = conversation_of_goal(task.goal)
+    return str(found) if found is not None else None
 
 
 def task_detail(task: Task) -> dict[str, Any]:
@@ -164,6 +186,8 @@ def create_tasks_router(
     max_stream_seconds: float = DEFAULT_MAX_STREAM_SECONDS,
     max_streams: int = DEFAULT_MAX_STREAMS,
     slots: StreamSlots | None = None,
+    cancel_chat_tool: Callable[[UUID], Task] | None = None,
+    trusted_proxy: bool = False,
 ) -> APIRouter:
     """Build the read-only task router.
 
@@ -204,6 +228,28 @@ def create_tasks_router(
         if task is None:
             raise HTTPException(status_code=404, detail="task not found")
         return task_detail(task)
+
+    if cancel_chat_tool is not None:
+
+        @router.post("/api/tasks/{task_id}/cancel")
+        def cancel_task(task_id: UUID, request: Request) -> dict[str, Any]:
+            """Cancel a chat-tool task (the only kind this route touches). Same guard as the
+            approval routes: same origin and the fixed confirm header."""
+            if is_cross_origin_request(request.scope, trusted_proxy):
+                raise HTTPException(status_code=403, detail="forbidden")
+            if request.headers.get("x-jarvis-confirm") != "1":
+                raise HTTPException(status_code=403, detail="confirm_header_required")
+            try:
+                task = cancel_chat_tool(task_id)
+            except TaskNotFound as exc:
+                raise HTTPException(status_code=404, detail="task not found") from exc
+            except (InvalidTransition, TaskStateChanged, TaskNotCancellable) as exc:
+                raise HTTPException(status_code=409, detail="task not cancellable") from exc
+            except TaskRepositoryError as exc:
+                raise storage_unavailable(exc) from exc
+            except NotAToolTask as exc:
+                raise HTTPException(status_code=404, detail="task not found") from exc
+            return {"id": str(task.id), "status": task.status.value}
 
     @router.get("/api/tasks/{task_id}/events")
     async def task_events(task_id: UUID) -> StreamingResponse:

@@ -40,6 +40,10 @@ REASONS: dict[str, str] = {
     "ROUTER_NEEDS_CHAT_PROVIDER": "llm ルーターにはチャットプロバイダが必要です",
     "CASUAL_NEEDS_ROUTER": "雑談経路にはルーター(JARVIS_ROUTER)が必要です",
     "CASUAL_NEEDS_CHAT_PROVIDER": "雑談経路にはチャットプロバイダが必要です",
+    "TOOLS_NEED_APPROVAL": (
+        "有効です: Yellow/Red のツール呼び出しはすべて人間の承認(/approvals)が必要です"
+        "(Green の読み取りだけは承認なしで実行されます)"
+    ),
     "CHAT_RESEARCH_OFF": "チャットからのリサーチは無効です",
     "AUTH_DISABLED": "ログインは無効です(ループバック専用)",
     "BIND_REQUIRES_AUTH": "非ループバック待受にはログインが必要です",
@@ -281,6 +285,29 @@ def _shell(settings: Settings) -> Check:
     return Check("shell", "シェルツール", result.status.value, result.code, detail)
 
 
+def _chat_tools(settings: Settings, chat: Check) -> Check:
+    # Flags and counts only; no path is ever printed.
+    from dataclasses import replace
+
+    from backend.tools.shell_policy import inspect_shell
+
+    if not settings.chat_tools:
+        off = "JARVIS_CHAT_TOOLS=off"
+        return Check("chat_tools", "チャットのツール", OFF, "NOT_CONFIGURED", off)
+    shell_root = settings.shell_root if settings.shell_root is not None else settings.tools_root
+    shell = inspect_shell(replace(settings, shell_root=shell_root))
+    detail = (
+        f"JARVIS_CHAT_TOOLS=on, JARVIS_TOOLS_ROOT={_word(settings.tools_root is not None)}, "
+        f"fs_write={'on' if settings.tools_fs_write else 'off'}, "
+        f"shell={shell.code}, shell_commands={len(shell.commands)}, "
+        f"max_steps={settings.chat_tools_max_steps}, "
+        f"approval_timeout={settings.chat_tools_approval_timeout_seconds}s"
+    )
+    if chat.status != OK:
+        return Check("chat_tools", "チャットのツール", INCOMPLETE, "CHAT_PROVIDER_MISSING", detail)
+    return Check("chat_tools", "チャットのツール", OK, "TOOLS_NEED_APPROVAL", detail)
+
+
 def _paths(settings: Settings) -> list[Check]:
     checks: list[Check] = []
     db = settings.db_path
@@ -339,6 +366,7 @@ def run_checks(host: str = "127.0.0.1") -> list[Check]:
         _chat_research(settings, router, research),
         _login(settings, environment, host),
         _shell(settings),
+        _chat_tools(settings, chat),
         *_paths(settings),
     ]
 

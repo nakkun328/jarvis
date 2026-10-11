@@ -119,3 +119,55 @@ class SQLiteConversationStore(ConversationStore):
     ) -> None:
         await asyncio.to_thread(self._save, conversation_id, user, assistant)
         await super().remember(conversation_id, conversation, user, assistant)
+
+    def _save_one(self, conversation_id: UUID, assistant: str) -> None:
+        try:
+            with self.database.connect() as connection:
+                with connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    now = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+                    connection.execute(
+                        f"UPDATE conversations SET updated_at = {now} WHERE id = ?",
+                        (str(conversation_id),),
+                    )
+                    connection.execute(
+                        "INSERT INTO conversation_messages "
+                        f"(conversation_id, role, content, created_at) VALUES (?, ?, ?, {now})",
+                        (str(conversation_id), "assistant", assistant),
+                    )
+        except (OSError, sqlite3.Error) as exc:
+            raise ConversationStorageError("Conversation storage unavailable") from exc
+
+    async def _append(self, conversation_id: UUID, conversation: Conversation, text: str) -> None:
+        await asyncio.to_thread(self._save_one, conversation_id, text)
+        await super()._append(conversation_id, conversation, text)
+
+    def _load_after(
+        self, conversation_id: UUID, after: int
+    ) -> tuple[int, list[ChatMessage]] | None:
+        try:
+            with self.database.connect(read_only=True) as connection:
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM conversations WHERE id = ?", (str(conversation_id),)
+                    ).fetchone()
+                    is None
+                ):
+                    return None
+                total = connection.execute(
+                    "SELECT COUNT(*) FROM conversation_messages WHERE conversation_id = ?",
+                    (str(conversation_id),),
+                ).fetchone()[0]
+                rows = connection.execute(
+                    "SELECT role, content FROM conversation_messages WHERE conversation_id = ? "
+                    "ORDER BY id LIMIT ? OFFSET ?",
+                    (str(conversation_id), self.max_messages, after),
+                ).fetchall()
+        except (OSError, sqlite3.Error) as exc:
+            raise ConversationStorageError("Conversation storage unavailable") from exc
+        return total, [ChatMessage(role=r["role"], content=r["content"]) for r in rows]
+
+    async def messages_after(
+        self, conversation_id: UUID, after: int
+    ) -> tuple[int, list[ChatMessage]] | None:
+        return await asyncio.to_thread(self._load_after, conversation_id, after)

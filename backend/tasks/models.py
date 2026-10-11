@@ -5,6 +5,7 @@ and handed to an executor verbatim and is never interpreted by this package.
 Failure and waiting causes are fixed codes; free-form error text is never kept.
 """
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -18,6 +19,34 @@ MAX_TARGET_DEVICE_CHARS = 100
 MAX_STEPS = 50
 DEFAULT_MAX_ATTEMPTS = 3
 MAX_ATTEMPTS_LIMIT = 10
+
+
+#: Tasks created from chat start with this label (then the conversation id and a job id). They are
+#: run only by the chat-tool worker: `claim_next` skips them unless that prefix is asked for.
+CHAT_TOOL_GOAL_LABEL = "chat tool"
+CHAT_TOOL_GOAL_PREFIX = CHAT_TOOL_GOAL_LABEL + " "
+_CHAT_TOOL_GOAL = re.compile(
+    r"chat tool ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) ([0-9a-f]{32})"
+)
+
+
+def chat_tool_goal(conversation_id: UUID, job_id: str) -> str:
+    """Fixed label, the conversation id and a job id. Never any user text."""
+    return f"{CHAT_TOOL_GOAL_PREFIX}{conversation_id} {job_id}"
+
+
+def parse_chat_tool_goal(goal: str) -> tuple[UUID, str] | None:
+    """(conversation id, job id) of a chat-tool task, or None for any other task."""
+    match = _CHAT_TOOL_GOAL.fullmatch(goal)
+    if match is None:
+        return None
+    return UUID(match.group(1)), match.group(2)
+
+
+def conversation_of_goal(goal: str) -> UUID | None:
+    """The conversation a chat-tool task belongs to, or None for any other task."""
+    parsed = parse_chat_tool_goal(goal)
+    return parsed[0] if parsed else None
 
 
 class TaskStatus(StrEnum):

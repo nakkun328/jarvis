@@ -7,6 +7,10 @@
 export const RESEARCH_LINK =
   /(?<![\w./:@%-])\/research#[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\w-])/g;
 
+// The approvals screen, written as a bare path on its own (the fixed tool-task messages carry it).
+export const APPROVALS_LINK = /(?<![\w./:@%#-])\/approvals(?![\w/#?=-])/g;
+const LINKS = new RegExp(`${RESEARCH_LINK.source}|${APPROVALS_LINK.source}`, "g");
+
 // Splits `text` into [{ type: "text", text }, { type: "link", text, href }], in order. The
 // concatenation of the `text` fields is always the original text. A link's href is the matched
 // relative path itself (same origin by construction).
@@ -14,7 +18,7 @@ export function replySegments(text) {
   const source = typeof text === "string" ? text : "";
   const segments = [];
   let last = 0;
-  for (const match of source.matchAll(RESEARCH_LINK)) {
+  for (const match of source.matchAll(LINKS)) {
     if (match.index > last) segments.push({ type: "text", text: source.slice(last, match.index) });
     segments.push({ type: "link", text: match[0], href: match[0] });
     last = match.index + match[0].length;

@@ -36,6 +36,8 @@ _MIN_SIGNING_KEY_CHARS = 32
 _SHELL_COMMAND_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}")
 _MAX_SHELL_COMMANDS = 16
 DEFAULT_SHELL_COMMANDS = ("ls", "cat", "git")
+DEFAULT_CHAT_TOOLS_MAX_STEPS = 5
+DEFAULT_CHAT_TOOLS_APPROVAL_TIMEOUT_SECONDS = 120
 _MAX_SESSION_HOURS = 24 * 365
 _TRUE = frozenset({"1", "true", "yes", "on"})
 _FALSE = frozenset({"0", "false", "no", "off"})
@@ -148,6 +150,14 @@ class Settings:
     shell_timeout_seconds: float = 30.0
     shell_max_output_bytes: int = 32_768
     shell_commands: tuple[str, ...] = DEFAULT_SHELL_COMMANDS
+    # Tools in the chat (docs/chat-tools.md). Off by default; off means the chat is exactly the
+    # chat without tools. The root is the single filesystem root (and the shell root unless
+    # JARVIS_SHELL_ROOT is set). Every Yellow/Red call still needs a human approval.
+    chat_tools: bool = False
+    tools_root: Path | None = None
+    tools_fs_write: bool = False
+    chat_tools_max_steps: int = DEFAULT_CHAT_TOOLS_MAX_STEPS
+    chat_tools_approval_timeout_seconds: int = DEFAULT_CHAT_TOOLS_APPROVAL_TIMEOUT_SECONDS
 
     @property
     def auth_enabled(self) -> bool:
@@ -269,6 +279,7 @@ class Settings:
             or not all(isinstance(n, str) and _SHELL_COMMAND_NAME.fullmatch(n) for n in names)
         ):
             raise ConfigError("JARVIS_SHELL_COMMANDS must list 1-16 distinct lowercase names")
+        self._validate_chat_tools()
         if self.router not in _ROUTER_MODES:
             raise ConfigError(f"JARVIS_ROUTER must be one of: {', '.join(sorted(_ROUTER_MODES))}")
         if not isinstance(self.casual, bool):
@@ -306,6 +317,42 @@ class Settings:
                 f"JARVIS_AUTH_SESSION_HOURS must be between 1 and {_MAX_SESSION_HOURS}"
             )
 
+    def _validate_chat_tools(self) -> None:
+        for name, value in (
+            ("JARVIS_CHAT_TOOLS", self.chat_tools),
+            ("JARVIS_TOOLS_FS_WRITE", self.tools_fs_write),
+        ):
+            if not isinstance(value, bool):
+                raise ConfigError(f"{name} must be true or false")
+        if (
+            isinstance(self.chat_tools_max_steps, bool)
+            or not isinstance(self.chat_tools_max_steps, int)
+            or not 1 <= self.chat_tools_max_steps <= 10
+        ):
+            raise ConfigError("JARVIS_CHAT_TOOLS_MAX_STEPS must be between 1 and 10")
+        if (
+            isinstance(self.chat_tools_approval_timeout_seconds, bool)
+            or not isinstance(self.chat_tools_approval_timeout_seconds, int)
+            or not 10 <= self.chat_tools_approval_timeout_seconds <= 600
+        ):
+            raise ConfigError(
+                "JARVIS_CHAT_TOOLS_APPROVAL_TIMEOUT_SECONDS must be between 10 and 600"
+            )
+        if self.tools_root is not None:
+            # The same root safety rules as the shell root (imported here: shell_policy needs
+            # Settings, so a top-level import would be circular).
+            from backend.tools.shell_policy import validate_root
+
+            if validate_root(self.tools_root) is None:
+                raise ConfigError(
+                    "JARVIS_TOOLS_ROOT must be an existing absolute directory that is not "
+                    "'/', the home directory or a parent of it"
+                )
+        if self.chat_tools and self.tools_root is None:
+            raise ConfigError("JARVIS_CHAT_TOOLS requires JARVIS_TOOLS_ROOT")
+        if self.tools_fs_write and not self.chat_tools:
+            raise ConfigError("JARVIS_TOOLS_FS_WRITE requires JARVIS_CHAT_TOOLS")
+
     @classmethod
     def from_env(cls) -> "Settings":
         raw_path = os.environ.get("JARVIS_DB_PATH", "data/jarvis.sqlite3")
@@ -340,7 +387,20 @@ class Settings:
             shell_timeout = float(os.environ.get("JARVIS_SHELL_TIMEOUT_SECONDS", "30").strip())
         except ValueError:
             raise ConfigError("JARVIS_SHELL_TIMEOUT_SECONDS must be a number") from None
+        tools_root = os.environ.get("JARVIS_TOOLS_ROOT")
+        if tools_root is not None and not tools_root.strip():
+            raise ConfigError("JARVIS_TOOLS_ROOT must not be empty")
         return cls(
+            chat_tools=_env_bool("JARVIS_CHAT_TOOLS", False),
+            tools_root=Path(tools_root.strip()).expanduser() if tools_root is not None else None,
+            tools_fs_write=_env_bool("JARVIS_TOOLS_FS_WRITE", False),
+            chat_tools_max_steps=_env_int(
+                "JARVIS_CHAT_TOOLS_MAX_STEPS", DEFAULT_CHAT_TOOLS_MAX_STEPS
+            ),
+            chat_tools_approval_timeout_seconds=_env_int(
+                "JARVIS_CHAT_TOOLS_APPROVAL_TIMEOUT_SECONDS",
+                DEFAULT_CHAT_TOOLS_APPROVAL_TIMEOUT_SECONDS,
+            ),
             shell_enabled=_env_bool("JARVIS_SHELL_ENABLED", False),
             shell_root=Path(shell_root.strip()).expanduser() if shell_root is not None else None,
             shell_timeout_seconds=shell_timeout,

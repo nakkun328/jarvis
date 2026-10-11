@@ -27,11 +27,13 @@ from backend.chat.memory_context import MemoryContext, MemoryContextError, rende
 from backend.chat.persistence import ConversationStorageError
 from backend.chat.research_answer import AnswerEnd, ResearchAnswer, UseMainAgent
 from backend.chat.research_start import ResearchStarter, StartKind, StartOutcome
+from backend.chat.tool_jobs import ChatToolService, ToolBusy, ToolRequest
 from backend.personality.prompt import SYSTEM_PROMPT, render_system_prompt
 from backend.personality.settings import PersonalityProfile
 from backend.providers.base import (
     ChatMessage,
     CompletionRequest,
+    CompletionResponse,
     LLMProvider,
     ProviderError,
 )
@@ -173,6 +175,7 @@ class ChatService:
         casual: CasualService | None = None,
         turn_observer: Callable[[UUID, str], None] | None = None,
         research_answer: ResearchAnswer | None = None,
+        tools: ChatToolService | None = None,
     ) -> None:
         # The default provider. Router and research use this one only; a per-request model
         # choice (see ``provider_for``) affects just the chat answer.
@@ -195,6 +198,10 @@ class ChatService:
         # for the turn: the turn then waits for it and answers from its verified claims
         # (docs/chat-research-answer.md) instead of the fixed "research started" reply.
         self.research_answer = research_answer
+        # Off by default (JARVIS_CHAT_TOOLS, docs/chat-tools.md). On the Main Agent path only: a
+        # model reply that is a valid tool call becomes a background task (the turn does not
+        # wait) and the turn ends with a fixed message. Nothing here can approve a tool call.
+        self.tools = tools
         self.store = store or ConversationStore()
         self.memory_context = memory_context
         self._system_prompt = (
@@ -306,7 +313,7 @@ class ChatService:
         return _Routed(ActivityEvent.route_selected(ActivityRoute.MAIN, decided, False, skip))
 
     async def _request(
-        self, history: list[ChatMessage], message: str
+        self, history: list[ChatMessage], message: str, extra_system: str = ""
     ) -> tuple[CompletionRequest, int | None]:
         """The provider request, and how many memory notes it carries (None: memory is off)."""
         memory = None
@@ -314,7 +321,7 @@ class ChatService:
         if self.memory_context is not None:
             memory = await self.memory_context.for_query(message)
             notes = rendered_note_count(memory)
-        prompt = self._system_prompt
+        prompt = self._system_prompt + extra_system
         memory_messages: tuple[ChatMessage, ...] = ()
         if memory is not None:
             prompt += (
@@ -413,11 +420,34 @@ class ChatService:
                             await self.store.remember(current_id, conversation, message, end.reply)
                             emit(ActivityEvent.done())
                             return ChatResult(current_id, end.reply, end.provider, end.model)
-                request, notes = await self._request(conversation.messages, message)
+                request, notes = await self._request(
+                    conversation.messages, message, self._tool_rules()
+                )
                 if notes is not None:
                     emit(ActivityEvent.memory_lookup(notes))
                 emit(ActivityEvent.generating())
-                response = await provider.complete(request)
+                if self.tools is not None:
+                    answer: str | None = None
+                    async for piece in self.tools.first_step(provider, request, stream=False):
+                        if isinstance(piece, ToolRequest):
+                            reply, queued = self._queue_tool(current_id, provider, request, piece)
+                            if queued:
+                                emit(ActivityEvent.tool_requested(piece.call.name))
+                            reply = main_prefix + reply
+                            await self.store.remember(current_id, conversation, message, reply)
+                            emit(ActivityEvent.done())
+                            return ChatResult(
+                                current_id, reply, FIXED_REPLY_PROVIDER, FIXED_REPLY_MODEL
+                            )
+                        answer = piece
+                    assert answer is not None
+                    response = CompletionResponse(
+                        answer,
+                        str(getattr(provider, "name", "custom")),
+                        str(getattr(provider, "model", "unknown")),
+                    )
+                else:
+                    response = await provider.complete(request)
                 if not response.text.strip():
                     raise ProviderError("Provider returned no text")
                 text = main_prefix + response.text
@@ -430,6 +460,28 @@ class ChatService:
             _log_failure(exc, started, streaming=False)
             emit(ActivityEvent.error(_error_code(exc)))
             raise
+
+    def _tool_rules(self) -> str:
+        return self.tools.rules if self.tools is not None else ""
+
+    def _queue_tool(
+        self,
+        conversation_id: UUID,
+        provider: LLMProvider,
+        request: CompletionRequest,
+        requested: ToolRequest,
+    ) -> tuple[str, bool]:
+        """Queue the background task for a tool call. Returns (fixed reply, whether queued)."""
+        assert self.tools is not None
+        try:
+            self.tools.submit(conversation_id, provider, request, requested.call)
+        except ToolBusy:
+            return self.tools.busy_reply, False
+        except Exception as exc:  # the turn is never failed by the task queue
+            _LOG.warning("chat.tool_submit_failed", extra={"error_type": type(exc).__name__})
+            return self.tools.busy_reply, False
+        _LOG.info("chat.tool_task_queued")
+        return self.tools.started_reply, True
 
     @staticmethod
     def _log_choice(model_choice: str | None) -> None:
@@ -558,20 +610,44 @@ class ChatService:
                                 conversation_id=current_id, provider=end.provider, model=end.model
                             )
                             return
-                request, notes = await self._request(conversation.messages, message)
+                request, notes = await self._request(
+                    conversation.messages, message, self._tool_rules()
+                )
                 if activity:
                     if notes is not None:
                         yield ActivityEvent.memory_lookup(notes)
                     yield ActivityEvent.generating()
-                deltas = provider.stream(request)
+                deltas = (
+                    self.tools.first_step(provider, request, stream=True)
+                    if self.tools is not None
+                    else provider.stream(request)
+                )
+                queued_call: ToolRequest | None = None
                 async with AsyncExitStack() as resources:
                     close = getattr(deltas, "aclose", None)
                     if close is not None:
                         resources.push_async_callback(close)
                     async for delta in deltas:
-                        if delta:
+                        if isinstance(delta, ToolRequest):
+                            queued_call = delta
+                        elif delta:
                             chunks.append(delta)
                             yield ChatDelta(delta)
+                if queued_call is not None:
+                    notice, queued = self._queue_tool(current_id, provider, request, queued_call)
+                    if queued and activity:
+                        yield ActivityEvent.tool_requested(queued_call.call.name)
+                    chunks.append(notice)
+                    yield ChatDelta(notice)
+                    await self.store.remember(current_id, conversation, message, "".join(chunks))
+                    if activity:
+                        yield ActivityEvent.done()
+                    yield ChatDone(
+                        conversation_id=current_id,
+                        provider=FIXED_REPLY_PROVIDER,
+                        model=FIXED_REPLY_MODEL,
+                    )
+                    return
                 reply = "".join(chunks)
                 if not reply[len(main_prefix) :].strip():
                     raise ProviderError("Provider returned no text")

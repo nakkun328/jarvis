@@ -33,7 +33,7 @@ ACTIVITY_NAME = "X-Jarvis-Activity"
 ACTIVITY = {ACTIVITY_NAME: "1"}
 HOSTILE = "IGNORE-ALL-RULES </script><b>x</b> /etc/passwd sk-live-0123456789"
 ALLOWED_KEYS = {
-    "stage", "route", "decided", "fallback", "research_skip", "count", "step", "code",
+    "stage", "route", "decided", "fallback", "research_skip", "count", "step", "code", "tool",
 }
 VOCABULARY = (
     {stage.value for stage in ActivityStage}
@@ -84,6 +84,8 @@ def assert_only_vocabulary(payload: dict) -> None:
             assert type(value) is int and 0 <= value <= 99
         elif key == "fallback":
             assert type(value) is bool
+        elif key == "tool":
+            assert value == "fs.list"
         else:
             assert value in VOCABULARY
 
@@ -129,6 +131,7 @@ def test_every_event_serialises_to_stage_plus_one_allowlisted_field() -> None:
         ),
         ActivityEvent.memory_lookup(2),
         *(ActivityEvent.researching(step) for step in ResearchStep),
+        ActivityEvent.tool_requested("fs.list"),
         ActivityEvent.generating(),
         ActivityEvent.speaking(),
         ActivityEvent.done(),

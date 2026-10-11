@@ -13,6 +13,7 @@ export const STAGES = [
   "route_selected",
   "memory_lookup",
   "researching",
+  "tool_requested",
   "generating",
   "speaking",
   "done",
@@ -57,6 +58,11 @@ export const ERROR_CODES = [
   "internal",
 ];
 export const MAX_COUNT = 99;
+// A registered tool name (lowercase dotted/snake case, at most 64 characters).
+const TOOL_NAME = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
+// Shown when the model asked for a tool: the work continues as a background task.
+export const TOOL_TASK_TEXT =
+  "ツールをバックグラウンドのタスクにしました。承認が必要なものは「承認」画面で確認してください。結果はこの会話に書き込まれます。";
 export const NOT_CONNECTED_TITLE = "未接続（not connected）";
 
 // idle: nothing is happening. connecting: the request is sent, the server has not answered yet.
@@ -94,7 +100,7 @@ const ERROR_TEXT = {
 export function initialState() {
   return {
     phase: "idle", stage: null, route: null, decided: null, fallback: false, routed: false,
-    skip: null, count: null, step: null, code: null,
+    skip: null, count: null, step: null, code: null, tool: null,
   };
 }
 
@@ -131,6 +137,11 @@ export function parseActivity(data) {
     clean.count = count;
   } else if (stage === "researching") {
     if (isOneOf(STEPS, payload.step)) clean.step = payload.step;
+  } else if (stage === "tool_requested") {
+    if (typeof payload.tool !== "string" || payload.tool.length > 64 || !TOOL_NAME.test(payload.tool)) {
+      return null;
+    }
+    clean.tool = payload.tool;
   } else if (stage === "error") {
     clean.code = isOneOf(ERROR_CODES, payload.code) ? payload.code : "internal";
   }
@@ -172,6 +183,7 @@ export function reduce(state, rawEvent) {
         : state.skip,
     count: event.count ?? state.count,
     step: event.stage === "researching" ? (event.step ?? null) : state.step,
+    tool: event.stage === "tool_requested" ? event.tool : state.tool,
   };
 }
 
@@ -200,6 +212,8 @@ function orbMode(state) {
       return "recall";
     case "researching":
       return "research";
+    case "tool_requested":
+      return "tool";
     case "generating":
       return "synth";
     case "speaking":
@@ -283,6 +297,8 @@ function describe(state) {
         caption: state.step ? `RESEARCHING · ${state.step.toUpperCase()}` : "RESEARCHING",
         explain: STEP_TEXT[state.step] ?? "調査を進めています。",
       };
+    case "tool_requested":
+      return { caption: "TOOL TASK QUEUED", explain: TOOL_TASK_TEXT };
     case "generating":
       return { caption: "SYNTHESIZING RESPONSE", explain: "回答を生成しています。" };
     case "speaking":
@@ -328,6 +344,10 @@ function activeNodes(state) {
     case "researching":
       active.add("researcher");
       break;
+    case "tool_requested":
+      active.add("main");
+      active.add("tools");
+      break;
     case "speaking":
       active.add("realtime");
       break;
@@ -355,6 +375,7 @@ const NODE_DEFS = [
   { id: "main", label: "MAIN AGENT" },
   { id: "researcher", label: "RESEARCHER" },
   { id: "memory", label: "MEMORY" },
+  { id: "tools", label: "TOOLS" },
 ];
 // `direct` is the path messages take today, around the router that does not exist yet.
 const EDGE_DEFS = [
@@ -365,6 +386,8 @@ const EDGE_DEFS = [
   { id: "input-main", from: "input", to: "main", direct: true },
   // Memory made in the background after a reply (chat auto-memory, research staging).
   { id: "main-memory", from: "main", to: "memory" },
+  // A tool task queued by the Main Agent (chat tools; the work itself is on the Tasks screen).
+  { id: "main-tools", from: "main", to: "tools" },
 ];
 
 // Which edges carry the moving light. The direct path is lit only while no router is involved.
@@ -398,7 +421,8 @@ export function viewModel(state, { reducedMotion = false, memory = {} } = {}) {
       (def.id === "router" && state.routed) ||
       (def.id === "researcher" && researchStarted(state)) ||
       (def.id === "realtime" && casualRan(state)) ||
-      (def.id === "memory" && memory.configured !== false);
+      (def.id === "memory" && memory.configured !== false) ||
+      (def.id === "tools" && state.tool !== null);
     let status = "idle";
     if (def.id === "memory") status = memory.lit && connected ? "active" : "idle";
     else if (isActive) status = "active";
@@ -415,6 +439,7 @@ export function viewModel(state, { reducedMotion = false, memory = {} } = {}) {
   }
   const lit = activeEdges(state, nodes);
   if (nodes.get("memory").active) lit.add("main-memory");
+  if (nodes.get("tools").active) lit.add("main-tools");
   const edges = EDGE_DEFS.map((def) => {
     const connected = nodes.get(def.from).connected && nodes.get(def.to).connected;
     return { ...def, direct: Boolean(def.direct), connected, active: lit.has(def.id) };
@@ -449,6 +474,8 @@ export function viewModel(state, { reducedMotion = false, memory = {} } = {}) {
         ? `${explain}${routeNote.text}。`
         : explain,
     final: FINAL.has(state.phase),
+    // True while the turn shows the "tool task queued" moment: the page adds a link to /approvals.
+    approvalHint: state.stage === "tool_requested" || (state.tool !== null && state.phase === "done"),
     reducedMotion: Boolean(reducedMotion),
     nodes: [...nodes.values()],
     edges,

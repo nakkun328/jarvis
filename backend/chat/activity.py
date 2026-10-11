@@ -21,17 +21,26 @@ budget, refused, or too uncertain) and the turn runs on ``main``. Likewise ``cas
 the daily cap, provider failure before the first token, or too uncertain), present only with the
 casual path on. A casual turn emits no ``memory_lookup``.
 
+With tools switched on (``JARVIS_CHAT_TOOLS``, docs/chat-tools.md) a turn in which the model asks
+for a tool emits ``tool_requested{tool}`` once: the work then continues as a background task (the
+Tasks screen shows its steps) and the turn ends at once. ``tool`` is a registered tool name, never
+an argument, path, content or output. It never appears with tools off.
+
 In the vocabulary but NOT emitted yet, because the feature does not exist: ``speaking``, and the
 ``researching`` steps after ``started`` (the chat does not follow a research run; the Research
 screen does). They are reserved so the later realtime work can reuse one vocabulary. Nothing may
 fake them.
 """
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 
 # A memory lookup returns at most three notes; the cap only keeps the field small and sane.
 MAX_COUNT = 99
+# A registered tool name: lowercase dotted/snake case (the registry's own rule).
+_TOOL_NAME = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*")
+MAX_TOOL_NAME_LENGTH = 64
 
 
 class ActivityStage(StrEnum):
@@ -40,6 +49,7 @@ class ActivityStage(StrEnum):
     ROUTE_SELECTED = "route_selected"
     MEMORY_LOOKUP = "memory_lookup"
     RESEARCHING = "researching"
+    TOOL_REQUESTED = "tool_requested"
     GENERATING = "generating"
     SPEAKING = "speaking"
     DONE = "done"
@@ -104,6 +114,7 @@ _FIELDS_BY_STAGE: dict[ActivityStage, tuple[str, ...]] = {
     ActivityStage.ROUTE_SELECTED: ("route", "decided", "fallback"),
     ActivityStage.MEMORY_LOOKUP: ("count",),
     ActivityStage.RESEARCHING: ("step",),
+    ActivityStage.TOOL_REQUESTED: ("tool",),
     ActivityStage.GENERATING: (),
     ActivityStage.SPEAKING: (),
     ActivityStage.DONE: (),
@@ -122,6 +133,7 @@ _FIELD_TYPES: dict[str, type] = {
     "count": int,
     "step": ResearchStep,
     "code": ActivityErrorCode,
+    "tool": str,
 }
 
 
@@ -136,6 +148,7 @@ class ActivityEvent:
     count: int | None = None
     step: ResearchStep | None = None
     code: ActivityErrorCode | None = None
+    tool: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.stage, ActivityStage):
@@ -156,6 +169,10 @@ class ActivityEvent:
                 raise ValueError(f"{self.stage.value} requires a valid {name}")
         if self.count is not None and not 0 <= self.count <= MAX_COUNT:
             raise ValueError("count out of range")
+        if self.tool is not None and (
+            len(self.tool) > MAX_TOOL_NAME_LENGTH or _TOOL_NAME.fullmatch(self.tool) is None
+        ):
+            raise ValueError("tool must be a registered tool name")
         if self.decided is not None and self.decided not in DECIDED_ROUTES:
             raise ValueError("decided must be a router choice")
         if self.stage is ActivityStage.ROUTE_SELECTED:
@@ -221,6 +238,10 @@ class ActivityEvent:
     @classmethod
     def researching(cls, step: ResearchStep) -> "ActivityEvent":
         return cls(ActivityStage.RESEARCHING, step=step)
+
+    @classmethod
+    def tool_requested(cls, tool: str) -> "ActivityEvent":
+        return cls(ActivityStage.TOOL_REQUESTED, tool=tool)
 
     @classmethod
     def generating(cls) -> "ActivityEvent":

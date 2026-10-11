@@ -225,6 +225,7 @@ def test_list_orders_filters_and_bounds(app_repo) -> None:
         "id", "goal", "status", "current_step", "steps_total", "steps_completed",
         "target_device", "attempt", "retry_of", "verified", "failure_code",
         "waiting_reason", "created_at", "updated_at", "started_at", "finished_at",
+        "conversation_id",
     }  # fmt: skip
     assert summary["steps_total"] == 2 and summary["steps_completed"] == 0
     assert summary["created_at"].endswith("Z")

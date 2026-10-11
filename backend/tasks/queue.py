@@ -220,9 +220,12 @@ class TaskQueue:
         verifier: Verifier,
         *,
         timeout_seconds: float | None = None,
+        goal_prefix: str | None = None,
     ) -> Task | None:
-        """Claim and run the oldest pending task; None when nothing is pending."""
-        task = self.repository.claim_next()
+        """Claim and run the oldest pending task; None when nothing is pending.
+
+        `goal_prefix` selects a family of tasks (see `TaskRepository.claim_next`)."""
+        task = self.repository.claim_next(goal_prefix)
         if task is None:
             return None
         return await self._run_claimed(task, executor, verifier, timeout_seconds)

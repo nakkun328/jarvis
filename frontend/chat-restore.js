@@ -62,7 +62,12 @@ export async function fetchHistory(id, fetchImpl = fetch) {
       (item) =>
         (item?.role === "user" || item?.role === "assistant") && typeof item.content === "string",
     );
-    return { status: "ok", messages: messages.map(({ role, content }) => ({ role, content })) };
+    const total = Number.isInteger(data.total) && data.total >= 0 ? data.total : null;
+    return {
+      status: "ok",
+      total,
+      messages: messages.map(({ role, content }) => ({ role, content })),
+    };
   } catch {
     return { status: "failed" };
   }
@@ -91,7 +96,7 @@ export async function restoreConversation({ memory, session, view, fetchImpl }) 
     return "empty";
   }
   session.conversationId = id;
-  view.showHistory(result.messages);
+  view.showHistory(result.messages, { total: result.total });
   view.setStatus(RESTORED_MESSAGE);
   return "restored";
 }

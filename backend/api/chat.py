@@ -6,7 +6,7 @@ from typing import Annotated
 from uuid import UUID
 
 from anyio import CancelScope
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.types import Receive, Scope, Send
@@ -62,6 +62,8 @@ class HistoryMessage(BaseModel):
 class HistoryResponse(BaseModel):
     conversation_id: UUID
     messages: list[HistoryMessage]
+    # How many messages the conversation holds in all (the list above may be a window).
+    total: int
 
 
 def _parse_conversation_id(raw: str) -> UUID:
@@ -125,12 +127,23 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
     @router.get(
         "/api/chat/conversations/{conversation_id}/messages", response_model=HistoryResponse
     )
-    async def conversation_messages(conversation_id: str) -> HistoryResponse:
-        """Read-only: the retained messages of one known conversation (role and content only)."""
+    async def conversation_messages(
+        conversation_id: str, after: Annotated[int | None, Query(ge=0, le=100_000)] = None
+    ) -> HistoryResponse:
+        """Read-only: the retained messages of one known conversation (role and content only).
+
+        With ``after=<n>`` it returns the messages that follow the first n stored ones (at most
+        one window), which is how a page picks up an answer a background task posted."""
         parsed = _parse_conversation_id(conversation_id)
         chat_service = require_service()
         try:
-            messages = await chat_service.store.history(parsed)
+            if after is None:
+                messages = await chat_service.store.history(parsed)
+                counted = await chat_service.store.messages_after(parsed, 100_000)
+                total = counted[0] if counted is not None else 0
+            else:
+                counted = await chat_service.store.messages_after(parsed, after)
+                total, messages = counted if counted is not None else (0, None)
         except ConversationStorageError as exc:
             raise HTTPException(status_code=503, detail="conversation storage unavailable") from exc
         if messages is None:
@@ -138,6 +151,7 @@ def build_chat_router(service: ChatService | None) -> APIRouter:
         return HistoryResponse(
             conversation_id=parsed,
             messages=[HistoryMessage(role=m.role, content=m.content) for m in messages],
+            total=total,
         )
 
     @router.post("/api/chat/stream")

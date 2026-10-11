@@ -1,6 +1,7 @@
 """Bounded, process-local conversation context for Phase 1."""
 
 import asyncio
+import re
 from collections import OrderedDict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -78,3 +79,37 @@ class ConversationStore:
             )
         )
         del conversation.messages[: -self.max_messages]
+
+    async def append_assistant_message(self, conversation_id: UUID, text: str) -> None:
+        """Add one assistant message to a known conversation (a finished background task's
+        answer). It waits for a turn in progress, so it never lands in the middle of one.
+        Raises ``ConversationNotFound`` for an unknown conversation."""
+        text = clean_posted_text(text)
+        async with self.open(conversation_id) as (current_id, conversation):
+            await self._append(current_id, conversation, text)
+
+    async def _append(self, conversation_id: UUID, conversation: Conversation, text: str) -> None:
+        conversation.messages.append(ChatMessage(role="assistant", content=text))
+        del conversation.messages[: -self.max_messages]
+
+    async def messages_after(
+        self, conversation_id: UUID, after: int
+    ) -> tuple[int, list[ChatMessage]] | None:
+        """(total stored messages, the messages after the first `after` ones), or None."""
+        messages = await self.history(conversation_id)
+        if messages is None:
+            return None
+        return len(messages), messages[after:]
+
+
+#: Longest text a background task may post into a conversation.
+MAX_POSTED_CHARS = 8000
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
+
+
+def clean_posted_text(text: str) -> str:
+    """Bounded text without control or bidi characters (newlines and tabs stay)."""
+    cleaned = _CONTROL.sub(" ", text).strip()
+    if not cleaned:
+        raise ValueError("nothing to post")
+    return cleaned if len(cleaned) <= MAX_POSTED_CHARS else cleaned[: MAX_POSTED_CHARS - 1] + "…"
