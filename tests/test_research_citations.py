@@ -228,3 +228,37 @@ def test_ordinary_statements_are_not_absence_statements(text: str) -> None:
     from backend.research.citations import is_absence_statement
 
     assert not is_absence_statement(text)
+
+
+# ----- synthesis statements are not verified claims -----
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "したがって、常時起動のサーバー用途ではPi 4の方が無難です。",
+        "つまり Zero 2 W は不向きです",
+        "Therefore the Pi 4 is the better option.",
+        "So, use the Pi 4 for an always-on server.",
+        "Raspberry Pi 4 is the recommended choice for a home server.",
+    ],
+)
+def test_synthesis_statements_are_dropped_even_with_a_real_quote(text: str) -> None:
+    from backend.research.citations import is_synthesis_statement
+
+    assert is_synthesis_statement(text, "Raspberry Pi 4 has a quad-core CPU")
+
+
+@pytest.mark.parametrize(
+    "text, quote",
+    [
+        ("Raspberry Pi 4 has a quad-core CPU", "Raspberry Pi 4 has a quad-core CPU"),
+        ("Sophisticated cooling is optional", "Sophisticated cooling is optional"),
+        ("Pi 4 is recommended by the vendor", "the vendor recommended the Pi 4 for servers"),
+        ("よって電圧は5Vです", "よって電圧は5Vです"),
+    ],
+)
+def test_supported_statements_are_not_synthesis(text: str, quote: str) -> None:
+    from backend.research.citations import is_synthesis_statement
+
+    assert not is_synthesis_statement(text, quote)

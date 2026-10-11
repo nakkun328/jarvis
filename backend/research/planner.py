@@ -197,6 +197,15 @@ def _recency_terms(text: str) -> list[str]:
     return ordered
 
 
+def _is_designator(text: str, match: re.Match[str], previous_end: int) -> bool:
+    """A single capital letter right after another word or number: the ``W`` of ``Zero 2 W``."""
+    word = match.group()
+    if len(word) != 1 or not word.isalpha() or not word.isupper() or previous_end < 0:
+        return False
+    gap = text[previous_end : match.start()]
+    return bool(gap) and gap.isspace() and text[previous_end - 1].isalnum()
+
+
 def _chunks(text: str, *, drop_comparison: bool) -> list[str]:
     """Content terms of the question in order, without recency words and stopwords.
 
@@ -210,10 +219,13 @@ def _chunks(text: str, *, drop_comparison: bool) -> list[str]:
         text = text.replace(cue, " ")
     text = _YEAR.sub(" ", text)
     found: list[tuple[int, str]] = []
+    previous_end = -1
     for match in _ASCII_WORD.finditer(text):
         word = match.group().strip(".-_+#")
         folded = word.casefold()
-        if (len(word) > 1 or word.isdigit()) and folded not in EN_STOPWORDS:
+        designator = _is_designator(text, match, previous_end)
+        previous_end = match.end()
+        if (len(word) > 1 or word.isdigit() or designator) and folded not in EN_STOPWORDS:
             if not (drop_comparison and folded in _COMPARISON_WORDS):
                 found.append((match.start(), word))
     for match in _CJK_RUN.finditer(text):

@@ -35,7 +35,10 @@ from backend.research.facts import Facts, dates_compatible, extract_facts, same_
 from backend.research.models import MAX_CLAIM_CHARS, ConflictKind, ResearchConflict
 from backend.research.repository import ResearchRepository
 
-_STRONG_SUBJECT = 0.5  # share of the joint terms for a negation to count as a flip
+_STRONG_SUBJECT = 0.6  # share of the joint terms for a negation to count as a flip
+_MIN_NEGATION_SHARED = 3  # shared content terms a negation flip needs
+_ATTRIBUTE_OVERLAP = 0.3  # share of the joint terms two statements need to be about one attribute
+_MIN_ATTRIBUTE_SHARED = 2  # shared content terms two statements need to be about one attribute
 
 
 @dataclass(frozen=True)
@@ -48,12 +51,30 @@ class ConflictCandidate:
     other_source_id: UUID | None = None
 
 
-def compare_statements(first: Facts, second: Facts) -> tuple[ConflictKind, ...]:
-    """The ways two statements about the same subject disagree (empty: none seen)."""
+def _same_attribute(first: Facts, second: Facts) -> bool:
+    """Whether two statements talk about the same thing, not just the same product or topic.
+
+    Conservative: besides ``same_subject`` they must share at least two specific content terms
+    and a fair part of all their terms, so "the CPU has 4 cores" and "performance is a third of
+    the other model" (one shared name, different aspects) are not compared.
+    """
     if not same_subject(first, second):
+        return False
+    shared = first.terms & second.terms
+    joint = first.terms | second.terms
+    return len(shared) >= _MIN_ATTRIBUTE_SHARED and len(shared) / len(joint) >= _ATTRIBUTE_OVERLAP
+
+
+def compare_statements(first: Facts, second: Facts) -> tuple[ConflictKind, ...]:
+    """The ways two statements about the same attribute disagree (empty: none seen).
+
+    Figures are compared only within one unit; a bare number has no quantity kind and is never
+    compared. When in doubt there is no conflict.
+    """
+    if not _same_attribute(first, second):
         return ()
     kinds: list[ConflictKind] = []
-    units = {q.unit for q in first.numbers} & {q.unit for q in second.numbers}
+    units = {q.unit for q in first.numbers if q.unit} & {q.unit for q in second.numbers if q.unit}
     for unit in sorted(units):
         left = {q.value for q in first.numbers if q.unit == unit}
         right = {q.value for q in second.numbers if q.unit == unit}
@@ -70,6 +91,7 @@ def compare_statements(first: Facts, second: Facts) -> tuple[ConflictKind, ...]:
     if (
         first.negated != second.negated
         and joint
+        and len(first.terms & second.terms) >= _MIN_NEGATION_SHARED
         and len(first.terms & second.terms) / len(joint) >= _STRONG_SUBJECT
     ):
         kinds.append(ConflictKind.NEGATION_MISMATCH)
