@@ -7,6 +7,8 @@ from backend.memory.auto_approval import (
     CONTEXT_LABEL_AUTO,
     CONTEXT_LABEL_CHAT,
     CONTEXT_LABEL_CHAT_AUTO,
+    CONTEXT_LABEL_DISCUSSION,
+    CONTEXT_LABEL_DISCUSSION_AUTO,
     CONTEXT_LABEL_RESEARCH,
     is_auto_approved,
 )
@@ -50,11 +52,13 @@ class MemoryContext:
         return self._render_result(result)
 
     def _research_label(self, record: MemoryRecord) -> str:
-        """A fixed label in front of research- or chat-derived text (web text, or a fact a system
-        extracted from the owner's own message), so a model reads it as lower-trust."""
+        """A fixed label in front of research-, chat- or discussion-derived text (web text, a
+        fact extracted from the owner's message, or an AI discussion's opinion), so a model reads
+        it as lower-trust."""
         labels = {
             MemoryOrigin.RESEARCH: (CONTEXT_LABEL_AUTO, CONTEXT_LABEL_RESEARCH),
             MemoryOrigin.CHAT: (CONTEXT_LABEL_CHAT_AUTO, CONTEXT_LABEL_CHAT),
+            MemoryOrigin.DISCUSSION: (CONTEXT_LABEL_DISCUSSION_AUTO, CONTEXT_LABEL_DISCUSSION),
         }.get(record.origin)
         if labels is None:
             return ""

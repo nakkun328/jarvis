@@ -15,20 +15,26 @@ from backend.memory.repository import MemoryRepository, MemoryStatus
 AUTO_APPROVER = "auto:research"
 #: Review-audit actor of an automatic approval of a fact extracted from chat.
 CHAT_AUTO_APPROVER = "auto:chat"
+#: Review-audit actor of an automatic approval of a group discussion's summary.
+DISCUSSION_AUTO_APPROVER = "auto:discussion"
 #: The automatic actor that may approve a note of each origin.
 AUTO_ACTORS: dict[MemoryOrigin, str] = {
     MemoryOrigin.RESEARCH: AUTO_APPROVER,
     MemoryOrigin.CHAT: CHAT_AUTO_APPROVER,
+    MemoryOrigin.DISCUSSION: DISCUSSION_AUTO_APPROVER,
 }
 #: Review-audit actor of a withdrawal pressed on the /memory screen.
 WITHDRAW_ACTOR = "web:owner"
 WITHDRAW_REASON = "withdrawn auto-approved research memory"
 WITHDRAW_REASON_CHAT = "withdrawn auto-approved chat memory"
+WITHDRAW_REASON_DISCUSSION = "withdrawn auto-approved discussion memory"
 #: Short fixed labels placed in front of a note's text in the model-facing context.
 CONTEXT_LABEL_AUTO = "(調査由来・自動承認)"
 CONTEXT_LABEL_RESEARCH = "(調査由来)"
 CONTEXT_LABEL_CHAT_AUTO = "(会話由来・自動承認)"
 CONTEXT_LABEL_CHAT = "(会話由来)"
+CONTEXT_LABEL_DISCUSSION = "(議論由来・AIの意見)"
+CONTEXT_LABEL_DISCUSSION_AUTO = "(議論由来・AIの意見)(自動承認)"
 
 
 def is_auto_approved(

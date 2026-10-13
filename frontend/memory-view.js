@@ -25,6 +25,7 @@ const ORIGIN_INFO = {
   tool_observation: { label: "ツールの観測", glyph: "▣", tone: "running" },
   research: { label: "調査の引用", glyph: "▤", tone: "running" },
   chat: { label: "会話から自動抽出", glyph: "◐", tone: "waiting" },
+  discussion: { label: "議論由来(AIの意見)", glyph: "◈", tone: "waiting" },
 };
 
 const CATEGORY_LABELS = {
@@ -105,6 +106,7 @@ export function shortRevision(value) {
 
 export const AUTO_APPROVED_LABEL = "自動承認(調査)";
 export const AUTO_APPROVED_CHAT_LABEL = "自動承認(会話)";
+export const AUTO_APPROVED_DISCUSSION_LABEL = "自動承認(議論)";
 
 // For an automatically approved note: the label plus the source and date that the staged content
 // records. A research note has 出典 (URL) / 取得日 lines; a chat note has the owner's verbatim
@@ -121,6 +123,15 @@ export function autoApprovalInfo(memory) {
       source: line("引用"),
       date: line("日付"),
       sourceLabel: "引用",
+      dateLabel: "日付",
+    };
+  }
+  if (memory.origin === "discussion") {
+    return {
+      label: AUTO_APPROVED_DISCUSSION_LABEL,
+      source: line("議題"),
+      date: line("日付"),
+      sourceLabel: "議題",
       dateLabel: "日付",
     };
   }

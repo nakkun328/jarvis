@@ -38,6 +38,28 @@ The `stale` flag uses the SQLite record's last reviewed `updated_at` and a confi
 
 With `JARVIS_CHAT_MEMORY_AUTO=1`, after a chat turn has been answered, the default chat provider extracts up to three short facts about the owner from the owner's own message; each is verified deterministically (verbatim quote, sensitive-data and instruction filters, dedupe, caps) and staged as a `pending` candidate of origin `chat` (tag `chat-auto`). With `JARVIS_CHAT_MEMORY_AUTO_APPROVE=1` (requires the vault) they are approved at once through `MemoryWriter.approve` with the audit actor `auto:chat`; the `/memory` screen labels them 「自動承認(会話)」 and the model-facing context prefixes them `(会話由来・自動承認)`. The human-only withdrawal below also works for them. The `chat-auto` candidates and the `auto:chat` approvals are the only chat-derived memory; `GeneralCandidateExtractor` and `ExplicitExtractor` stay unwired as before.
 
+## Owner-approved exception: group discussion results
+
+> **A third deliberate exception**, recorded by the owner (the result of a group discussion should become memory automatically, like research and chat). Both switches default **off**. It stays a disclosed opinion: the note is an AI discussion's conclusion, not a verified fact.
+
+When a discussion finishes with at least one persona turn and a moderator summary (a completed one, or a cancelled one that received its partial summary; failed, empty and cancelled-without-turn ones are skipped), ONE memory note is built from the summary: first line `議論の結果(AIの意見・事実の裏付けなし)`, then `議題:` (the topic, truncated), the summary text, `日付:` and `議論ID:`. Importance and confidence are the fixed lowest values 0.2 / 0.2. Category `conversation`, tag `discussion`, source `discussion:<conversation id>`.
+
+| Variable | Effect | Requires |
+| --- | --- | --- |
+| `JARVIS_DISCUSSION_MEMORY_AUTO` | stage the summary as a `pending` candidate when a discussion finishes | `JARVIS_DISCUSSION` |
+| `JARVIS_DISCUSSION_MEMORY_AUTO_APPROVE` | approve it at once through `MemoryWriter.approve` with the audit actor `auto:discussion` | `JARVIS_DISCUSSION_MEMORY_AUTO` and `JARVIS_MEMORY_VAULT_PATH` |
+| `JARVIS_DISCUSSION_MEMORY_PER_DAY_LIMIT` | at most this many discussion notes staged per day (default 10, 1 to 100; in-memory counter, UTC day, reset by a restart) | none |
+
+**Provenance without a schema change.** `memory_records` has `CHECK` constraints only on `status` (and the review/lifecycle event tables on status/action); `origin` and `category` are plain text. The new origin `discussion` is therefore an enum value in `backend/memory/model.py`, exactly as `chat` was, and `SCHEMA_VERSION` stays 10. Rolling the code back past this change would make existing `discussion` rows unreadable by the older enum; withdraw or reject them first.
+
+**Filters (deterministic, no model call).** A topic with a private marker (「内緒」「覚えないで」 etc.) is not stored. A summary or topic that trips the sensitive-data filter, the private-marker filter (summary) or the instruction-like text filter (the same ones as chat and research) is staged `pending` and is never auto-approved, even with `AUTO_APPROVE`. The id is derived from the conversation id, so a conversation is never staged twice; equal topics in different conversations are staged separately. A writer failure leaves the candidate pending. Failures anywhere in this path never affect the discussion: a fixed code (`discussion_memory.failed` with `approval` / `storage` / `index` / `internal`, or `discussion.memory_failed`) is logged and no topic or summary text ever is.
+
+**Model-facing label and screen.** The context prefixes these notes with `(議論由来・AIの意見)` (human-approved) or `(議論由来・AIの意見)(自動承認)`. The `/memory` screen shows the origin 「議論由来(AIの意見)」 and, when auto-approved, 「自動承認(議論)」 with topic and date. The human-only withdrawal below works for them (reason `withdrawn auto-approved discussion memory`).
+
+**Index.** After an automatic approval, if vector search is enabled (embedding provider and index), the derived index is refreshed for the note through the existing `MemoryIndexBuilder` / `SynchronousIndexRefresher`, in a worker thread. A refresh failure keeps the approval (the index is a rebuildable cache) and logs the code `index`.
+
+The activity feed announces these with `origin: "discussion"`. `python -m backend.doctor` has the area `discussion_memory` (flags and the limit only).
+
 ## Owner-approved exception: research auto-approval
 
 > **This is a deliberate exception to the contract above ("only reviewed, currently approved notes
@@ -86,7 +108,7 @@ The `/memory` screen shows the label 「自動承認(調査)」 with the source 
 model or agent path). It uses the existing retirement transition: the record becomes `retired`
 (never retrieved again), with a lifecycle event by actor `web:owner`. Nothing is deleted: the vault
 note stays on disk (as for every retirement) and the approval history stays. Only auto-approved
-research or chat notes (approved by their own origin's automatic actor) can be withdrawn this way;
+research, chat or discussion notes (approved by their own origin's automatic actor) can be withdrawn this way;
 anything else is refused. If the vault note was edited or
 is unreadable the withdrawal still succeeds against the revision recorded at approval. A derived
 vector index is not refreshed by this action; retrieval re-checks SQLite status, so a retired note
@@ -100,7 +122,7 @@ approval is on (flags only, no content).
 So that the owner can see WHEN a memory was made, chat auto-memory (`ChatAutoMemory`), research staging and auto-approval (`ResearchMemoryCandidates`, including the manual button), the 「忘れて」 command and the human withdraw route publish small events to an in-process feed (`backend/memory/events.py`). The publisher is injected (`publisher=` arguments); `create_app` wires one `MemoryActivityFeed` per app and tests use their own, so there is no global singleton.
 
 - **Bounded and volatile.** A ring buffer of the last 100 events. Nothing is stored in SQLite and there is no migration (schema v10); a restart empties it and `seq` starts again at 1 (the page notices `latest` going backwards and follows).
-- **Event.** `{seq, at, kind, origin, memory_id, summary}`: `seq` rises by one per event and never repeats; `at` is UTC ISO; `kind` is `staged` (a candidate waits for review), `approved` (approved automatically, `auto:chat` / `auto:research`) or `withdrawn` (withdrawn by the owner or by 「忘れて」); `origin` is `chat` or `research`; `summary` is the first line of the note, control/format/bidi characters removed, at most 80 characters. Only what a call actually changed is announced: a repeated staging of the same claims publishes nothing, and a candidate approved on the spot is one `approved` event, not two.
+- **Event.** `{seq, at, kind, origin, memory_id, summary}`: `seq` rises by one per event and never repeats; `at` is UTC ISO; `kind` is `staged` (a candidate waits for review), `approved` (approved automatically, `auto:chat` / `auto:research`) or `withdrawn` (withdrawn by the owner or by 「忘れて」); `origin` is `chat`, `research` or `discussion`; `summary` is the first line of the note, control/format/bidi characters removed, at most 80 characters. Only what a call actually changed is announced: a repeated staging of the same claims publishes nothing, and a candidate approved on the spot is one `approved` event, not two.
 - **Never blocks, never leaks.** `safe_publish` swallows any publisher failure and logs only the fixed code `memory_event_publish_failed`. The summary is the owner's own content and is never logged.
 - **Endpoint.** `GET /api/memory/activity?after=<seq>` (behind the login layer; `Cache-Control: no-store`; read-only) returns `{"latest": <int>, "events": [...], "configured": <bool>, "chat_enabled": <bool>, "research_enabled": <bool>}`. `events` holds the events with `seq > after`, oldest first, at most 50. `after` defaults to 0 and must be a non-negative integer of at most 15 digits, otherwise `422 {"detail": "invalid_after"}`. `configured` is whether a memory vault is configured (the Activity View dims its MEMORY node when it is not); `chat_enabled` / `research_enabled` say whether chat auto-memory / research auto-staging are switched on.
 - **Page.** The chat page and the Research screen poll it for a short window after a reply or a finished research (see [chat.md](chat.md), "Activity events").

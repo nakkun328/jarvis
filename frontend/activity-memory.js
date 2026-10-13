@@ -16,8 +16,8 @@ export const MEMORY_PAGE = "/memory";
 export const LINK_TEXT = "記憶の画面を開く";
 
 const KINDS = ["staged", "approved", "withdrawn"];
-const ORIGINS = ["chat", "research"];
-const ORIGIN_TEXT = { chat: "会話", research: "調査" };
+const ORIGINS = ["chat", "research", "discussion"];
+const ORIGIN_TEXT = { chat: "会話", research: "調査", discussion: "議論" };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Control, format (zero-width, bidi marks and isolates), line/paragraph separators, private use.
 const UNSAFE = /[\p{Cc}\p{Cf}\p{Co}\p{Cs}\p{Zl}\p{Zp}]/gu;

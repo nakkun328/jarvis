@@ -24,6 +24,9 @@ class MemoryOrigin(StrEnum):
     RESEARCH = "research"
     #: A fact about the owner extracted from their own chat message (docs/chat-auto-memory.md).
     CHAT = "chat"
+    #: The moderator's summary of a group discussion: an AI opinion, not a verified fact. Origins
+    #: are plain text in SQLite (no CHECK constraint), so this needs no schema change.
+    DISCUSSION = "discussion"
 
 
 @dataclass(frozen=True)
