@@ -97,12 +97,55 @@ class ReadFailure(StrEnum):
     NETWORK_ERROR = "network_error"
 
 
-class ReaderError(Exception):
-    """A page could not be read; only the fixed reason code is carried."""
+#: HTTP statuses that get their own bucket in diagnostics; every other status falls into a
+#: class bucket. Only these fixed strings are ever stored, shown or logged, never a raw status.
+_STATUS_BUCKETS = frozenset({401, 403, 404, 410, 429})
 
-    def __init__(self, reason: ReadFailure) -> None:
+
+def status_bucket(status_code: int) -> str:
+    """A fixed label for an HTTP status: ``"403"``, ``"404"``, ``"4xx"``, ``"5xx"``, ..."""
+    if status_code in _STATUS_BUCKETS:
+        return str(status_code)
+    if 300 <= status_code < 600:
+        return f"{status_code // 100}xx"
+    return "other"
+
+
+def coarse_status_class(bucket: str | None) -> str:
+    """The coarse class (``"4xx"``, ``"5xx"``, ``"3xx"``, ``"other"``) of a bucket, for logs."""
+    if bucket is None:
+        return "none"
+    if bucket.isdigit():
+        return f"{bucket[0]}xx"
+    return bucket
+
+
+class ReaderError(Exception):
+    """A page could not be read; only the fixed reason code (and a status bucket) is carried."""
+
+    def __init__(self, reason: ReadFailure, http_status: str | None = None) -> None:
         super().__init__(reason.value)
         self.reason = reason
+        self.http_status = http_status  # a ``status_bucket`` value, set for http_error only
+
+
+class FailureCode(str):
+    """A failed-read code (a ``ReadFailure`` value, ``empty_text`` ...) with its status bucket.
+
+    A plain ``str`` for every existing consumer; ``http_status`` is ``None`` unless the page
+    answered with an HTTP status that was refused.
+    """
+
+    http_status: str | None
+
+    def __new__(cls, code: str, http_status: str | None = None) -> "FailureCode":
+        obj = super().__new__(cls, code)
+        obj.http_status = http_status
+        return obj
+
+    @classmethod
+    def of(cls, error: ReaderError) -> "FailureCode":
+        return cls(error.reason.value, error.http_status)
 
 
 @dataclass(frozen=True)
@@ -362,11 +405,15 @@ class PageReader:
             async with asyncio.timeout(self._policy.total_timeout):
                 return await self._read(url)
         except TimeoutError:
-            reason = ReadFailure.TIMEOUT
+            reason, status = ReadFailure.TIMEOUT, None
         except ReaderError as error:
-            reason = error.reason
-        logger.info("research page read failed reason=%s", reason.value)
-        raise ReaderError(reason)
+            reason, status = error.reason, error.http_status
+        logger.info(
+            "research page read failed reason=%s status=%s",
+            reason.value,
+            coarse_status_class(status),
+        )
+        raise ReaderError(reason, status)
 
     async def _read(self, url: str) -> FetchedPage:
         policy = self._policy
@@ -377,7 +424,7 @@ class PageReader:
             if response.status_code in REDIRECT_STATUSES:
                 location = response.headers.get("location", "").strip()
                 if not location:
-                    raise ReaderError(ReadFailure.HTTP_ERROR)
+                    raise ReaderError(ReadFailure.HTTP_ERROR, status_bucket(response.status_code))
                 if hop == policy.max_redirects:
                     raise ReaderError(ReadFailure.REDIRECT_LIMIT)
                 current = urldefrag(urljoin(current, location))[0]
@@ -435,7 +482,7 @@ class PageReader:
         self, requested_url: str, final_url: str, response: TransportResponse
     ) -> FetchedPage:
         if response.status_code != 200:  # 204 and 206 carry no complete document
-            raise ReaderError(ReadFailure.HTTP_ERROR)
+            raise ReaderError(ReadFailure.HTTP_ERROR, status_bucket(response.status_code))
         headers = response.headers
         encoding = headers.get("content-encoding", "identity").strip().lower()
         if encoding not in {"", "identity"}:

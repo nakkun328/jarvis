@@ -29,6 +29,16 @@ page = await reader.read(url)         # FetchedPage, or raises ReaderError(reaso
 | `extraction_failed` | No text remained after extraction |
 | `network_error` | DNS failure, connection failure, TLS failure, or any other transport error |
 
+### Diagnosing failed reads
+
+A failure carries nothing but the fixed code, plus, for `http_error` only, a **status bucket** chosen from a closed set: `401`, `403`, `404`, `410`, `429` (named because they tell the owner what to do), `3xx` (redirect without Location), `4xx` (any other client error), `5xx`, and `other` (for example 204 or 206). `ReaderError.http_status` holds the bucket; `status_bucket()` maps a status to it. The raw status line, headers, body and upstream messages are never kept.
+
+- **Log:** `research page read failed reason=<code> status=<class>` where the class is coarse (`4xx`, `5xx`, `3xx`, `other`, or `none` when the failure was not an HTTP answer). No URL, host, query or bucket detail is logged.
+- **API:** `GET /api/research/sessions/{id}` adds `page_reads`: `{"failed": {"<code>": n}, "http": {"<bucket>": n}}`. Codes are the `ReadFailure` values plus `empty_text` (the page was read but held no text). Counts only: no URLs or hosts, and nothing is stored in the database (no schema change). The summary is kept in the memory of the process that ran the session, for the 20 most recent sessions, so it is gone after a restart; the field is then absent.
+- **Screens:** the research detail screen shows "ページ取得の結果（失敗）" with one line per kind (for example `403（アクセス拒否）: 2件`, `時間切れ: 1件`, `ブロック（非公開アドレス）: 2件`); a failed run in the "new research" panel shows the same list under the failure reason. Rows are plain text nodes, built only from known keys.
+
+Reading the result: many `403`/`429` means sites block or rate-limit the server; `blocked_host` for every page usually means an egress gateway (see the trusted resolver setting below); `timeout`/`network_error` points at the network path; `bad_content_type` (PDF and other binaries) and `too_large` are page properties.
+
 ## Network safety policy
 
 - Only `http` and `https`. Userinfo (`user:pass@host`) is rejected. Only ports 80 and 443 by default (`ReaderPolicy.allowed_ports`).

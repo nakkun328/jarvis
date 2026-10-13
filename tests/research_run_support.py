@@ -76,6 +76,8 @@ class FakeTransport:
         route = self.routes[request.url]
         if isinstance(route, BaseException):
             raise route
+        if isinstance(route, TransportResponse):
+            return route
         assert isinstance(route, str)
         headers = {"content-type": "text/html; charset=utf-8"}
         return TransportResponse(200, headers, route.encode(), False)

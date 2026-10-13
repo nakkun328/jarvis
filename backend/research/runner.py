@@ -25,6 +25,7 @@ import logging
 import re
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
@@ -39,8 +40,8 @@ from backend.research.models import (
     ResearchSession,
     ResearchStatus,
 )
-from backend.research.quick import QuickLimits, QuickResearch
-from backend.research.reader import FetchedPage
+from backend.research.quick import FailedRead, QuickLimits, QuickResearch
+from backend.research.reader import FetchedPage, ReadFailure
 from backend.research.repository import (
     ResearchRepository,
     ResearchRepositoryError,
@@ -97,6 +98,27 @@ DEEP_STEP_DESCRIPTIONS: tuple[str, ...] = (
 
 def steps_for(level: ResearchLevel) -> tuple[str, ...]:
     return DEEP_STEP_DESCRIPTIONS if level is ResearchLevel.DEEP else STEP_DESCRIPTIONS
+
+
+#: How many finished sessions keep their page-read summary in memory (nothing is stored on disk).
+PAGE_READS_KEPT = 20
+#: The codes a summary may contain: the reader's fixed failure codes plus the two outcomes the
+#: pipelines add. Anything else is dropped, so no free text can reach the API.
+_READ_CODES = frozenset({failure.value for failure in ReadFailure} | {"empty_text"})
+_STATUS_LABELS = frozenset({"401", "403", "404", "410", "429", "3xx", "4xx", "5xx", "other"})
+
+
+def summarize_page_reads(failed: Sequence[FailedRead]) -> dict[str, dict[str, int]]:
+    """Counts per fixed failure code and per HTTP status bucket. No URL, no text."""
+    codes: dict[str, int] = {}
+    statuses: dict[str, int] = {}
+    for item in failed:
+        if item.reason not in _READ_CODES:
+            continue
+        codes[item.reason] = codes.get(item.reason, 0) + 1
+        if item.http_status in _STATUS_LABELS:
+            statuses[item.http_status] = statuses.get(item.http_status, 0) + 1
+    return {"failed": codes, "http": statuses}
 
 
 def _deep_step_index(stage: Stage, round_index: int) -> int:
@@ -317,6 +339,7 @@ class ResearchRunService:
         self._on_completed = on_completed
         self._lock = threading.Lock()
         self._progress: dict[UUID, _Counters] = {}
+        self._page_reads: OrderedDict[UUID, dict[str, dict[str, int]]] = OrderedDict()
         self._executor = _ResearchExecutor(self)
         self._verifier = _ResearchVerifier(self)
 
@@ -373,6 +396,19 @@ class ResearchRunService:
     def progress(self, session_id: UUID) -> Mapping[str, object] | None:
         counters = self._progress.get(session_id)
         return None if counters is None else counters.as_dict()
+
+    def page_reads(self, session_id: UUID) -> Mapping[str, object] | None:
+        """Failed-page counts of a session run by this process (kept for the latest few)."""
+        with self._lock:
+            kept = self._page_reads.get(session_id)
+            return None if kept is None else {key: dict(value) for key, value in kept.items()}
+
+    def _remember_page_reads(self, session_id: UUID, failed: Sequence[FailedRead]) -> None:
+        summary = summarize_page_reads(failed)
+        with self._lock:
+            self._page_reads[session_id] = summary
+            while len(self._page_reads) > PAGE_READS_KEPT:
+                self._page_reads.popitem(last=False)
 
     # ----- worker side (event loop) -----
 
@@ -455,6 +491,7 @@ class ResearchRunService:
                 clock=self._deep_clock,
             ).resume(session.id, cancel=_CancelView(token), on_progress=on_deep_progress)
             steps.finish()
+            self._remember_page_reads(session.id, deep.failed_reads)
             return deep.session
         if session.level is ResearchLevel.STANDARD:
 
@@ -471,6 +508,7 @@ class ResearchRunService:
                 self._search, self._reader, self.repository, self._llm, self._standard_limits
             ).resume(session.id, cancel=_CancelView(token), on_progress=on_progress)
             steps.finish()
+            self._remember_page_reads(session.id, result.failed_reads)
             return result.session
 
         def on_stage(stage: Stage) -> None:
@@ -486,6 +524,7 @@ class ResearchRunService:
         )
         result = await quick.resume(session.id)
         steps.finish()
+        self._remember_page_reads(session.id, result.failed_reads)
         return result.session
 
     def _try_reuse(

@@ -317,6 +317,13 @@ export function initRunPanel({ onSessionsChanged = () => {}, onOpenDetail = () =
 
     if (model.kind === "failed") {
       parts.push(el("p", "reason", `失敗の理由: ${model.failure ?? "その他"}`));
+      if (model.pageReads.length > 0) {
+        const reads = el("ul", "page-reads");
+        for (const row of model.pageReads) {
+          reads.append(el("li", "page-read", `${row.label}: ${row.count}件`));
+        }
+        parts.push(el("p", "placeholder", "ページ取得の結果（失敗）"), reads);
+      }
     }
     if (model.kind === "cancelled") {
       parts.push(el("p", "placeholder", "調べている途中で取り消したため、結果はありません。"));

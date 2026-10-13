@@ -87,7 +87,7 @@ from backend.research.quick import (
     clean_title,
     parse_response,
 )
-from backend.research.reader import FetchedPage, ReaderError
+from backend.research.reader import FailureCode, FetchedPage, ReaderError
 from backend.research.repository import (
     ResearchRepository,
     ResearchRepositoryError,
@@ -637,7 +637,9 @@ class StandardResearch:
         stored: list[tuple[ResearchSource, FetchedPage]] = []
         for hit, outcome in zip(candidates, outcomes, strict=True):
             if isinstance(outcome, str):
-                run.failed_reads.append(FailedRead(hit.url, outcome))
+                run.failed_reads.append(
+                    FailedRead(hit.url, outcome, getattr(outcome, "http_status", None))
+                )
                 continue
             if _final_key(outcome.final_url) in seen_finals:
                 continue  # the same final page (fragment, trailing slash, utm_*) is one source
@@ -695,7 +697,7 @@ class StandardResearch:
                         page = await self._reader.read(url)
                     outcomes[position] = page if page.text.strip() else "empty_text"
                 except ReaderError as error:
-                    outcomes[position] = error.reason.value
+                    outcomes[position] = FailureCode.of(error)
                 except TimeoutError:
                     outcomes[position] = "timeout"
                 except Exception as error:

@@ -23,10 +23,11 @@ from research_run_support import (
 
 from backend.research.models import FailureReason, ResearchLevel, ResearchStatus
 from backend.research.quick import QuickLimits
-from backend.research.reader import ReaderError, ReadFailure
+from backend.research.reader import ReaderError, ReadFailure, TransportResponse
 from backend.research.run_control import BudgetExhausted, Busy, NotCancellable, UnknownSession
 from backend.research.runner import (
     NO_VERIFIED_CLAIM_NOTICES,
+    PAGE_READS_KEPT,
     QUICK_NO_CLAIM_NOTICE,
     goal_for,
     has_notice_of_no_verified_claims,
@@ -187,6 +188,45 @@ async def test_a_search_provider_failure_is_a_fixed_search_failed(tmp_path: Path
     session_id = h.service.submit(QUESTION, ResearchLevel.QUICK)
     await h.service.run_one()
     assert h.repository.get_session(session_id).failure_reason is FailureReason.SEARCH_FAILED
+
+
+def _status(code: int) -> TransportResponse:
+    return TransportResponse(code, {"content-type": "text/html"}, b"secret-body-text", False)
+
+
+@pytest.mark.parametrize("level", [ResearchLevel.QUICK, ResearchLevel.STANDARD])
+@aio
+async def test_failed_page_reads_are_summarised_by_fixed_kind_and_status_bucket(
+    tmp_path: Path, level: ResearchLevel
+) -> None:
+    urls = list(AGREEING_PAGES)
+    pages = {
+        urls[0]: _status(403),
+        urls[1]: _status(503),
+        urls[2]: ReaderError(ReadFailure.TIMEOUT),
+    }
+    h = Harness(tmp_path, pages=pages)
+    session_id = h.service.submit(QUESTION, level)
+    await h.service.run_one()
+    session = h.repository.get_session(session_id)
+    assert session.failure_reason is FailureReason.READER_FAILED
+    assert h.service.page_reads(session_id) == {
+        "failed": {"http_error": 2, "timeout": 1},
+        "http": {"403": 1, "5xx": 1},
+    }
+    assert "secret-body-text" not in str(h.service.page_reads(session_id))
+
+
+@aio
+async def test_page_read_summaries_are_bounded_and_unknown_sessions_have_none(
+    tmp_path: Path,
+) -> None:
+    h = Harness(tmp_path)
+    assert h.service.page_reads(uuid4()) is None
+    first = uuid4()
+    for _ in range(PAGE_READS_KEPT + 1):
+        h.service._remember_page_reads(first if _ == 0 else uuid4(), [])
+    assert h.service.page_reads(first) is None
 
 
 @pytest.mark.parametrize("level", [ResearchLevel.QUICK, ResearchLevel.STANDARD])

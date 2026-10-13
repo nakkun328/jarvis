@@ -20,7 +20,9 @@ from backend.research.reader import (
     ReadFailure,
     TransportRequest,
     TransportResponse,
+    coarse_status_class,
     is_blocked_address,
+    status_bucket,
     trusted_resolver_addresses_from_env,
     validate_url,
 )
@@ -610,6 +612,59 @@ def test_allowed_content_types_including_case_and_parameters(content_type: str) 
 def test_non_success_status_is_http_error(status: int) -> None:
     reader, _, _ = make_reader({"https://a.test/": html_response("<p>nope</p>", status=status)})
     assert failure(reader, "https://a.test/") is ReadFailure.HTTP_ERROR
+
+
+@pytest.mark.parametrize(
+    ("status", "bucket", "coarse"),
+    [
+        (401, "401", "4xx"),
+        (403, "403", "4xx"),
+        (404, "404", "4xx"),
+        (410, "410", "4xx"),
+        (429, "429", "4xx"),
+        (400, "4xx", "4xx"),
+        (451, "4xx", "4xx"),
+        (500, "5xx", "5xx"),
+        (503, "5xx", "5xx"),
+        (204, "other", "other"),
+        (206, "other", "other"),
+    ],
+)
+def test_http_errors_carry_a_fixed_status_bucket(status: int, bucket: str, coarse: str) -> None:
+    assert status_bucket(status) == bucket
+    assert coarse_status_class(bucket) == coarse
+    reader, _, _ = make_reader({"https://a.test/": html_response("<p>nope</p>", status=status)})
+    with pytest.raises(ReaderError) as caught:
+        read(reader, "https://a.test/")
+    assert caught.value.reason is ReadFailure.HTTP_ERROR
+    assert caught.value.http_status == bucket
+
+
+def test_redirect_without_location_has_a_3xx_bucket_and_other_failures_have_none() -> None:
+    reader, _, _ = make_reader({"https://a.test/": TransportResponse(302, {}, b"", False)})
+    with pytest.raises(ReaderError) as caught:
+        read(reader, "https://a.test/")
+    assert caught.value.http_status == "3xx"
+    assert coarse_status_class(None) == "none"
+    blocked, _, _ = make_reader({})
+    with pytest.raises(ReaderError) as other:
+        read(blocked, "http://localhost/")
+    assert other.value.reason is ReadFailure.BLOCKED_HOST and other.value.http_status is None
+
+
+def test_the_failure_log_line_has_the_code_and_a_coarse_status_class_only(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    url = "https://a.test/page?token=abc123"
+    reader, _, _ = make_reader(
+        {url: html_response("<p>body-secret</p>", status=403, extra={"x-secret": "hdr-secret"})}
+    )
+    with caplog.at_level(logging.DEBUG), pytest.raises(ReaderError):
+        read(reader, url)
+    lines = [r.getMessage() for r in caplog.records if "page read failed" in r.getMessage()]
+    assert lines == ["research page read failed reason=http_error status=4xx"]
+    assert "403" not in caplog.text and "a.test" not in caplog.text
+    assert "secret" not in caplog.text and "abc123" not in caplog.text
 
 
 def test_plain_text_and_json_pages() -> None:

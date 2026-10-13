@@ -409,6 +409,14 @@ function renderDetail() {
     parts.push(section("結果", el("p", "placeholder", "まだ結果は保存されていません。")));
   }
 
+  if (model.pageReads.length > 0) {
+    const reads = el("ul", "page-reads");
+    for (const row of model.pageReads) {
+      reads.append(el("li", "page-read", `${row.label}: ${row.count}件`));
+    }
+    parts.push(section("ページ取得の結果（失敗）", reads));
+  }
+
   const queries = el("ul", "queries");
   for (const query of model.queries) {
     const li = el("li", "query");

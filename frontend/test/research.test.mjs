@@ -455,3 +455,55 @@ test("stripListNumber drops a leading list number but keeps decimals", async () 
   assert.equal(stripListNumber("3.5 inch display"), "3.5 inch display");
   assert.equal(stripListNumber(null), "");
 });
+
+// ----- page read results -----
+
+test("page_reads becomes rows with Japanese labels, split by HTTP status bucket", () => {
+  const raw = detail({
+    page_reads: {
+      failed: { http_error: 4, timeout: 1, blocked_host: 2, empty_text: 1, extraction_failed: 1 },
+      http: { 403: 2, 404: 1, "5xx": 1 },
+    },
+  });
+  const model = detailViewModel(normalizeSession(raw));
+  assert.deepEqual(
+    model.pageReads.map((row) => [row.label, row.count]),
+    [
+      ["403（アクセス拒否）", 2],
+      ["404（ページが見つからない）", 1],
+      ["5xx（サーバーエラー）", 1],
+      ["ブロック（非公開アドレス）", 2],
+      ["時間切れ", 1],
+      ["本文を取り出せない", 2],
+    ],
+  );
+});
+
+test("page_reads keeps only known keys and positive integers", () => {
+  const raw = detail({
+    page_reads: {
+      failed: { network_error: 2, [HOSTILE]: 3, timeout: -1, too_large: "5", constructor: 9 },
+      http: { "403": 1.5, [HOSTILE]: 2, __proto__: { 404: 1 } },
+      extra: HOSTILE,
+    },
+  });
+  const session = normalizeSession(raw);
+  assert.deepEqual(session.page_reads, { failed: { network_error: 2 }, http: {} });
+  const rows = detailViewModel(session).pageReads;
+  assert.deepEqual(rows, [{ key: "network_error", label: "通信エラー", count: 2 }]);
+  assert.ok(!JSON.stringify(rows).includes("script"));
+});
+
+test("a missing or malformed page_reads gives no rows", () => {
+  assert.deepEqual(detailViewModel(normalizeSession(detail())).pageReads, []);
+  for (const bad of [null, "x", [], 5]) {
+    assert.deepEqual(detailViewModel(normalizeSession(detail({ page_reads: bad }))).pageReads, []);
+  }
+});
+
+test("http_error without a status bucket still shows a generic row", () => {
+  const model = detailViewModel(
+    normalizeSession(detail({ page_reads: { failed: { http_error: 2 }, http: {} } })),
+  );
+  assert.deepEqual(model.pageReads, [{ key: "http_error", label: "HTTPエラー", count: 2 }]);
+});

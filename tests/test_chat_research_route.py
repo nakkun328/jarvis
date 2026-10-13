@@ -435,6 +435,9 @@ class FakeRuns:
     def progress(self, session_id: UUID):  # pragma: no cover - not used
         return None
 
+    def page_reads(self, session_id: UUID):  # pragma: no cover - not used
+        return None
+
 
 def test_the_run_service_starter_hands_over_the_question_and_the_level_only() -> None:
     runs = FakeRuns()

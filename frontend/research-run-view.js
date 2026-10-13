@@ -290,6 +290,7 @@ export function resultModel(session, detail) {
   return {
     kind: status === "completed" ? "completed" : status === "cancelled" ? "cancelled" : "failed",
     failure: detail.failure,
+    pageReads: detail.pageReads,
     claims: detail.claims,
     sourceCount: detail.sources.length,
     conflicts,

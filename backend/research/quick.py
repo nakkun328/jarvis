@@ -46,7 +46,13 @@ from backend.research.models import (
     ResearchSource,
     ResearchStatus,
 )
-from backend.research.reader import FetchedPage, PageReader, ReaderError, ReadFailure
+from backend.research.reader import (
+    FailureCode,
+    FetchedPage,
+    PageReader,
+    ReaderError,
+    ReadFailure,
+)
 from backend.research.repository import (
     ResearchRepository,
     ResearchRepositoryError,
@@ -155,6 +161,7 @@ class DeterministicQueryPlanner:
 class FailedRead:
     url: str
     reason: str
+    http_status: str | None = None  # a fixed ``status_bucket`` label, only for http_error
 
 
 @dataclass(frozen=True)
@@ -341,7 +348,7 @@ class QuickResearch:
                         page = await self._reader.read(url)
                     outcomes[position] = page if page.text.strip() else "empty_text"
                 except ReaderError as error:
-                    outcomes[position] = error.reason.value
+                    outcomes[position] = FailureCode.of(error)
                 except TimeoutError:
                     outcomes[position] = "timeout"
                 except Exception as error:
@@ -355,7 +362,9 @@ class QuickResearch:
         failed: list[FailedRead] = []
         for result, outcome in zip(candidates, outcomes, strict=True):
             if isinstance(outcome, str):
-                failed.append(FailedRead(result.url, outcome))
+                failed.append(
+                    FailedRead(result.url, outcome, getattr(outcome, "http_status", None))
+                )
                 pages.append((result, None))
             else:
                 pages.append((result, outcome))
