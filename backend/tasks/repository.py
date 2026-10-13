@@ -20,7 +20,6 @@ from uuid import UUID, uuid4
 from backend.core.database import Database
 from backend.tasks.models import (
     ALLOWED_TRANSITIONS,
-    CHAT_TOOL_GOAL_PREFIX,
     DEFAULT_MAX_ATTEMPTS,
     FINISHING_STEP_STATUSES,
     MAX_ATTEMPTS_LIMIT,
@@ -30,6 +29,7 @@ from backend.tasks.models import (
     MAX_STEP_NOTE_CHARS,
     MAX_STEPS,
     MAX_TARGET_DEVICE_CHARS,
+    RESERVED_GOAL_PREFIXES,
     TERMINAL_STATUSES,
     StepStatus,
     Task,
@@ -154,6 +154,43 @@ class TaskRepository:
             ids = [UUID(row["id"]) for row in connection.execute(query, params)]
             return [_load(connection, task_id) for task_id in ids]
 
+    def count_goal_tasks(
+        self,
+        goal_prefix: str,
+        *,
+        since: datetime | None = None,
+        statuses: Sequence[TaskStatus] | None = None,
+    ) -> int:
+        """How many tasks have a goal starting with `goal_prefix` (optionally created at or after
+        `since`, optionally only in `statuses`). Used for fixed limits; reads nothing else."""
+        if not isinstance(goal_prefix, str) or not goal_prefix:
+            raise ValueError("goal_prefix must be a non-empty string")
+        query = "SELECT COUNT(*) FROM tasks WHERE substr(goal, 1, ?) = ?"
+        params: list[object] = [len(goal_prefix), goal_prefix]
+        if since is not None:
+            query += " AND created_at >= ?"
+            params.append(_ts(since))
+        if statuses is not None:
+            query += f" AND status IN ({', '.join('?' for _ in statuses)})"
+            params.extend(status.value for status in statuses)
+        with self._read() as connection:
+            return int(connection.execute(query, params).fetchone()[0])
+
+    def list_goal_tasks(self, goal_prefix: str, status: TaskStatus) -> list[Task]:
+        """Tasks in one status whose goal starts with `goal_prefix`, oldest first."""
+        if not isinstance(goal_prefix, str) or not goal_prefix:
+            raise ValueError("goal_prefix must be a non-empty string")
+        with self._read() as connection:
+            ids = [
+                UUID(row["id"])
+                for row in connection.execute(
+                    "SELECT id FROM tasks WHERE status = ? AND substr(goal, 1, ?) = ? "
+                    "ORDER BY created_at, rowid",
+                    (status.value, len(goal_prefix), goal_prefix),
+                )
+            ]
+            return [_load(connection, task_id) for task_id in ids]
+
     # ----- state transitions -----
 
     def transition(
@@ -241,19 +278,25 @@ class TaskRepository:
     def claim_next(self, goal_prefix: str | None = None) -> Task | None:
         """Atomically move the oldest pending task to running.
 
-        Without `goal_prefix` chat-tool tasks are skipped (only their own worker runs them);
-        with it only tasks whose goal starts with that prefix are considered.
+        Without `goal_prefix` chat-tool and discussion tasks are skipped (only their own workers
+        run them); with it only tasks whose goal starts with that prefix are considered.
 
         The select and the guarded update share one immediate transaction, so
         two callers on separate connections can never claim the same task.
         """
         with self._write() as connection:
-            prefix = CHAT_TOOL_GOAL_PREFIX if goal_prefix is None else goal_prefix
-            match = "=" if goal_prefix is not None else "!="
+            if goal_prefix is not None:
+                condition = "substr(goal, 1, ?) = ?"
+                params: tuple[object, ...] = (len(goal_prefix), goal_prefix)
+            else:
+                condition = " AND ".join("substr(goal, 1, ?) != ?" for _ in RESERVED_GOAL_PREFIXES)
+                params = tuple(
+                    item for prefix in RESERVED_GOAL_PREFIXES for item in (len(prefix), prefix)
+                )
             row = connection.execute(
-                "SELECT id FROM tasks WHERE status = ? "
-                f"AND substr(goal, 1, ?) {match} ? ORDER BY created_at, rowid LIMIT 1",
-                (TaskStatus.PENDING.value, len(prefix), prefix),
+                f"SELECT id FROM tasks WHERE status = ? AND {condition} "
+                "ORDER BY created_at, rowid LIMIT 1",
+                (TaskStatus.PENDING.value, *params),
             ).fetchone()
             if row is None:
                 return None

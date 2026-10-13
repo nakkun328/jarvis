@@ -185,6 +185,16 @@ class ConversationStore:
             conversation.dropped += excess
             del conversation.messages[:excess]
 
+    async def start_conversation(self, user_text: str) -> UUID:
+        """A new conversation holding one user message and no answer yet (a background task will
+        post the answers). Raises ``ConversationCapacityError`` when no slot is free."""
+        text = clean_posted_text(user_text)
+        async with self.open(None) as (conversation_id, conversation):
+            conversation.title = derive_title(text)
+            conversation.updated_at = now_stamp()
+            conversation.messages.append(ChatMessage(role="user", content=text))
+            return conversation_id
+
     async def append_assistant_message(self, conversation_id: UUID, text: str) -> None:
         """Add one assistant message to a known conversation (a finished background task's
         answer). It waits for a turn in progress, so it never lands in the middle of one.

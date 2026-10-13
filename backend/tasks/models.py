@@ -43,6 +43,31 @@ def parse_chat_tool_goal(goal: str) -> tuple[UUID, str] | None:
     return UUID(match.group(1)), match.group(2)
 
 
+#: Group discussions (docs/discussion.md) are tasks too: label, conversation id, job id, no user
+#: text. Only the discussion worker claims them, and the chat-tool worker never does.
+DISCUSSION_GOAL_LABEL = "group discussion"
+DISCUSSION_GOAL_PREFIX = DISCUSSION_GOAL_LABEL + " "
+_DISCUSSION_GOAL = re.compile(
+    r"group discussion ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+    r" ([0-9a-f]{32})"
+)
+#: Goal prefixes that the plain `claim_next()` (no prefix) must never hand out.
+RESERVED_GOAL_PREFIXES = (CHAT_TOOL_GOAL_PREFIX, DISCUSSION_GOAL_PREFIX)
+
+
+def discussion_goal(conversation_id: UUID, job_id: str) -> str:
+    """Fixed label, the conversation id and a job id. Never any user text."""
+    return f"{DISCUSSION_GOAL_PREFIX}{conversation_id} {job_id}"
+
+
+def parse_discussion_goal(goal: str) -> tuple[UUID, str] | None:
+    """(conversation id, job id) of a discussion task, or None for any other task."""
+    match = _DISCUSSION_GOAL.fullmatch(goal)
+    if match is None:
+        return None
+    return UUID(match.group(1)), match.group(2)
+
+
 def conversation_of_goal(goal: str) -> UUID | None:
     """The conversation a chat-tool task belongs to, or None for any other task."""
     parsed = parse_chat_tool_goal(goal)

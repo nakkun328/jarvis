@@ -1,14 +1,14 @@
-# Group discussion engine (P1)
+# Group discussion (P1 engine, P2 API and task)
 
-Several personas discuss a topic in fixed turns and a moderator closes with a short summary. This phase is a backend library only: `backend/discussion/`. It is not connected to the API, the task queue, the database or the screen, and it adds no schema change. Plan and later phases: [group-discussion-plan.md](group-discussion-plan.md).
+Several personas discuss a topic in fixed turns and a moderator closes with a short summary. P1 is the library `backend/discussion/` (engine and personas). P2 adds the background task, the API and the message format below; there is still no screen (P3) and **no schema change** (`SCHEMA_VERSION` stays 10). Plan and later phases: [group-discussion-plan.md](group-discussion-plan.md).
 
 ## Settings
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `JARVIS_DISCUSSION` | off | Master switch (`true` / `false`). Nothing reads it yet except the doctor. |
+| `JARVIS_DISCUSSION` | off | Master switch (`true` / `false`). Off: no discussion route and no worker. On also needs `JARVIS_MODEL_CHOICES` and a chat provider (the moderator); without them the routes are absent too. |
 | `JARVIS_DISCUSSION_MAX_ROUNDS` | 3 | Upper bound for the rounds of one discussion, 1 to 3. |
-| `JARVIS_DISCUSSION_PER_DAY_LIMIT` | 10 | Discussions per day, 1 to 100. Enforced by the later wiring phase. |
+| `JARVIS_DISCUSSION_PER_DAY_LIMIT` | 10 | Discussions per day, 1 to 100. Counted from today's discussion tasks (server local day). |
 
 An invalid value makes the server refuse to start (`ConfigError`, without echoing the value). `python -m backend.doctor` has a `discussion` row: `OFF` by default; `INCOMPLETE` when on without a ready chat provider or without `JARVIS_MODEL_CHOICES`; otherwise `OK`. It prints only the on/off word and the two limits.
 
@@ -32,7 +32,45 @@ A `Persona` has `name` (1 to 20 characters, no brackets or control characters), 
 - Each turn's prompt is the topic, the earlier transcript and that persona's own role, stance and checklist, plus the instruction not to repeat earlier points. Other personas' settings are never included. The transcript is capped (4000 characters by default); the newest turns are kept and older ones collapse into one line of counts.
 - A turn is cut at 600 characters, the summary at 900. The summary lists agreements, disagreements, open points and the next step.
 - Stop conditions (`StopCode`): rounds done (`COMPLETED`, then the summary), the `is_cancelled` callback (`CANCELLED`, checked before every call, no summary), the call cap of participants x rounds + 1 (`CALL_CAP`), and three provider failures in a row (`PROVIDER_FAILURES`, no summary). A single failing persona (error, empty reply, timeout, unusable model) is skipped, recorded in `DiscussionResult.skipped` and announced with a notice. A summary failure gives a `SUMMARY_FAILED` notice.
-- Every message goes through `emit(DiscussionMessage(speaker, text, kind, code))`. `kind` is `turn`, `summary` or `notice`; only notices carry a code. A later phase will post these into a conversation.
+- Every message goes through `emit(DiscussionMessage(speaker, text, kind, code))`. `kind` is `turn`, `summary` or `notice`; only notices carry a code. The service below posts these into a conversation.
 - Logs contain fixed event names and codes only. Prompt text, turns, topic, persona fields and provider error messages are never logged.
 
-Not in this phase: API, background task, daily counting, conversation storage, screen, persona editing.
+
+## Message format in a conversation (`format.py`)
+
+The message table has no speaker column, so the speaker is the fixed prefix of the text (plan section 4.4, option B):
+
+| Message | Stored as |
+| --- | --- |
+| the user's topic | role `user`, the topic text, no prefix |
+| a persona turn | role `assistant`, `【<persona name>】<text>` |
+| the moderator's summary | `【まとめ】<text>` |
+| a notice | `【お知らせ】<text>（<CODE>）` with a fixed code such as `PERSONA_SKIPPED`, `PROVIDER_FAILURES`, `CALL_CAP`, `SUMMARY_FAILED`, `CANCELLED`, `INTERRUPTED`, `EXECUTION_FAILED`, `TIMEOUT`, `INTERNAL_ERROR`, `VERIFICATION_FAILED` |
+
+`parse_message(content)` returns `(speaker, text)`; a message without the prefix has speaker `None`. `notice_code(text)` returns the trailing code of a notice. Persona names cannot contain `【` or `】` and cannot be `まとめ`, `お知らせ`, `まとめ役` or `システム`. A later migration only has to change `format.py`.
+
+## Running a discussion (`service.py`)
+
+`POST /api/discussions` creates a conversation holding the topic as the user message and queues a task whose goal is `group discussion <conversation uuid> <job uuid>` (no user text). Only the discussion worker claims it: `claim_next()` without a prefix skips chat-tool and discussion tasks, and the chat-tool worker asks for its own prefix. The worker runs the engine and posts each turn as an assistant message the moment it exists, the summary last. The task is shown on the Tasks screen as "グループ議論" with fixed steps (発言 1..n, まとめ) and a cancel button.
+
+- Cancel (`POST /api/tasks/{id}/cancel`) stops the discussion before the next turn (an answer in flight is abandoned). If at least one turn was posted, the moderator posts a short summary of the turns so far, then the notice `CANCELLED`. A discussion that never started only gets the notice.
+- A provider that fails is skipped with a `PERSONA_SKIPPED` notice; three failures in a row stop the discussion with `PROVIDER_FAILURES`. A restart while running ends the task as interrupted and posts `INTERRUPTED`. The job lives in memory, so a queued discussion lost to a restart fails with `EXECUTION_FAILED`.
+- Limits: rounds above `JARVIS_DISCUSSION_MAX_ROUNDS` are clamped (not refused), 2 to 4 participants, models only from `JARVIS_MODEL_CHOICES` and only those whose provider is ready, one running or queued discussion at a time (the app has a single owner), and `JARVIS_DISCUSSION_PER_DAY_LIMIT` discussions per server-local day, counted from the task table (cancelled and failed ones count).
+- Logs hold fixed event names and counts only; the topic, persona text, turns and provider messages are never logged or echoed in errors.
+
+## API
+
+All routes are behind the login layer (when enabled). `POST` also needs the same origin and the header `X-Jarvis-Confirm: 1` (403 `forbidden` / `confirm_header_required`). Errors are `{"detail": "<CODE>"}`.
+
+`GET /api/discussions/config` returns `enabled` (always true when the route exists), `max_rounds`, `default_rounds`, `per_day_limit`, `used_today`, `remaining_today`, `participants_min`, `participants_max`, `topic_max_chars`, `models` (the allowlist: `id`, `provider`, `model`, `available`, `is_default`), `presets` (persona objects with their assigned models), `palette` and `active` (`{task_id, conversation_id}` of the running discussion, or `null`).
+
+`POST /api/discussions` with `{"topic": "<1..2000 chars>", "personas": [<preset name or persona object>, ...], "rounds": 1..3}` answers `201 {"conversation_id", "task_id"}`. `personas` has 2 to 4 entries; a persona object has `name`, `role`, `model` and optionally `stance`, `checklist`, `color`. `rounds` is optional (default 2).
+
+| Status | Code |
+| --- | --- |
+| 400 | `DISCUSSION_REQUEST_INVALID`, `DISCUSSION_TOPIC_INVALID`, `DISCUSSION_ROUNDS_INVALID`, `DISCUSSION_PARTICIPANTS_INVALID`, `DISCUSSION_PRESET_UNKNOWN`, `PERSONA_*` (for example `PERSONA_MODEL_NOT_ALLOWED`) |
+| 409 | `DISCUSSION_BUSY` |
+| 429 | `DISCUSSION_DAILY_LIMIT` |
+| 503 | `DISCUSSION_MODEL_UNAVAILABLE`, `DISCUSSION_STORAGE_UNAVAILABLE` |
+
+Cancel with the existing `POST /api/tasks/{task_id}/cancel` (200 `{id, status}`; 409 when it cannot be cancelled; 404 for a task of another kind). The task's `conversation_id` in the task API is the discussion's conversation. Read the conversation with the existing `GET /api/chat/conversations/{id}/messages?after=<count>` and use `total` to poll. With the feature off none of these discussion routes exist.

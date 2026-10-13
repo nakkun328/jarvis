@@ -546,3 +546,23 @@ test("a chat-tool task shows its own title and step labels, never the stored goa
   ]);
   assert.equal(JSON.stringify(model).includes(id.slice(0, 8)), model.conversationHref !== null);
 });
+
+test("a discussion task shows its own title and step labels, never the stored goal", async () => {
+  const { normalizeTask, detailViewModel, listItemModel, DISCUSSION_TITLE } = await import(
+    "../tasks-view.js"
+  );
+  const id = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+  const goal = `group discussion ${id} ${"b".repeat(32)}`;
+  const steps = ["発言 1", "発言 6", "まとめ", "something else"].map((d, index) => ({
+    index, description: d, status: "pending",
+  }));
+  const task = normalizeTask({ id: "t2", goal, status: "running", conversation_id: id, steps });
+  assert.equal(task.goal, DISCUSSION_TITLE);
+  assert.equal(listItemModel(task).goal, "グループ議論");
+  const model = detailViewModel(task);
+  assert.deepEqual(model.steps.map((s) => s.description), [
+    "発言", "発言", "まとめ", "something else",
+  ]);
+  assert.equal(model.cancellable, true);
+  assert.equal(JSON.stringify(model).includes("group discussion"), false);
+});

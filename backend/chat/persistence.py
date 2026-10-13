@@ -15,6 +15,7 @@ from backend.chat.context import (
     ConversationSummary,
     MessagePage,
     StoredMessage,
+    clean_posted_text,
     derive_title,
 )
 from backend.core.database import Database
@@ -193,6 +194,32 @@ class SQLiteConversationStore(ConversationStore):
     ) -> None:
         await asyncio.to_thread(self._save, conversation_id, user, assistant)
         await super().remember(conversation_id, conversation, user, assistant)
+
+    def _save_user(self, conversation_id: UUID, user: str) -> None:
+        try:
+            with self.database.connect() as connection:
+                with connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    now = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+                    connection.execute(
+                        "INSERT INTO conversations (id, created_at, updated_at) "
+                        f"VALUES (?, {now}, {now})",
+                        (str(conversation_id),),
+                    )
+                    connection.execute(
+                        "INSERT INTO conversation_messages "
+                        f"(conversation_id, role, content, created_at) VALUES (?, ?, ?, {now})",
+                        (str(conversation_id), "user", user),
+                    )
+        except (OSError, sqlite3.Error) as exc:
+            raise ConversationStorageError("Conversation storage unavailable") from exc
+
+    async def start_conversation(self, user_text: str) -> UUID:
+        """A new stored conversation with one user message (its title is derived from it)."""
+        text = clean_posted_text(user_text)
+        conversation_id = uuid4()
+        await asyncio.to_thread(self._save_user, conversation_id, text)
+        return conversation_id
 
     def _save_one(self, conversation_id: UUID, assistant: str) -> None:
         try:
