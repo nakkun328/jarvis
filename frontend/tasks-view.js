@@ -90,15 +90,26 @@ function normalizeStep(raw, position) {
 // holds a conversation id, which is never shown; neither is any user text.
 export const CHAT_TOOL_TITLE = "チャットのツール作業";
 const CHAT_TOOL_GOAL = /^chat tool /;
+// Group discussion tasks (docs/discussion.md) are labelled the same way: no stored goal is shown.
+export const DISCUSSION_TITLE = "グループ議論";
+const DISCUSSION_GOAL = /^group discussion /;
 const STEP_LABELS = [
   [/^承認待ち \d+$/, "承認待ち"],
   [/^ツール実行 \d+$/, "ツール実行"],
   [/^会話へ投稿$/, "会話へ投稿"],
+  [/^発言 \d+$/, "発言"],
+  [/^まとめ$/, "まとめ"],
 ];
 
 export function stepLabel(description) {
   const found = STEP_LABELS.find(([pattern]) => pattern.test(description));
   return found ? found[1] : description;
+}
+
+function displayGoal(goal) {
+  if (CHAT_TOOL_GOAL.test(goal)) return CHAT_TOOL_TITLE;
+  if (DISCUSSION_GOAL.test(goal)) return DISCUSSION_TITLE;
+  return goal;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -111,7 +122,7 @@ export function normalizeTask(raw) {
   }
   const task = {
     id: raw.id,
-    goal: CHAT_TOOL_GOAL.test(text(raw.goal) ?? "") ? CHAT_TOOL_TITLE : (text(raw.goal) ?? ""),
+    goal: displayGoal(text(raw.goal) ?? ""),
     status: raw.status,
     current_step: count(raw.current_step),
     steps_total: count(raw.steps_total),

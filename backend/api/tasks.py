@@ -25,12 +25,14 @@ from starlette.types import Receive, Scope, Send
 
 from backend.api.origin import is_cross_origin_request
 from backend.chat.tool_jobs import NotAToolTask
+from backend.discussion.service import NotADiscussionTask
 from backend.tasks.models import (
     TERMINAL_STATUSES,
     StepStatus,
     Task,
     TaskStatus,
     conversation_of_goal,
+    parse_discussion_goal,
 )
 from backend.tasks.queue import TaskNotCancellable
 from backend.tasks.repository import (
@@ -143,6 +145,9 @@ def task_summary(task: Task) -> dict[str, Any]:
 
 def _conversation(task: Task) -> str | None:
     found = conversation_of_goal(task.goal)
+    if found is None:
+        parsed = parse_discussion_goal(task.goal)
+        found = parsed[0] if parsed is not None else None
     return str(found) if found is not None else None
 
 
@@ -187,6 +192,7 @@ def create_tasks_router(
     max_streams: int = DEFAULT_MAX_STREAMS,
     slots: StreamSlots | None = None,
     cancel_chat_tool: Callable[[UUID], Task] | None = None,
+    cancel_discussion: Callable[[UUID], Task] | None = None,
     trusted_proxy: bool = False,
 ) -> APIRouter:
     """Build the read-only task router.
@@ -229,25 +235,36 @@ def create_tasks_router(
             raise HTTPException(status_code=404, detail="task not found")
         return task_detail(task)
 
-    if cancel_chat_tool is not None:
+    def cancel_by_kind(task_id: UUID) -> Task:
+        """Discussion tasks go to the discussion service, everything else to the chat tools."""
+        existing = repository.get_task(task_id)
+        if existing is not None and parse_discussion_goal(existing.goal) is not None:
+            if cancel_discussion is None:
+                raise NotADiscussionTask
+            return cancel_discussion(task_id)
+        if cancel_chat_tool is None:
+            raise NotAToolTask
+        return cancel_chat_tool(task_id)
+
+    if cancel_chat_tool is not None or cancel_discussion is not None:
 
         @router.post("/api/tasks/{task_id}/cancel")
         def cancel_task(task_id: UUID, request: Request) -> dict[str, Any]:
-            """Cancel a chat-tool task (the only kind this route touches). Same guard as the
-            approval routes: same origin and the fixed confirm header."""
+            """Cancel a chat-tool or a discussion task (the only kinds this route touches). Same
+            guard as the approval routes: same origin and the fixed confirm header."""
             if is_cross_origin_request(request.scope, trusted_proxy):
                 raise HTTPException(status_code=403, detail="forbidden")
             if request.headers.get("x-jarvis-confirm") != "1":
                 raise HTTPException(status_code=403, detail="confirm_header_required")
             try:
-                task = cancel_chat_tool(task_id)
+                task = cancel_by_kind(task_id)
             except TaskNotFound as exc:
                 raise HTTPException(status_code=404, detail="task not found") from exc
             except (InvalidTransition, TaskStateChanged, TaskNotCancellable) as exc:
                 raise HTTPException(status_code=409, detail="task not cancellable") from exc
             except TaskRepositoryError as exc:
                 raise storage_unavailable(exc) from exc
-            except NotAToolTask as exc:
+            except (NotAToolTask, NotADiscussionTask) as exc:
                 raise HTTPException(status_code=404, detail="task not found") from exc
             return {"id": str(task.id), "status": task.status.value}
 

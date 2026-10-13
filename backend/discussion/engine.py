@@ -47,6 +47,7 @@ _SUMMARY_INSTRUCTION = (
     "【合意点】【対立点】【未解決】【次の一歩】。"
     f"全体で{SUMMARY_MAX_CHARS}字以内。根拠のない主張は、そう書いてください。"
 )
+SUMMARY_INSTRUCTION = _SUMMARY_INSTRUCTION
 
 
 class MessageKind(StrEnum):

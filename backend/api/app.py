@@ -16,6 +16,7 @@ from backend.api.approvals import create_approvals_router
 from backend.api.chat import build_chat_router
 from backend.api.chat_history import build_chat_history_router
 from backend.api.devices import create_devices_router
+from backend.api.discussions import create_discussions_router
 from backend.api.memory import create_memory_router
 from backend.api.memory_activity import create_memory_activity_router
 from backend.api.memory_withdraw import create_memory_withdraw_router
@@ -39,6 +40,7 @@ from backend.chat.tool_wiring import build_chat_toolbox
 from backend.core.config import ConfigError, Settings
 from backend.core.database import Database
 from backend.core.logging import configure_logging
+from backend.discussion.service import DiscussionService
 from backend.memory.auto_approval import AUTO_APPROVER
 from backend.memory.chat_auto import ChatAutoMemory
 from backend.memory.embedding import EmbeddingProvider
@@ -207,6 +209,7 @@ def create_app(
         models = ModelRegistry(settings.model_choices, provider)
     conversation_store = SQLiteConversationStore(database)
     tools_service = _build_chat_tools(settings, database, conversation_store, provider)
+    discussion_service = _build_discussion(settings, database, conversation_store, provider, models)
     chat_service = (
         ChatService(
             provider,
@@ -254,10 +257,14 @@ def create_app(
         configure_logging(settings.log_level)
         worker: asyncio.Task[None] | None = None
         tools_worker: asyncio.Task[None] | None = None
+        discussion_worker: asyncio.Task[None] | None = None
         try:
             database.initialize()
             logging.getLogger(__name__).info("JARVIS backend started")
             auth.log_startup()
+            if discussion_service is not None:
+                # Before the generic recovery below, which would otherwise fail these silently.
+                await discussion_service.recover()
             if run_service is not None:
                 # Settle what a previous process left behind (nothing is re-run), then work.
                 run_service.recover()
@@ -269,6 +276,11 @@ def create_app(
                     tools_service.run_worker(), name="chat-tools-worker"
                 )
                 logging.getLogger(__name__).info("Chat tools are enabled")
+            if discussion_service is not None:
+                discussion_worker = asyncio.create_task(
+                    discussion_service.run_worker(), name="discussion-worker"
+                )
+                logging.getLogger(__name__).info("Group discussion is enabled")
             logging.getLogger(__name__).info(
                 "Personality (%s): %s",
                 "file" if settings.personality_path is not None else "default",
@@ -284,6 +296,10 @@ def create_app(
                 tools_worker.cancel()
                 with suppress(asyncio.CancelledError):
                     await tools_worker
+            if discussion_worker is not None:
+                discussion_worker.cancel()
+                with suppress(asyncio.CancelledError):
+                    await discussion_worker
             if models is not None:
                 await models.aclose()
             close = getattr(provider, "aclose", None)
@@ -348,9 +364,16 @@ def create_app(
         create_tasks_router(
             TaskRepository(database),
             cancel_chat_tool=tools_service.cancel if tools_service is not None else None,
+            cancel_discussion=(
+                discussion_service.cancel if discussion_service is not None else None
+            ),
             trusted_proxy=settings.trusted_proxy,
         )
     )
+    if discussion_service is not None:
+        app.include_router(
+            create_discussions_router(discussion_service, trusted_proxy=settings.trusted_proxy)
+        )
     app.include_router(
         create_approvals_router(ApprovalStore(database), trusted_proxy=settings.trusted_proxy)
     )
@@ -437,6 +460,28 @@ def _build_chat_tools(
         store,
         max_steps=settings.chat_tools_max_steps,
         approval_timeout_seconds=float(settings.chat_tools_approval_timeout_seconds),
+    )
+
+
+def _build_discussion(
+    settings: Settings,
+    database: Database,
+    store: SQLiteConversationStore,
+    provider: LLMProvider | None,
+    models: ModelRegistry | None,
+) -> DiscussionService | None:
+    """Group discussion (docs/discussion.md): off unless JARVIS_DISCUSSION. It needs the model
+    allowlist (the personas' models) and the default chat provider (the moderator)."""
+    if not settings.discussion or provider is None or not models:
+        return None
+    return DiscussionService(
+        TaskQueue(TaskRepository(database)),
+        store,
+        models,
+        provider,
+        model_choices=settings.model_choices,
+        max_rounds=settings.discussion_max_rounds,
+        per_day_limit=settings.discussion_per_day_limit,
     )
 
 
