@@ -70,4 +70,3 @@ export const rawConfig = (over = {}) => ({
   ],
   palette: ["blue"], active: null, ...over,
 });
-
