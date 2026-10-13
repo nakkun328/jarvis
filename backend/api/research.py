@@ -165,6 +165,7 @@ def session_detail(
     claims: list[ResearchClaim],
     conflicts: list[ResearchConflict] | None = None,
     progress: Mapping[str, object] | None = None,
+    page_reads: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     detail = session_summary(session)
     detail["result_text"] = session.result_text
@@ -175,6 +176,9 @@ def session_detail(
     if progress is not None:
         # Present only while this process is running the session: a stage code and counters.
         detail["progress"] = dict(progress)
+    if page_reads is not None:
+        # Counts per fixed failure code and HTTP status bucket; kept in memory by this process.
+        detail["page_reads"] = dict(page_reads)
     return detail
 
 
@@ -332,6 +336,9 @@ def create_research_router(
         except ResearchRepositoryError as exc:
             raise storage_unavailable(exc) from exc
         progress = runs.progress(parsed_id) if runs is not None else None
-        return session_detail(session, queries, sources, claims, conflicts, progress)
+        page_reads = runs.page_reads(parsed_id) if runs is not None else None
+        return session_detail(
+            session, queries, sources, claims, conflicts, progress, page_reads
+        )
 
     return router

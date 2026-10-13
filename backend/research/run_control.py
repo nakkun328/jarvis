@@ -76,3 +76,8 @@ class ResearchRuns(Protocol):
     def progress(self, session_id: UUID) -> Mapping[str, object] | None:
         """Live counters of a run in this process, or ``None``."""
         ...
+
+    def page_reads(self, session_id: UUID) -> Mapping[str, object] | None:
+        """Failed-page counts ({"failed": {code: n}, "http": {bucket: n}}) of a run made by this
+        process, or ``None`` (after a restart, or for a session that was never read)."""
+        ...

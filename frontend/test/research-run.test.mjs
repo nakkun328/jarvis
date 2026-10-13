@@ -360,6 +360,20 @@ test("failed and cancelled runs carry the fixed Japanese reason", () => {
   assert.equal(model.kind, "failed");
   assert.equal(model.failure, "ページの読み取りに失敗しました");
   assert.equal(model.noVerifiedClaims, false);
+  assert.deepEqual(model.pageReads, []);
+  const withReads = normalizeSession(
+    detailBody({
+      status: "failed",
+      failure_reason: "reader_failed",
+      result_text: null,
+      claims: [],
+      page_reads: { failed: { http_error: 1, timeout: 1 }, http: { 403: 1 } },
+    }),
+  );
+  assert.deepEqual(
+    resultModel(withReads, detailViewModel(withReads)).pageReads.map((row) => row.label),
+    ["403（アクセス拒否）", "時間切れ"],
+  );
   const cancelled = normalizeSession(detailBody({ status: "cancelled", result_text: null, claims: [] }));
   assert.equal(resultModel(cancelled, detailViewModel(cancelled)).kind, "cancelled");
 });

@@ -52,6 +52,33 @@ const FAILURE_LABELS = {
   internal_error: "内部エラー",
 };
 
+// Page-read failure kinds: the reader's fixed codes plus "empty_text", and the fixed HTTP status
+// buckets the server uses for "http_error". Nothing else is ever shown from page_reads.
+const READ_FAILURE_LABELS = {
+  blocked_scheme: "URLが不正",
+  blocked_host: "ブロック（非公開アドレス）",
+  redirect_limit: "リダイレクトが多すぎる",
+  too_large: "大きすぎる",
+  timeout: "時間切れ",
+  bad_content_type: "形式が非対応",
+  extraction_failed: "本文を取り出せない",
+  empty_text: "本文を取り出せない",
+  network_error: "通信エラー",
+};
+const HTTP_STATUS_LABELS = {
+  401: "401（認証が必要）",
+  403: "403（アクセス拒否）",
+  404: "404（ページが見つからない）",
+  410: "410（削除済み）",
+  429: "429（回数制限）",
+  "4xx": "その他の4xx（リクエスト拒否）",
+  "5xx": "5xx（サーバーエラー）",
+  "3xx": "リダイレクト不備（3xx）",
+  other: "その他のHTTP応答",
+};
+const READ_FAILURE_ORDER = Object.keys(READ_FAILURE_LABELS);
+const HTTP_STATUS_ORDER = Object.keys(HTTP_STATUS_LABELS);
+
 // The five ratings are heuristic hints in the 0..1 range, not facts.
 export const RATING_KEYS = ["authority", "freshness", "primary", "relevance", "agreement"];
 const RATING_LABELS = {
@@ -152,6 +179,50 @@ function normalizeQuery(raw, position) {
   };
 }
 
+function countMap(raw, allowed) {
+  const counts = {};
+  if (!isRecord(raw)) return counts;
+  for (const key of allowed) {
+    const value = Object.hasOwn(raw, key) ? raw[key] : null;
+    if (Number.isInteger(value) && value > 0) counts[key] = value;
+  }
+  return counts;
+}
+
+// Counts of pages that could not be read, per fixed kind. Only known keys and positive
+// integers survive; anything else the API sends is dropped.
+function normalizePageReads(raw) {
+  if (!isRecord(raw)) return null;
+  return {
+    failed: countMap(raw.failed, [...READ_FAILURE_ORDER, "http_error"]),
+    http: countMap(raw.http, HTTP_STATUS_ORDER),
+  };
+}
+
+// Rows for the "ページ取得の結果" section: [{ key, label, count }], empty when nothing failed.
+export function pageReadRows(pageReads) {
+  if (!pageReads) return [];
+  const rows = [];
+  let httpCounted = 0;
+  for (const key of HTTP_STATUS_ORDER) {
+    const count = pageReads.http[key];
+    if (count) {
+      rows.push({ key: `http:${key}`, label: HTTP_STATUS_LABELS[key], count });
+      httpCounted += count;
+    }
+  }
+  const httpRest = (pageReads.failed.http_error ?? 0) - httpCounted;
+  if (httpRest > 0) rows.push({ key: "http_error", label: "HTTPエラー", count: httpRest });
+  const merged = new Map();
+  for (const key of READ_FAILURE_ORDER) {
+    const count = pageReads.failed[key];
+    if (!count) continue;
+    const label = READ_FAILURE_LABELS[key];
+    merged.set(label, { key, label, count: (merged.get(label)?.count ?? 0) + count });
+  }
+  return [...rows, ...merged.values()];
+}
+
 function normalizeReuse(raw) {
   if (!isRecord(raw) || typeof raw.reason !== "string") return null;
   return {
@@ -203,6 +274,7 @@ export function normalizeSession(raw) {
     session.conflicts = (Array.isArray(raw.conflicts) ? raw.conflicts : [])
       .filter(isRecord)
       .map((conflict) => ({ kind: text(conflict.kind) ?? "", status: text(conflict.status) ?? "" }));
+    session.page_reads = normalizePageReads(raw.page_reads);
     // Present only while this server is running the session: a stage code and counters.
     if (isRecord(raw.progress)) {
       session.progress = {
@@ -361,6 +433,7 @@ export function detailViewModel(session, { timeZone } = {}) {
     })),
     sources: sourceModels,
     claims: claimModels,
+    pageReads: pageReadRows(session.page_reads ?? null),
     times: [
       ["作成", formatTimestamp(session.created_at, { timeZone })],
       ["更新", formatTimestamp(session.updated_at, { timeZone })],

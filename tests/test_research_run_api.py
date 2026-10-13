@@ -1,5 +1,6 @@
 """Starting, watching and cancelling a research over HTTP, with fakes only."""
 
+import json
 import logging
 import time
 from collections.abc import Iterator
@@ -22,6 +23,7 @@ from research_run_support import (
 
 from backend.api.app import create_app
 from backend.core.config import ConfigError, Settings
+from backend.research.reader import TransportResponse
 from backend.research.search_budget import BudgetedSearchProvider
 
 pytestmark = pytest.mark.usefixtures("no_network")
@@ -155,6 +157,18 @@ def test_a_request_runs_to_a_cited_result(client: TestClient) -> None:
     assert all(claim["source_id"] in source_ids and claim["quote"] for claim in detail["claims"])
     assert "Verified claims:" in detail["result_text"]
     assert "progress" not in detail  # nothing live once it is finished
+
+
+def test_failed_page_reads_are_counts_by_fixed_kind_in_the_detail(tmp_path: Path) -> None:
+    forbidden = TransportResponse(403, {"content-type": "text/html"}, b"hidden-body", False)
+    pages = {url: forbidden for url in AGREEING_PAGES}
+    with make_client(tmp_path, pages=pages) as live:
+        session_id = start(live).json()["id"]
+        detail = wait_status(live, session_id, "failed")
+        assert detail["failure_reason"] == "reader_failed"
+        assert detail["page_reads"] == {"failed": {"http_error": 3}, "http": {"403": 3}}
+        assert "hidden-body" not in json.dumps(detail)
+        assert "page_reads" in live.get(f"/api/research/sessions/{session_id}").json()
 
 
 def test_standard_level_runs_and_lists_the_session(client: TestClient) -> None:
