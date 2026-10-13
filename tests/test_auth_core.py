@@ -496,3 +496,23 @@ def test_main_starts_loopback_with_forwarded_headers_disabled(
     assert calls == [
         {"host": "127.0.0.1", "port": 18999, "proxy_headers": False, "server_header": False}
     ]
+
+
+def test_minimum_passphrase_length_defaults_to_twelve_and_can_be_lowered_to_eight(monkeypatch):
+    from backend.auth.passwords import PasswordHashError, check_passphrase_policy
+
+    monkeypatch.delenv("JARVIS_AUTH_MIN_PASSPHRASE_CHARS", raising=False)
+    with pytest.raises(PasswordHashError):
+        check_passphrase_policy("abcdefgh")
+    monkeypatch.setenv("JARVIS_AUTH_MIN_PASSPHRASE_CHARS", "8")
+    check_passphrase_policy("abcdefgh")
+    with pytest.raises(PasswordHashError):
+        check_passphrase_policy("abcdefg")
+    monkeypatch.setenv("JARVIS_AUTH_MIN_PASSPHRASE_CHARS", "3")  # never below 8
+    with pytest.raises(PasswordHashError):
+        check_passphrase_policy("abcdefg")
+    monkeypatch.setenv("JARVIS_AUTH_MIN_PASSPHRASE_CHARS", "30")  # cannot raise above the default
+    check_passphrase_policy("abcdefghijkl")
+    monkeypatch.setenv("JARVIS_AUTH_MIN_PASSPHRASE_CHARS", "nope")
+    with pytest.raises(PasswordHashError):
+        check_passphrase_policy("abcdefgh")
