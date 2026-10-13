@@ -20,7 +20,7 @@
 "use strict";
 
 const CACHE_PREFIX = "jarvis-shell-";
-const CACHE_VERSION = "v7";
+const CACHE_VERSION = "v8";
 const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;
 
 const SHELL_FILES = [
@@ -34,6 +34,7 @@ const SHELL_FILES = [
   "/static/research.css",
   "/static/memory.css",
   "/static/discussion.css",
+  "/static/discussion-personas.css",
   "/static/shell.js",
   "/static/nav.js",
   "/static/pwa.js",

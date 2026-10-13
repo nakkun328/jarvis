@@ -65,6 +65,12 @@ const ERROR_MESSAGES = {
   PERSONA_FIELD_UNKNOWN: "参加者の設定に未対応の項目があります。",
   PERSONA_INVALID: "参加者の設定が正しくありません。",
   PERSONA_DUPLICATE_NAME: "参加者の名前が重複しています。",
+  PERSONA_NAME_RESERVED: "この名前は予約されているため使えません（プリセット名や「まとめ」「お知らせ」など）。",
+  PERSONA_NOT_FOUND: "そのペルソナは見つかりません。一覧を更新しました。",
+  PERSONA_LIMIT: "保存できるペルソナの数の上限に達しています。不要なものを削除してください。",
+  PERSONA_STORE_UNAVAILABLE: "ペルソナの保存先を使えません。サーバーの設定を確認してください。",
+  PERSONA_STORE_CORRUPT: "ペルソナの保存ファイルが壊れているため、変更できません。",
+  PERSONA_STORE_TOO_LARGE: "ペルソナの保存データが大きすぎます。内容を短くするか、不要なものを削除してください。",
   PERSONA_FILE_UNREADABLE: "参加者の設定ファイルを読めません。",
   PERSONA_FILE_INVALID: "参加者の設定ファイルが正しくありません。",
   forbidden: "この操作は許可されていません（別のサイトからの操作は受け付けません）。",
@@ -105,7 +111,7 @@ const posInt = (v, fallback) => (Number.isInteger(v) && v >= 0 ? v : fallback);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const isUuid = (v) => typeof v === "string" && UUID.test(v);
 
-function normalizePreset(raw) {
+export function normalizePreset(raw) {
   if (!isRecord(raw) || typeof raw.name !== "string" || typeof raw.model !== "string") return null;
   return {
     name: raw.name,
@@ -130,6 +136,13 @@ export function normalizeConfig(raw) {
       is_default: m.is_default === true,
     }));
   const presets = (Array.isArray(raw.presets) ? raw.presets : []).map(normalizePreset);
+  const presetList = presets.filter((p) => p !== null);
+  const listing = normalizeListing({
+    presets: presetList,
+    custom: raw.custom_personas,
+    max_custom: raw.max_custom_personas,
+    store: raw.personas_store,
+  });
   const active =
     isRecord(raw.active) && isUuid(raw.active.conversation_id) && typeof raw.active.task_id === "string"
       ? { task_id: raw.active.task_id, conversation_id: raw.active.conversation_id }
@@ -145,9 +158,33 @@ export function normalizeConfig(raw) {
     participants_max: Math.max(1, posInt(raw.participants_max, 4)),
     topic_max_chars: Math.max(1, posInt(raw.topic_max_chars, 2000)),
     models,
-    presets: presets.filter((p) => p !== null),
+    presets: presetList,
+    ...listing,
+    personas: [...presetList, ...listing.custom],
+    palette: Array.isArray(raw.palette) ? raw.palette.filter((c) => PALETTE.includes(c)) : [...PALETTE],
     active,
   };
+}
+
+// The persona listing of GET /api/discussions/personas (or the matching config fields):
+// { custom: [persona + available], max_custom, store }. `store` is "ok", "unavailable" or "corrupt".
+export function normalizeListing(raw) {
+  const rec = isRecord(raw) ? raw : {};
+  const custom = (Array.isArray(rec.custom) ? rec.custom : [])
+    .map((item) => {
+      const persona = normalizePreset(item);
+      return persona === null ? null : { ...persona, available: item.available === true, custom: true };
+    })
+    .filter((p) => p !== null);
+  const given = rec.store ?? rec.personas_store;
+  const store = given === "ok" || given === "corrupt" ? given : "unavailable";
+  return { custom: store === "ok" ? custom : [], max_custom: Math.max(1, posInt(rec.max_custom, 20)), personas_store: store };
+}
+
+// The same config with a fresh persona listing (after an edit); presets do not change.
+export function withListing(config, raw) {
+  const listing = normalizeListing(raw);
+  return { ...config, ...listing, personas: [...config.presets, ...listing.custom] };
 }
 
 export const availableModels = (config) => config.models.filter((m) => m.available);
@@ -189,7 +226,7 @@ export function startBlockers(config, form) {
 // sends the full persona object so the server checks the chosen model against its allowlist.
 export function buildStartBody(config, form) {
   const personas = form.participants.map((p) => {
-    const preset = config.presets.find((x) => x.name === p.name);
+    const preset = config.personas.find((x) => x.name === p.name);
     if (preset && preset.model === p.model) return preset.name;
     return {
       name: preset.name,

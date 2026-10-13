@@ -2,6 +2,8 @@
 // so Node tests drive it with a fake document, fake requests and a fake clock.
 import { conversationParam } from "./chat-history.js";
 import * as realApi from "./discussion-api.js";
+import * as realPersonaApi from "./discussion-personas-api.js";
+import { createPersonaPanel } from "./discussion-personas-panel.js";
 import { createDiscussionPoller } from "./discussion-poll.js";
 import { chipNode, messageNode } from "./discussion-render.js";
 import {
@@ -17,6 +19,7 @@ import {
   progressText,
   startBlockers,
   topicLength,
+  withListing,
 } from "./discussion-view.js";
 
 export const PAGE_PATH = "/discussion";
@@ -27,6 +30,7 @@ export const GAVE_UP_MESSAGE = "自動更新を止めました。再読み込み
 export function createScreen(env) {
   const { doc } = env;
   const api = env.api ?? realApi;
+  const personaApi = env.personaApi ?? realPersonaApi;
   const $ = (id) => doc.getElementById(id);
   const el = {};
   for (const id of [
@@ -34,6 +38,12 @@ export function createScreen(env) {
     "participants-hint", "participant-list", "rounds", "remaining", "blockers", "form-error", "start",
     "run-section", "run-title", "progress", "stop", "again", "readonly-note", "run-error", "transcript",
   ]) el[id] = $(id);
+
+  const panel = createPersonaPanel({
+    doc,
+    api: personaApi,
+    onChange: (listing, info) => applyListing(listing, info),
+  });
 
   const state = {
     config: null,
@@ -69,7 +79,7 @@ export function createScreen(env) {
     el.remaining.textContent = `今日の残り: ${config.remaining_today} / ${config.per_day_limit} 回（使用済み ${config.used_today} 回）`;
     const full = state.participants.length >= config.participants_max;
     for (const row of state.rows ?? []) {
-      row.checkbox.disabled = full && !row.checkbox.checked;
+      row.checkbox.disabled = row.preset.available === false || (full && !row.checkbox.checked);
       row.select.disabled = !row.checkbox.checked;
       row.node.className = row.checkbox.checked ? "participant selected" : "participant";
     }
@@ -92,11 +102,13 @@ export function createScreen(env) {
       .map((row) => ({ name: row.preset.name, model: row.select.value, color: row.preset.color }));
   }
 
-  function buildForm(config) {
+  // `previous`: the choices before a rebuild (name -> { checked, model }); null on the first build.
+  function buildForm(config, previous = null) {
     state.rows = [];
     const usable = availableModels(config);
     el["participant-list"].replaceChildren();
-    config.presets.forEach((preset, index) => {
+    config.personas.forEach((preset, index) => {
+      const selectable = preset.available !== false;
       const node = doc.createElement("div");
       node.className = "participant";
       const label = doc.createElement("label");
@@ -104,14 +116,16 @@ export function createScreen(env) {
       const checkbox = doc.createElement("input");
       checkbox.type = "checkbox";
       checkbox.id = `participant-${index}`;
-      checkbox.checked = index < 3;
+      const before = previous?.get(preset.name);
+      checkbox.checked = selectable && (previous === null ? index < 3 : before?.checked === true);
+      checkbox.disabled = !selectable;
       const name = doc.createElement("span");
       name.className = "participant-name";
       name.textContent = preset.name;
       label.append(checkbox, chipNode(doc, preset.color), name);
       const role = doc.createElement("p");
       role.className = "participant-role";
-      role.textContent = preset.role;
+      role.textContent = preset.custom ? `${preset.role}（自分のペルソナ）` : preset.role;
       const modelBox = doc.createElement("div");
       modelBox.className = "participant-model";
       const modelLabel = doc.createElement("label");
@@ -126,9 +140,13 @@ export function createScreen(env) {
         option.textContent = model.id;
         select.append(option);
       }
-      select.value = initialModel(preset, config);
+      select.value = before && usable.some((m) => m.id === before.model) ? before.model : initialModel(preset, config);
       modelBox.append(modelLabel, select);
-      node.append(label, role, modelBox);
+      node.append(label, role);
+      if (!selectable) {
+        node.append(make("p", "participant-flag", "モデルが使えないため選べません。ペルソナの編集で別のモデルを選んでください。"));
+      }
+      node.append(modelBox);
       el["participant-list"].append(node);
       const row = { preset, checkbox, select, node };
       state.rows.push(row);
@@ -151,8 +169,38 @@ export function createScreen(env) {
     syncParticipants();
   }
 
+  function make(tag, className, text) {
+    const node = doc.createElement(tag);
+    node.className = className;
+    node.textContent = text;
+    return node;
+  }
+
+  // A fresh persona listing after an edit: rebuild the picker, keep the choices that still exist
+  // (a renamed persona keeps its place, a deleted one drops out).
+  function applyListing(listing, info = {}) {
+    if (state.config === null) return;
+    const previous = new Map();
+    for (const row of state.rows ?? []) {
+      const name = info.renamed?.from === row.preset.name ? info.renamed.to : row.preset.name;
+      previous.set(name, { checked: row.checkbox.checked, model: row.select.value });
+    }
+    if (info.deleted) previous.delete(info.deleted);
+    state.config = withListing(state.config, listing);
+    buildForm(state.config, previous);
+    refreshForm();
+  }
+
+  function showPanel() {
+    panel.setListing(
+      { presets: state.config.presets, custom: state.config.custom, max_custom: state.config.max_custom, personas_store: state.config.personas_store },
+      { models: state.config.models, palette: state.config.palette },
+    );
+  }
+
   function showStart() {
     el["start-section"].hidden = false;
+    showPanel();
     el["run-section"].hidden = true;
     refreshForm();
   }
@@ -167,7 +215,7 @@ export function createScreen(env) {
     try {
       const body = buildStartBody(state.config, formValue());
       const started = await api.startDiscussion(body);
-      state.colors = colorMap(participants, state.config.presets);
+      state.colors = colorMap(participants, state.config.personas);
       env.replaceUrl(`${PAGE_PATH}?c=${started.conversation_id}`);
       state.starting = false;
       beginRun(started.conversation_id, started.task_id, { live: true });
@@ -207,6 +255,7 @@ export function createScreen(env) {
     state.taskId = taskId;
     state.stopping = false;
     el["start-section"].hidden = true;
+    panel.hide();
     el["run-section"].hidden = false;
     el.transcript.replaceChildren();
     el["run-error"].textContent = "";
@@ -276,7 +325,7 @@ export function createScreen(env) {
         setStatus(INVALID_LINK_MESSAGE, true);
         return;
       }
-      state.colors = colorMap([], config?.presets ?? []);
+      state.colors = colorMap([], config?.personas ?? []);
       beginRun(conversationId, null, { live: false });
       appendMessages(messages);
       el["run-title"].focus?.();
@@ -312,7 +361,7 @@ export function createScreen(env) {
     }
     if (link.kind === "ok") {
       if (config?.active?.conversation_id === link.id) {
-        state.colors = colorMap([], config.presets);
+        state.colors = colorMap([], config.personas);
         beginRun(link.id, config.active.task_id, { live: true });
         return;
       }
@@ -324,7 +373,7 @@ export function createScreen(env) {
       return;
     }
     if (config.active !== null) {
-      state.colors = colorMap([], config.presets);
+      state.colors = colorMap([], config.personas);
       env.replaceUrl(`${PAGE_PATH}?c=${config.active.conversation_id}`);
       beginRun(config.active.conversation_id, config.active.task_id, { live: true });
       return;

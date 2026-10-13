@@ -1,4 +1,4 @@
-// Requests of the group discussion screen. The unsafe ones (start, stop) carry the fixed confirm
+// Requests of the group discussion screen. The unsafe ones (start, stop, persona writes) carry the fixed confirm
 // header the server requires; none of them sends anything but the discussion's own fields.
 import { sessionEnded } from "./session.js";
 import { isUuid, normalizeConfig } from "./discussion-view.js";
@@ -20,10 +20,10 @@ export class DiscussionApiError extends Error {
   }
 }
 
-async function request(url, { fetchImpl = (u, i) => fetch(u, i), method = "GET", body, signal } = {}) {
+export async function request(url, { fetchImpl = (u, i) => fetch(u, i), method = "GET", body, signal } = {}) {
   const headers = { Accept: "application/json" };
   const init = { method, headers, signal };
-  if (method === "POST") {
+  if (method !== "GET") {
     headers["X-Jarvis-Confirm"] = "1";
     if (body !== undefined) {
       headers["Content-Type"] = "application/json";
