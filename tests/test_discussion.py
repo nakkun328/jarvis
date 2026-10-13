@@ -282,7 +282,7 @@ def test_transcript_is_bounded_and_older_turns_collapse():
 
 def test_rounds_and_participant_validation():
     h = Harness()
-    for rounds in (0, 4, True, "2"):
+    for rounds in (0, 4, 11, True, "2"):
         with pytest.raises(DiscussionError):
             h.engine(rounds=rounds)
     with pytest.raises(DiscussionError):
@@ -481,7 +481,7 @@ def test_settings_defaults_and_validation(monkeypatch):
     for kw in (
         {"discussion": "yes"},
         {"discussion_max_rounds": 0},
-        {"discussion_max_rounds": 4},
+        {"discussion_max_rounds": 11},
         {"discussion_max_rounds": True},
         {"discussion_per_day_limit": 0},
         {"discussion_per_day_limit": 101},
@@ -493,7 +493,9 @@ def test_settings_defaults_and_validation(monkeypatch):
     monkeypatch.setenv("JARVIS_DISCUSSION_PER_DAY_LIMIT", "5")
     s = Settings.from_env()
     assert (s.discussion, s.discussion_max_rounds, s.discussion_per_day_limit) == (True, 2, 5)
-    monkeypatch.setenv("JARVIS_DISCUSSION_MAX_ROUNDS", "9")
+    monkeypatch.setenv("JARVIS_DISCUSSION_MAX_ROUNDS", "10")
+    assert Settings.from_env().discussion_max_rounds == 10
+    monkeypatch.setenv("JARVIS_DISCUSSION_MAX_ROUNDS", "11")
     with pytest.raises(ConfigError):
         Settings.from_env()
 

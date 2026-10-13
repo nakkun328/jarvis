@@ -7,7 +7,7 @@ Several personas discuss a topic in fixed turns and a moderator closes with a sh
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `JARVIS_DISCUSSION` | off | Master switch (`true` / `false`). Off: no discussion route and no worker. On also needs `JARVIS_MODEL_CHOICES` and a chat provider (the moderator); without them the routes are absent too. |
-| `JARVIS_DISCUSSION_MAX_ROUNDS` | 3 | Upper bound for the rounds of one discussion, 1 to 3. |
+| `JARVIS_DISCUSSION_MAX_ROUNDS` | 3 | Upper bound for the rounds of one discussion, 1 to 10. More rounds mean more model calls (participants x rounds + 1, at most 41) and a longer run: raise it deliberately. |
 | `JARVIS_DISCUSSION_PER_DAY_LIMIT` | 10 | Discussions per day, 1 to 100. Counted from today's discussion tasks (server local day). |
 
 | `JARVIS_DISCUSSION_MEMORY_AUTO` | off | Owner-approved exception ([memory.md](memory.md)): stage the moderator's summary of a finished discussion as one pending memory candidate (an AI opinion, labelled as such). Needs `JARVIS_DISCUSSION`. |
@@ -31,7 +31,7 @@ A `Persona` has `name` (1 to 20 characters, no brackets or control characters), 
 
 `DiscussionEngine(personas, topic, resolve_provider=..., moderator=..., emit=..., rounds=2)`.
 
-- 2 to 4 personas, a topic of up to 2000 characters, `rounds` 1 to 3 (and at most `max_rounds`, which the later phase takes from the setting).
+- 2 to 4 personas, a topic of up to 2000 characters, `rounds` 1 to 10 (and at most `max_rounds`, which the later phase takes from the setting).
 - `resolve_provider` maps a model id to an `LLMProvider`; tests pass fakes. `moderator` is the provider for the summary.
 - Turns are a fixed round-robin: in every round each persona speaks once, in the given order.
 - Each turn's prompt is the topic, the earlier transcript and that persona's own role, stance and checklist, plus the instruction not to repeat earlier points. Other personas' settings are never included. The transcript is capped (4000 characters by default); the newest turns are kept and older ones collapse into one line of counts.
@@ -89,7 +89,7 @@ The navigation item **議論** (last in `PAGES`) opens `/discussion` (`frontend/
 | --- | --- |
 | `discussion-view.js` | Pure helpers: message parsing (same rules as `format.py`), notice meanings, error-code messages, config normalisation, start-button reasons, request body, progress text |
 | `discussion-api.js` | `config`, start, cancel (with `X-Jarvis-Confirm: 1`), `?after=` message reads, task status; a 401 goes to the login page |
-| `discussion-poll.js` | Reads task status and new messages every 2 s while the tab is visible; stops after the final read when the task is finished, and after about 30 minutes |
+| `discussion-poll.js` | Reads task status and new messages every 2 s while the tab is visible; stops after the final read when the task is finished, and after about 70 minutes |
 | `discussion-render.js` | Builds bubbles, notices and colour chips |
 | `discussion-screen.js` | The screen's behaviour, with the DOM and requests injected for tests |
 
