@@ -68,6 +68,13 @@ REASONS: dict[str, str] = {
         "有効です: 会話の発言から記憶の候補を自動作成します(承認は人間)。"
         "発言ごとに追加のモデル呼び出しが発生します"
     ),
+    "DISCUSSION_AUTO_APPROVE_ON": (
+        "有効です: 議論のまとめから作られた記憶は人間のレビューなしで自動承認されます"
+        "(AIの意見であり事実の裏付けはありません。オーナー判断の例外)"
+    ),
+    "DISCUSSION_AUTO_STAGE_ONLY": (
+        "有効です: 完了した議論のまとめを記憶の候補として登録します(承認は人間)"
+    ),
     "SHELL_ROOT_MISSING": "JARVIS_SHELL_ROOT が未設定です",
     "SHELL_ROOT_INVALID": "シェルの実行ルートが使えません(存在しない、/ やホームを含む等)",
     "SHELL_COMMAND_UNKNOWN": "JARVIS_SHELL_COMMANDS に許可表にない名前があります",
@@ -215,6 +222,23 @@ def _chat_memory(settings: Settings, chat: Check) -> Check:
     if settings.chat_memory_auto_approve:
         return Check("chat_memory", label, OK, "CHAT_AUTO_APPROVE_ON", detail)
     return Check("chat_memory", label, OK, "CHAT_AUTO_STAGE_ONLY", detail)
+
+
+def _discussion_memory(settings: Settings) -> Check:
+    """Owner-approved exception (docs/memory.md): flags and the limit only, never any content."""
+    detail = (
+        "JARVIS_DISCUSSION_MEMORY_AUTO=" + ("on" if settings.discussion_memory_auto else "off")
+        + ", JARVIS_DISCUSSION_MEMORY_AUTO_APPROVE="
+        + ("on" if settings.discussion_memory_auto_approve else "off")
+        + f", JARVIS_DISCUSSION_MEMORY_PER_DAY_LIMIT={settings.discussion_memory_per_day_limit}"
+        + ", JARVIS_MEMORY_VAULT_PATH=" + _word(settings.memory_vault_path is not None)
+    )
+    label = "議論記憶の自動作成"
+    if not settings.discussion_memory_auto:
+        return Check("discussion_memory", label, OFF, "NOT_CONFIGURED", detail)
+    if settings.discussion_memory_auto_approve:
+        return Check("discussion_memory", label, OK, "DISCUSSION_AUTO_APPROVE_ON", detail)
+    return Check("discussion_memory", label, OK, "DISCUSSION_AUTO_STAGE_ONLY", detail)
 
 
 def _router(settings: Settings, chat: Check) -> Check:
@@ -380,6 +404,7 @@ def run_checks(host: str = "127.0.0.1") -> list[Check]:
         research,
         _research_memory(settings),
         _chat_memory(settings, chat),
+        _discussion_memory(settings),
         router,
         _casual(settings, router, chat),
         _chat_research(settings, router, research),

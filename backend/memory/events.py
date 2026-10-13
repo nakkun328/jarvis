@@ -43,6 +43,7 @@ class MemoryEventKind(StrEnum):
 class MemoryEventOrigin(StrEnum):
     CHAT = "chat"
     RESEARCH = "research"
+    DISCUSSION = "discussion"
 
 
 #: ``publisher(kind, origin, memory_id, content)``; ``content`` is the stored note text.

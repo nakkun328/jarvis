@@ -44,8 +44,10 @@ from backend.discussion.service import DiscussionService
 from backend.discussion.store import PersonaStore
 from backend.memory.auto_approval import AUTO_APPROVER
 from backend.memory.chat_auto import ChatAutoMemory
+from backend.memory.discussion_auto import DiscussionAutoMemory
 from backend.memory.embedding import EmbeddingProvider
 from backend.memory.events import MemoryActivityFeed
+from backend.memory.indexing import MemoryIndexBuilder, SynchronousIndexRefresher
 from backend.memory.obsidian import ObsidianVault
 from backend.memory.repository import MemoryRepository
 from backend.memory.retrieval import MemoryRetriever
@@ -135,6 +137,7 @@ def create_app(
         raise ConfigError("Semantic chat requires an explicitly configured memory vault")
     database = Database(settings.db_path)
     memory_context = None
+    index_refresher: Callable[[UUID], None] | None = None
     if settings.memory_vault_path is not None:
         vault_path = settings.memory_vault_path
         if vault_path.is_symlink() or not vault_path.is_dir():
@@ -142,6 +145,8 @@ def create_app(
         retriever = MemoryRetriever(
             MemoryRepository(database), ObsidianVault(vault_path), vector_index=memory_index
         )
+        if embedding_provider is not None and memory_index is not None:
+            index_refresher = _index_refresher(retriever, embedding_provider, memory_index)
         memory_context = (
             SemanticMemoryContext(SemanticMemorySearcher(retriever, embedding_provider))
             if embedding_provider is not None
@@ -210,7 +215,32 @@ def create_app(
         models = ModelRegistry(settings.model_choices, provider)
     conversation_store = SQLiteConversationStore(database)
     tools_service = _build_chat_tools(settings, database, conversation_store, provider)
-    discussion_service = _build_discussion(settings, database, conversation_store, provider, models)
+    # Owner-approved exception (docs/memory.md): the moderator's summary of a finished discussion
+    # becomes a memory candidate (AI opinion). Off by default; needs the discussion feature.
+    discussion_memory = (
+        DiscussionAutoMemory(
+            MemoryRepository(database),
+            memory_writer,
+            auto_approve=settings.discussion_memory_auto_approve,
+            per_day_limit=settings.discussion_memory_per_day_limit,
+            publisher=memory_feed.publish,
+            index_refresher=index_refresher,
+        )
+        if settings.discussion_memory_auto
+        else None
+    )
+    discussion_service = _build_discussion(
+        settings,
+        database,
+        conversation_store,
+        provider,
+        models,
+        on_summary=(
+            (lambda cid, topic, summary: discussion_memory.observe(cid, topic, summary))
+            if discussion_memory is not None
+            else None
+        ),
+    )
     chat_service = (
         ChatService(
             provider,
@@ -474,6 +504,7 @@ def _build_discussion(
     store: SQLiteConversationStore,
     provider: LLMProvider | None,
     models: ModelRegistry | None,
+    on_summary: Callable[[UUID, str, str], None] | None = None,
 ) -> DiscussionService | None:
     """Group discussion (docs/discussion.md): off unless JARVIS_DISCUSSION. It needs the model
     allowlist (the personas' models) and the default chat provider (the moderator)."""
@@ -488,7 +519,28 @@ def _build_discussion(
         max_rounds=settings.discussion_max_rounds,
         per_day_limit=settings.discussion_per_day_limit,
         persona_store=PersonaStore(settings.discussion_personas_path),
+        on_summary=on_summary,
     )
+
+
+def _index_refresher(
+    retriever: MemoryRetriever, provider: EmbeddingProvider, index: VectorIndex
+) -> Callable[[UUID], None]:
+    """Refresh the derived vector index for one just-approved note (runs in a worker thread)."""
+
+    def refresh(memory_id: UUID) -> None:
+        builder = MemoryIndexBuilder(
+            retriever.repository,
+            retriever,
+            provider,
+            index,  # a Chroma index satisfies the inspectable protocol at runtime
+        )
+        current = retriever.get_approved(memory_id)
+        if current is None:
+            raise RuntimeError("approved note unavailable")
+        SynchronousIndexRefresher(builder).refresh(current)
+
+    return refresh
 
 
 def _build_research(

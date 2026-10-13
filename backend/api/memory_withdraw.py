@@ -1,14 +1,15 @@
-"""Human-only withdrawal of an automatically approved research or chat memory (docs/memory.md).
+"""Human-only withdrawal of an automatically approved research, chat or discussion memory.
 
 ``POST /api/memory/notes/{id}/withdraw`` retires one approved note whose approval was recorded as
-automatic by the actor of its own origin (``research`` or ``chat``). It reuses the existing
-retirement transition: the record becomes ``retired`` (so it no longer reaches a model) and a
-lifecycle event records the withdrawal. Nothing is deleted: the vault note, if any, stays on disk
-for inspection and the history stays in SQLite.
+automatic by the actor of its own origin (``research``, ``chat`` or ``discussion``). It reuses
+the existing retirement transition: the record becomes ``retired`` (so it no longer reaches a
+model) and a lifecycle event records the withdrawal. Nothing is deleted: the vault note, if any,
+stays on disk for inspection and the history stays in SQLite.
 
 The request needs the same-origin check and the fixed ``X-Jarvis-Confirm: 1`` header (as the
 approvals routes do), and the login layer when it is on. No model, tool or agent code calls it.
-Notes that a person approved, or that came from anywhere other than research or chat, are refused.
+Notes that a person approved, or that came from anywhere other than research, chat or
+discussion, are refused.
 Error bodies carry a fixed code and never repeat stored or sent text.
 """
 
@@ -32,6 +33,7 @@ from backend.memory.auto_approval import (
     WITHDRAW_ACTOR,
     WITHDRAW_REASON,
     WITHDRAW_REASON_CHAT,
+    WITHDRAW_REASON_DISCUSSION,
     is_auto_approved,
 )
 from backend.memory.events import (
@@ -81,11 +83,10 @@ def create_memory_withdraw_router(
                 or not is_auto_approved(repository, parsed, stored.record.origin)
             ):
                 raise HTTPException(status_code=409, detail=ERROR_NOT_AUTO_APPROVED)
-            reason = (
-                WITHDRAW_REASON_CHAT
-                if stored.record.origin is MemoryOrigin.CHAT
-                else WITHDRAW_REASON
-            )
+            reason = {
+                MemoryOrigin.CHAT: WITHDRAW_REASON_CHAT,
+                MemoryOrigin.DISCUSSION: WITHDRAW_REASON_DISCUSSION,
+            }.get(stored.record.origin, WITHDRAW_REASON)
             retired = None
             if writer is not None:
                 try:
@@ -111,9 +112,10 @@ def create_memory_withdraw_router(
         safe_publish(
             publisher,
             MemoryEventKind.WITHDRAWN,
-            MemoryEventOrigin.CHAT
-            if stored.record.origin is MemoryOrigin.CHAT
-            else MemoryEventOrigin.RESEARCH,
+            {
+                MemoryOrigin.CHAT: MemoryEventOrigin.CHAT,
+                MemoryOrigin.DISCUSSION: MemoryEventOrigin.DISCUSSION,
+            }.get(stored.record.origin, MemoryEventOrigin.RESEARCH),
             parsed,
             stored.record.content,
         )

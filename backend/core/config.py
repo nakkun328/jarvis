@@ -168,6 +168,12 @@ class Settings:
     chat_memory_min_chars: int = 12
     chat_memory_per_conversation_limit: int = 5
     chat_memory_per_day_limit: int = 30
+    # Owner-approved exception (docs/memory.md): stage the moderator's summary of a finished
+    # group discussion as a memory candidate (needs JARVIS_DISCUSSION); optionally approve it
+    # without review (needs the memory vault). Both default off; at most N per day.
+    discussion_memory_auto: bool = False
+    discussion_memory_auto_approve: bool = False
+    discussion_memory_per_day_limit: int = 10
     # Structured shell tool (docs/tool-shell.md). Off by default; it needs an execution root too.
     # The command names pick entries of the fixed allowlist table, they are never command lines.
     shell_enabled: bool = False
@@ -298,6 +304,28 @@ class Settings:
         ):
             if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= high:
                 raise ConfigError(f"{name} must be between 1 and {high}")
+        for name, value in (
+            ("JARVIS_DISCUSSION_MEMORY_AUTO", self.discussion_memory_auto),
+            ("JARVIS_DISCUSSION_MEMORY_AUTO_APPROVE", self.discussion_memory_auto_approve),
+        ):
+            if not isinstance(value, bool):
+                raise ConfigError(f"{name} must be true or false")
+        if self.discussion_memory_auto and not self.discussion:
+            raise ConfigError("JARVIS_DISCUSSION_MEMORY_AUTO requires JARVIS_DISCUSSION")
+        if self.discussion_memory_auto_approve and not self.discussion_memory_auto:
+            raise ConfigError(
+                "JARVIS_DISCUSSION_MEMORY_AUTO_APPROVE requires JARVIS_DISCUSSION_MEMORY_AUTO"
+            )
+        if self.discussion_memory_auto_approve and self.memory_vault_path is None:
+            raise ConfigError(
+                "JARVIS_DISCUSSION_MEMORY_AUTO_APPROVE requires JARVIS_MEMORY_VAULT_PATH"
+            )
+        if (
+            isinstance(self.discussion_memory_per_day_limit, bool)
+            or not isinstance(self.discussion_memory_per_day_limit, int)
+            or not 1 <= self.discussion_memory_per_day_limit <= 100
+        ):
+            raise ConfigError("JARVIS_DISCUSSION_MEMORY_PER_DAY_LIMIT must be between 1 and 100")
         if not isinstance(self.shell_enabled, bool):
             raise ConfigError("JARVIS_SHELL_ENABLED must be true or false")
         if self.shell_root is not None and not str(self.shell_root).strip():
@@ -499,4 +527,9 @@ class Settings:
                 "JARVIS_CHAT_MEMORY_PER_CONVERSATION_LIMIT", 5
             ),
             chat_memory_per_day_limit=_env_int("JARVIS_CHAT_MEMORY_PER_DAY_LIMIT", 30),
+            discussion_memory_auto=_env_bool("JARVIS_DISCUSSION_MEMORY_AUTO", False),
+            discussion_memory_auto_approve=_env_bool(
+                "JARVIS_DISCUSSION_MEMORY_AUTO_APPROVE", False
+            ),
+            discussion_memory_per_day_limit=_env_int("JARVIS_DISCUSSION_MEMORY_PER_DAY_LIMIT", 10),
         )

@@ -127,6 +127,7 @@ class _Job:
     turns: list[tuple[str, str]] = field(default_factory=list)
     last_posted: str | None = None
     summary_posted: bool = False
+    summary_text: str | None = None  # the moderator's summary, kept for the memory hook
     noticed: bool = False  # a notice for the way it ended is already in the conversation
     finished: bool = False  # the closing posts (cancel summary, failure notice) were made
     next_step: int = 0
@@ -148,9 +149,14 @@ class DiscussionService:
         call_timeout_seconds: float = DEFAULT_CALL_TIMEOUT_SECONDS,
         worker_poll_seconds: float = DEFAULT_WORKER_POLL_SECONDS,
         persona_store: PersonaStore | None = None,
+        on_summary: Callable[[UUID, str, str], None] | None = None,
     ) -> None:
+        """``on_summary(conversation_id, topic, summary)`` is the optional memory hook
+        (docs/memory.md). It runs in a worker thread once per finished discussion that has at
+        least one turn and a summary; any failure is logged as a fixed code and ignored."""
         self.queue = queue
         self._persona_store = persona_store or PersonaStore(None)
+        self._on_summary = on_summary
         self._store = store
         self._models = models
         self._moderator = moderator
@@ -376,6 +382,7 @@ class DiscussionService:
         elif message.kind is MessageKind.SUMMARY:
             await self._post(job, format_summary(message.text))
             job.summary_posted = True
+            job.summary_text = message.text
             self._advance(job)
         elif message.code == StopCode.CANCELLED.value:
             return  # posted once, after the summary, when the task has ended as cancelled
@@ -516,12 +523,26 @@ class DiscussionService:
             _LOG.warning("discussion.post_failed", extra={"error_type": type(error).__name__})
         finally:
             self._jobs.pop(parsed[1], None)
+        if job is not None and task.status is TaskStatus.COMPLETED:
+            await self._remember(parsed[0], job)
+
+    async def _remember(self, conversation_id: UUID, job: _Job) -> None:
+        """Hand the summary to the memory hook. Only completed discussions count: cancelled, failed
+        and empty ones are skipped. Never affects the discussion."""
+        hook = self._on_summary
+        if hook is None or not job.turns or not job.summary_text:
+            return
+        try:
+            await asyncio.to_thread(hook, conversation_id, job.topic, job.summary_text)
+        except Exception:  # the hook is best effort; fixed code only, never text
+            _LOG.warning("discussion.memory_failed", extra={"code": "memory_hook_failed"})
 
     async def _post_cancelled(self, conversation_id: UUID, job: _Job | None) -> None:
         if job is not None and job.turns and not job.summary_posted:
             summary = await self._partial_summary(job)
             if summary:
                 await self._store.append_assistant_message(conversation_id, format_summary(summary))
+                job.summary_text = summary
         text, code = CANCELLED_NOTICE
         await self._store.append_assistant_message(conversation_id, format_notice(text, code))
 

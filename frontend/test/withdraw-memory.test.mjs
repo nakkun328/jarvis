@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { autoApprovalInfo, detailModel, normalizeDetail, normalizeMemory } from "../memory-view.js";
+import {
+  autoApprovalInfo,
+  detailModel,
+  normalizeDetail,
+  normalizeMemory,
+  originInfo,
+} from "../memory-view.js";
 import { CONFIRM_HEADER, withdrawMemory, withdrawMessage, withdrawUrl } from "../withdraw-memory.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -82,4 +88,23 @@ test("an automatically approved chat note shows its label, verbatim quote and da
   });
   assert.equal(detailModel({ ...chat, reviews: [], lifecycle: [] }).canWithdraw, true);
   assert.equal(autoApprovalInfo({ ...chat, auto_approved: false }), null);
+});
+
+test("an automatically approved discussion note shows its label, topic and date", () => {
+  const note = normalizeMemory({
+    id: ID,
+    status: "approved",
+    origin: "discussion",
+    auto_approved: true,
+    content: "議論の結果(AIの意見・事実の裏付けなし)\n議題: 新しい投影機を買うか\n\n要約\n\n日付: 2026-10-14\n議論ID: x",
+  });
+  assert.deepEqual(autoApprovalInfo(note), {
+    label: "自動承認(議論)",
+    source: "新しい投影機を買うか",
+    date: "2026-10-14",
+    sourceLabel: "議題",
+    dateLabel: "日付",
+  });
+  assert.equal(detailModel({ ...note, reviews: [], lifecycle: [] }).canWithdraw, true);
+  assert.equal(originInfo("discussion").label, "議論由来(AIの意見)");
 });

@@ -10,6 +10,9 @@ Several personas discuss a topic in fixed turns and a moderator closes with a sh
 | `JARVIS_DISCUSSION_MAX_ROUNDS` | 3 | Upper bound for the rounds of one discussion, 1 to 3. |
 | `JARVIS_DISCUSSION_PER_DAY_LIMIT` | 10 | Discussions per day, 1 to 100. Counted from today's discussion tasks (server local day). |
 
+| `JARVIS_DISCUSSION_MEMORY_AUTO` | off | Owner-approved exception ([memory.md](memory.md)): stage the moderator's summary of a finished discussion as one pending memory candidate (an AI opinion, labelled as such). Needs `JARVIS_DISCUSSION`. |
+| `JARVIS_DISCUSSION_MEMORY_AUTO_APPROVE` | off | Also approve that note at once (audit actor `auto:discussion`); needs `JARVIS_DISCUSSION_MEMORY_AUTO` and `JARVIS_MEMORY_VAULT_PATH`. Sensitive or instruction-like text stays pending. |
+| `JARVIS_DISCUSSION_MEMORY_PER_DAY_LIMIT` | 10 | Most discussion notes staged per day, 1 to 100. |
 | `JARVIS_DISCUSSION_PERSONAS_PATH` | next to the DB | JSON file of the owner's custom personas. Unset: `discussion-personas.json` in the directory of the SQLite file when `JARVIS_DB_PATH` is set, otherwise none (editing is unavailable, presets still work). The directory must already exist; it is never created. |
 
 An invalid value makes the server refuse to start (`ConfigError`, without echoing the value). `python -m backend.doctor` has a `discussion` row: `OFF` by default; `INCOMPLETE` when on without a ready chat provider or without `JARVIS_MODEL_CHOICES`; otherwise `OK`. It prints only the on/off word, the two limits and `persona_editing=available|unavailable` (the path is never printed).
@@ -58,6 +61,7 @@ The message table has no speaker column, so the speaker is the fixed prefix of t
 - Cancel (`POST /api/tasks/{id}/cancel`) stops the discussion before the next turn (an answer in flight is abandoned). If at least one turn was posted, the moderator posts a short summary of the turns so far, then the notice `CANCELLED`. A discussion that never started only gets the notice.
 - A provider that fails is skipped with a `PERSONA_SKIPPED` notice; three failures in a row stop the discussion with `PROVIDER_FAILURES`. A restart while running ends the task as interrupted and posts `INTERRUPTED`. The job lives in memory, so a queued discussion lost to a restart fails with `EXECUTION_FAILED`.
 - Limits: rounds above `JARVIS_DISCUSSION_MAX_ROUNDS` are clamped (not refused), 2 to 4 participants, models only from `JARVIS_MODEL_CHOICES` and only those whose provider is ready, one running or queued discussion at a time (the app has a single owner), and `JARVIS_DISCUSSION_PER_DAY_LIMIT` discussions per server-local day, counted from the task table (cancelled and failed ones count).
+- Memory (opt-in, [memory.md](memory.md)): with `JARVIS_DISCUSSION_MEMORY_AUTO`, a discussion that ends completed (with at least one turn and a summary) hands its topic and summary to the memory hook once, in a worker thread; a cancelled, failed or empty one hands nothing, and a hook failure is logged as `discussion.memory_failed` and ignored. No schema change.
 - Logs hold fixed event names and counts only; the topic, persona text, turns and provider messages are never logged or echoed in errors.
 
 ## API
