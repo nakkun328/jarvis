@@ -21,6 +21,7 @@ PAGE_FILES = [
     "research.html",
     "memory.html",
     "devices.html",
+    "discussion.html",
 ]
 
 
@@ -104,6 +105,7 @@ def test_every_declared_page_is_a_served_html_route(client: TestClient) -> None:
         "/research",
         "/memory",
         "/devices",
+        "/discussion",
     ]
     for path, _label in pages:
         response = client.get(path)

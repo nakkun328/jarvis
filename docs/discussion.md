@@ -1,6 +1,6 @@
-# Group discussion (P1 engine, P2 API and task, P4 custom personas)
+# Group discussion (P1 engine, P2 API and task, P3 screen, P4 custom personas)
 
-Several personas discuss a topic in fixed turns and a moderator closes with a short summary. P1 is the library `backend/discussion/` (engine and personas). P2 adds the background task, the API and the message format below; P4 adds the custom persona store and its API below (the editor screen comes after); there is **no schema change** (`SCHEMA_VERSION` stays 10). Plan and later phases: [group-discussion-plan.md](group-discussion-plan.md).
+Several personas discuss a topic in fixed turns and a moderator closes with a short summary. P1 is the library `backend/discussion/` (engine and personas). P2 adds the background task, the API and the message format below; P3 adds the `/discussion` screen (below); P4 adds the custom persona store and its API below, and its editor lives in the screen; there is **no schema change** (`SCHEMA_VERSION` stays 10). Plan and later phases: [group-discussion-plan.md](group-discussion-plan.md).
 
 ## Settings
 
@@ -77,6 +77,24 @@ All routes are behind the login layer (when enabled). `POST` also needs the same
 
 Cancel with the existing `POST /api/tasks/{task_id}/cancel` (200 `{id, status}`; 409 when it cannot be cancelled; 404 for a task of another kind). The task's `conversation_id` in the task API is the discussion's conversation. Read the conversation with the existing `GET /api/chat/conversations/{id}/messages?after=<count>` and use `total` to poll. With the feature off none of these discussion routes exist.
 
+## Screen (`/discussion`, P3)
+
+The navigation item **議論** (last in `PAGES`) opens `/discussion` (`frontend/discussion.html`, served like every other page, so it also loads with the feature off). It is plain ES modules with no inline script or style, and every server-provided string (topic, turns, names, notices) is placed with `textContent` only, never `innerHTML`.
+
+| File | Role |
+| --- | --- |
+| `discussion-view.js` | Pure helpers: message parsing (same rules as `format.py`), notice meanings, error-code messages, config normalisation, start-button reasons, request body, progress text |
+| `discussion-api.js` | `config`, start, cancel (with `X-Jarvis-Confirm: 1`), `?after=` message reads, task status; a 401 goes to the login page |
+| `discussion-poll.js` | Reads task status and new messages every 2 s while the tab is visible; stops after the final read when the task is finished, and after about 30 minutes |
+| `discussion-render.js` | Builds bubbles, notices and colour chips |
+| `discussion-screen.js` | The screen's behaviour, with the DOM and requests injected for tests |
+
+- **Start form.** Topic textarea with a counter (`topic_max_chars`), 2 to 4 participants chosen from the presets (name, role and colour shown; the model is a select of the available allowlist entries, defaulting to the preset's model or, when that one is unavailable, the default model), a rounds select (1 to `max_rounds`), the remaining-today counter and a 開始 button. The button is disabled with the reasons listed under it: feature not available, another discussion running, daily limit, empty or too long topic, wrong number of participants, no usable model. A preset whose model was not changed is sent by name; a changed model sends the full persona object.
+- **Errors.** Every `DISCUSSION_*` and `PERSONA_*` code has its own Japanese message (a test compares the list with `backend/discussion/errors.py`); network failures, 401, 403 and unknown codes have fixed fallbacks. Nothing from a response body is shown.
+- **Running view.** Group-chat bubbles: the user's topic first, then each turn with the speaker name and a colour chip (colour is never the only cue), the まとめ in a framed highlighted box, and お知らせ as a muted line with a Japanese meaning per code (`PERSONA_SKIPPED`, `PROVIDER_FAILURES`, `CALL_CAP`, `SUMMARY_FAILED`, `CANCELLED`, `INTERRUPTED`, `EXECUTION_FAILED`, `TIMEOUT`, `INTERNAL_ERROR`, `VERIFICATION_FAILED`; an unknown code gets a generic line). Colours are not stored: the page maps the speaker name to the colour of the persona it sent, falls back to the preset colours for a discussion opened later, and then to neutral. 停止 posts `POST /api/tasks/{id}/cancel`; the progress line comes from the task status (発言 n / m, まとめを作成中, finished, stopped).
+- **Resume and history.** `/discussion?c=<conversation uuid>` shows an existing discussion read-only (no stop button, no polling) even when the feature is off or the discussion is finished; if `config.active` is that conversation the page attaches to it live instead. Without `?c=`, a non-null `config.active` is attached to and put in the address bar (`history.replaceState`). A missing or malformed link is explained on the page.
+- **Phones.** The same breakpoints as [web-shell.md](web-shell.md): controls are at least 44 px tall, the navigation shrinks to fit seven items at 375 px, and the page does not scroll sideways. The look uses the shared dark tokens of `shell.css`.
+
 
 ## Custom personas (P4: `store.py`)
 
@@ -110,3 +128,20 @@ Behind the login layer. `POST`, `PUT` and `DELETE` need the same origin and `X-J
 | 503 | `PERSONA_STORE_UNAVAILABLE` (no path, missing directory, symlink, I/O failure), `PERSONA_STORE_CORRUPT` |
 
 When starting a discussion with a saved name: `DISCUSSION_PRESET_UNKNOWN` (no such name, or no store), `PERSONA_STORE_CORRUPT`, `PERSONA_MODEL_NOT_ALLOWED` (model left the allowlist) or `DISCUSSION_MODEL_UNAVAILABLE` (provider not ready).
+
+### Persona editor (in the `/discussion` screen)
+
+A collapsible panel **ペルソナを編集** under the start form (hidden while a discussion is shown). It is plain ES modules like the rest of the screen, every server string is placed with `textContent` only, and no route or schema changes: it uses the persona API above.
+
+| File | Role |
+| --- | --- |
+| `discussion-personas-view.js` | Pure helpers: limits mirroring `personas.py` (name 20, role 100, stance 500, checklist 5 x 100), draft validation with a Japanese message per field, copy-from-preset drafts, the notes for the `unavailable` and `corrupt` stores |
+| `discussion-personas-api.js` | list, create, update (`PUT`, the name may change), delete; every write carries `X-Jarvis-Confirm: 1` and only the six persona fields |
+| `discussion-personas-panel.js` | The panel's behaviour, with the DOM and requests injected for tests |
+| `discussion-personas.css` | Layout; at least 44 px tap targets, no sideways scroll at 375 px |
+
+- **Lists.** Presets are read-only with **コピーして編集** (a new custom persona prefilled with a free name such as `設計者のコピー`; a preset model that is not available must be re-chosen). Custom personas have **編集** and **削除**; delete asks first in an inline box (focus on やめる). A custom persona whose model left the allowlist or whose provider is not ready is flagged, stays editable, and cannot join a discussion until another model is picked.
+- **Form.** Name and stance have counters, the checklist is up to 5 rows with add and remove, the model select lists only the available allowlist entries, and the colour is a radio group of swatches with a text label each (keyboard: arrow keys). Blank checklist rows are dropped and texts are trimmed before sending. Errors appear under each field after the first save attempt and are mirrored from the server limits; nothing is sent while a field is invalid. A name of dots only is refused on the page because such a URL path cannot be addressed.
+- **Server errors.** Every `PERSONA_*` code has its own Japanese message in `discussion-view.js` (a test checks the list against `errors.py`). After a write the panel re-reads `GET /api/discussions/personas`, so a stale list (not found, store changed) corrects itself.
+- **Store states.** `unavailable` (no database path or persona file configured): presets only, the editor is disabled and says which setting to make. `corrupt`: the editor is disabled and explains that the file is left untouched and has to be restored by hand from its `.bak` copy; there is no repair action.
+- **Picker.** After a save, rename or delete the participant picker is rebuilt: chosen participants and their chosen models stay, a renamed persona keeps its place, a deleted one leaves the selection. A custom persona is sent by name when its model is unchanged, otherwise as the full persona object, like a preset.

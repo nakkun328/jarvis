@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b1420" />
+    <title>JARVIS · 議論</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+    <link rel="stylesheet" href="/static/shell.css" />
+    <link rel="stylesheet" href="/static/discussion.css" />
+    <link rel="stylesheet" href="/static/discussion-personas.css" />
+    <script type="module" src="/static/shell.js"></script>
+    <script type="module" src="/static/discussion.js"></script>
+  </head>
+  <body class="discussion-page">
+    <div class="app-shell">
+      <header class="app-header" data-app-header></header>
+
+      <main class="discussion-main">
+        <h1 id="discussion-heading" tabindex="-1">グループ議論</h1>
+        <p class="lead">
+          複数の参加者（AI）が議題について順番に意見を出し合い、最後にまとめ役が要点をまとめます。
+        </p>
+        <p class="list-status" id="status" role="status" aria-live="polite">読み込み中…</p>
+        <button id="retry" type="button" hidden>再読み込み</button>
+
+        <section class="start-card" id="start-section" aria-labelledby="start-title" hidden>
+          <h2 id="start-title">議論を始める</h2>
+          <form id="start-form" novalidate>
+            <div class="field">
+              <label for="topic">議題</label>
+              <textarea id="topic" rows="4" aria-describedby="topic-counter"></textarea>
+              <p class="counter" id="topic-counter" aria-live="off"></p>
+            </div>
+
+            <fieldset class="field participants" id="participants">
+              <legend id="participants-legend">参加者</legend>
+              <p class="hint" id="participants-hint"></p>
+              <div class="participant-list" id="participant-list"></div>
+            </fieldset>
+
+            <div class="field">
+              <label for="rounds">ラウンド数</label>
+              <select id="rounds"></select>
+              <p class="hint">各ラウンドで全員が1回ずつ発言します。</p>
+            </div>
+
+            <p class="remaining" id="remaining"></p>
+            <ul class="blockers" id="blockers" aria-label="開始できない理由"></ul>
+            <p class="form-error error-text" id="form-error" role="alert"></p>
+            <button class="primary" id="start" type="submit">開始</button>
+          </form>
+        </section>
+
+        <section class="persona-card" id="persona-section" aria-labelledby="persona-title" hidden>
+          <details id="persona-details">
+            <summary id="persona-title">ペルソナを編集</summary>
+            <div class="persona-body">
+              <p class="hint">
+                参加者（ペルソナ）の名前・役割・立場・モデル・色を、自分用に追加できます。プリセットは変更できませんが、コピーして編集できます。
+              </p>
+              <p class="list-status" id="persona-status" role="status" aria-live="polite"></p>
+              <p class="store-note" id="persona-store-note" role="note" hidden></p>
+
+              <h3>プリセット（変更不可）</h3>
+              <ul class="persona-list" id="persona-presets"></ul>
+
+              <h3>自分のペルソナ <span class="counter-inline" id="persona-count"></span></h3>
+              <ul class="persona-list" id="persona-custom"></ul>
+              <p class="hint" id="persona-empty" hidden>まだありません。「新しいペルソナ」またはプリセットの「コピーして編集」から作れます。</p>
+              <p class="hint" id="persona-new-note"></p>
+              <button type="button" id="persona-new">新しいペルソナ</button>
+
+              <div class="confirm-box" id="persona-confirm" role="alertdialog" aria-labelledby="persona-confirm-text" hidden>
+                <p id="persona-confirm-text"></p>
+                <div class="confirm-actions">
+                  <button class="danger" type="button" id="persona-confirm-yes">削除する</button>
+                  <button type="button" id="persona-confirm-no">やめる</button>
+                </div>
+              </div>
+
+              <form class="persona-form" id="persona-form" novalidate hidden>
+                <h3 id="pf-title" tabindex="-1">新しいペルソナ</h3>
+                <div class="field">
+                  <label for="pf-name">名前</label>
+                  <input id="pf-name" type="text" autocomplete="off" aria-describedby="pf-name-counter pf-name-error" />
+                  <p class="counter" id="pf-name-counter"></p>
+                  <p class="field-error error-text" id="pf-name-error"></p>
+                </div>
+                <div class="field">
+                  <label for="pf-role">役割（1行）</label>
+                  <input id="pf-role" type="text" autocomplete="off" aria-describedby="pf-role-counter pf-role-error" />
+                  <p class="counter" id="pf-role-counter"></p>
+                  <p class="field-error error-text" id="pf-role-error"></p>
+                </div>
+                <div class="field">
+                  <label for="pf-stance">立場・考え方（任意）</label>
+                  <textarea id="pf-stance" rows="4" aria-describedby="pf-stance-counter pf-stance-error"></textarea>
+                  <p class="counter" id="pf-stance-counter"></p>
+                  <p class="field-error error-text" id="pf-stance-error"></p>
+                </div>
+                <fieldset class="field">
+                  <legend>チェックリスト（任意・5件まで）</legend>
+                  <div class="checklist-rows" id="pf-checklist"></div>
+                  <button type="button" id="pf-add-line">項目を追加</button>
+                  <p class="field-error error-text" id="pf-checklist-error"></p>
+                </fieldset>
+                <div class="field">
+                  <label for="pf-model">モデル</label>
+                  <select id="pf-model" aria-describedby="pf-model-hint pf-model-error"></select>
+                  <p class="hint" id="pf-model-hint"></p>
+                  <p class="field-error error-text" id="pf-model-error"></p>
+                </div>
+                <fieldset class="field">
+                  <legend>色</legend>
+                  <div class="swatches" id="pf-colors"></div>
+                  <p class="field-error error-text" id="pf-color-error"></p>
+                </fieldset>
+                <p class="form-error error-text" id="pf-error" role="alert"></p>
+                <div class="form-actions">
+                  <button class="primary" type="submit" id="pf-save">保存</button>
+                  <button type="button" id="pf-cancel">キャンセル</button>
+                </div>
+              </form>
+            </div>
+          </details>
+        </section>
+
+        <section class="run-card" id="run-section" aria-labelledby="run-title" aria-busy="false" hidden>
+          <div class="run-head">
+            <h2 id="run-title" tabindex="-1">議論</h2>
+            <p class="progress" id="progress" role="status" aria-live="polite"></p>
+            <div class="run-actions">
+              <button class="danger" id="stop" type="button" hidden>停止</button>
+              <button id="again" type="button" hidden>新しい議論を始める</button>
+            </div>
+          </div>
+          <p class="readonly-note" id="readonly-note" hidden>
+            <strong>読み取り専用の表示です</strong>
+            保存された議論を表示しています。
+          </p>
+          <p class="form-error error-text" id="run-error" role="alert"></p>
+          <div class="transcript" id="transcript" role="log" aria-label="議論の発言" aria-live="polite"></div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

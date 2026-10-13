@@ -1,6 +1,6 @@
 # Web shell, Memory screen and PWA
 
-The browser client is plain HTML and JavaScript with no build step and no inline script or style, so a strict Content-Security-Policy would work. Five pages share one shell: chat (`/`), [Tasks](tasks.md) (`/tasks`), [Approvals](tool-confirmation.md) (`/approvals`), [Research](research.md) (`/research`) and Memory (`/memory`). Without the [login layer](auth.md) the app is served without authentication, so keep it on `127.0.0.1`; with it, a logout button appears in the header (below).
+The browser client is plain HTML and JavaScript with no build step and no inline script or style, so a strict Content-Security-Policy would work. Pages share one shell: chat (`/`), [Tasks](tasks.md) (`/tasks`), [Approvals](tool-confirmation.md) (`/approvals`), [Research](research.md) (`/research`), Memory (`/memory`), Devices (`/devices`) and [Group discussion](discussion.md#screen-discussion-p3) (`/discussion`, last in the navigation; it also holds the [persona editor](discussion.md#persona-editor-in-the-discussion-screen)). Without the [login layer](auth.md) the app is served without authentication, so keep it on `127.0.0.1`; with it, a logout button appears in the header (below).
 
 ## Shared layout
 
@@ -11,7 +11,7 @@ The browser client is plain HTML and JavaScript with no build step and no inline
 
 ## Phones (375 px and up)
 
-At 600 px and below the header becomes two rows (brand and page actions, then the navigation across the full width) and stops being sticky so it does not take screen from the content. Buttons, filters and navigation links are at least 44 px tall; inline links inside text are exempt. Small print is raised to at least 12 px. Tasks and Research show one pane at a time (list or detail) below 800 px; Memory is a single column of cards.
+At 600 px and below the header becomes two rows (the navigation links shrink to fit seven items at 375 px) (brand and page actions, then the navigation across the full width) and stops being sticky so it does not take screen from the content. Buttons, filters and navigation links are at least 44 px tall; inline links inside text are exempt. Small print is raised to at least 12 px. Tasks and Research show one pane at a time (list or detail) below 800 px; Memory is a single column of cards.
 
 ## Login session in the header
 

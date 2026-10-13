@@ -1,0 +1,96 @@
+/* Group discussion screen. Builds on shell.css (palette, header, shared components). No inline
+   styles are used. Speaker colours are never the only cue: every bubble also shows the name. */
+:root {
+  --spk-blue: #6db4ff;
+  --spk-green: #7fd99a;
+  --spk-orange: #f2a65a;
+  --spk-purple: #b9a2ff;
+  --spk-red: #ff8f8f;
+  --spk-teal: #5fd6cf;
+  --spk-neutral: #9fb2c2;
+}
+.discussion-main { width: min(100%, 820px); margin: 0 auto; padding: 1rem 1rem 3rem; flex: 1; display: grid; gap: .75rem; align-content: start; }
+.discussion-main h1 { margin: 0; font-size: 1.25rem; font-weight: 650; }
+.discussion-main h2 { margin: 0; font-size: 1.05rem; font-weight: 650; }
+.discussion-main .lead { margin: 0; color: var(--text-muted); font-size: .86rem; line-height: 1.6; }
+
+.start-card, .run-card { padding: 1rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface-card); }
+.start-card h2 { margin-bottom: .75rem; }
+.field { display: grid; gap: .35rem; margin: 0 0 1rem; padding: 0; border: 0; min-width: 0; }
+.field label, .field legend { font-size: .88rem; font-weight: 650; color: var(--text-soft); padding: 0; }
+.field textarea, .field select {
+  width: 100%; padding: .6rem .7rem; border: 1px solid var(--border-strong); border-radius: .6rem;
+  background: var(--surface); color: var(--text); font-size: 1rem; line-height: 1.5;
+}
+.field select { min-height: var(--tap); }
+.field textarea { resize: vertical; min-height: 6rem; }
+.counter { margin: 0; color: var(--text-muted); font-size: .76rem; text-align: right; font-variant-numeric: tabular-nums; }
+.counter.over { color: var(--danger); font-weight: 650; }
+.hint { margin: 0; color: var(--text-muted); font-size: .76rem; line-height: 1.5; }
+
+.participant-list { display: grid; gap: .5rem; }
+.participant { display: grid; gap: .45rem; padding: .65rem .75rem; border: 1px solid var(--border); border-radius: .7rem; background: var(--surface); }
+.participant.selected { border-color: var(--border-strong); background: var(--surface-raised); }
+.participant-pick { display: flex; align-items: center; gap: .6rem; min-height: var(--tap); font-weight: 400; }
+.participant-pick input { width: 1.25rem; height: 1.25rem; flex: none; }
+.participant-name { font-weight: 650; font-size: .95rem; }
+.participant-role { color: var(--text-muted); font-size: .8rem; line-height: 1.5; overflow-wrap: anywhere; }
+.participant-model { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: .5rem; font-size: .78rem; color: var(--text-muted); }
+.participant-model select { padding: .35rem .5rem; font-size: .85rem; }
+
+.chip { display: inline-block; width: .8rem; height: .8rem; flex: none; border-radius: 50%; background: var(--spk-neutral); border: 2px solid var(--spk-neutral); }
+.chip.c-blue { background: var(--spk-blue); border-color: var(--spk-blue); }
+.chip.c-green { background: var(--spk-green); border-color: var(--spk-green); }
+.chip.c-orange { background: var(--spk-orange); border-color: var(--spk-orange); }
+.chip.c-purple { background: var(--spk-purple); border-color: var(--spk-purple); }
+.chip.c-red { background: var(--spk-red); border-color: var(--spk-red); }
+.chip.c-teal { background: var(--spk-teal); border-color: var(--spk-teal); }
+
+.remaining { margin: 0 0 .5rem; color: var(--text-soft); font-size: .85rem; }
+.blockers { margin: 0 0 .6rem; padding-left: 1.2rem; color: #f2c46d; font-size: .82rem; line-height: 1.6; }
+.blockers:empty { display: none; }
+.form-error { margin: 0 0 .6rem; min-height: 0; font-size: .85rem; line-height: 1.5; }
+.form-error:empty { display: none; }
+
+button.primary, button.danger, .run-actions button {
+  min-height: var(--tap); padding: .5rem 1.2rem; border-radius: .6rem; font-size: .95rem; font-weight: 650;
+  border: 1px solid var(--border-strong); background: var(--surface-raised); color: var(--text);
+}
+button.primary { background: #274a60; border-color: var(--accent); }
+button.primary:hover:not(:disabled) { background: #2f5a74; }
+button.danger { border-color: #ff9b8f; color: #ffc6be; }
+button.danger:hover:not(:disabled) { background: #3a2226; }
+button:disabled { cursor: not-allowed; }
+
+.run-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-bottom: .75rem; }
+.run-head h2 { flex: 1 1 auto; }
+.progress { flex-basis: 100%; order: 3; margin: 0; color: var(--text-soft); font-size: .86rem; }
+.run-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.run-card .readonly-note { margin-bottom: .75rem; }
+
+.transcript { display: grid; gap: .65rem; }
+.bubble {
+  display: grid; gap: .3rem; max-width: 100%; padding: .65rem .8rem; border: 1px solid var(--border);
+  border-left: 4px solid var(--spk-neutral); border-radius: .7rem; background: var(--surface);
+}
+.bubble.c-blue { border-left-color: var(--spk-blue); }
+.bubble.c-green { border-left-color: var(--spk-green); }
+.bubble.c-orange { border-left-color: var(--spk-orange); }
+.bubble.c-purple { border-left-color: var(--spk-purple); }
+.bubble.c-red { border-left-color: var(--spk-red); }
+.bubble.c-teal { border-left-color: var(--spk-teal); }
+.bubble-head { display: flex; align-items: center; gap: .45rem; font-size: .8rem; font-weight: 650; color: var(--text-soft); }
+.bubble-text { margin: 0; font-size: .92rem; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble.topic { background: var(--surface-current); border-left-color: var(--accent); }
+.bubble.summary { border: 2px solid var(--accent); border-radius: .8rem; background: var(--surface-raised); padding: .85rem 1rem; }
+.bubble.summary .bubble-head { color: var(--accent); font-size: .88rem; }
+.notice { display: grid; gap: .15rem; padding: .35rem .6rem; color: var(--text-muted); font-size: .8rem; line-height: 1.55; text-align: center; border-top: 1px dashed var(--border); border-bottom: 1px dashed var(--border); }
+.notice-detail { color: var(--text-dim); font-size: .76rem; overflow-wrap: anywhere; }
+.typing { color: var(--text-muted); font-size: .8rem; }
+
+@media (max-width: 600px) {
+  .discussion-main { padding-inline: 1rem; }
+  .participant-model { grid-template-columns: minmax(0, 1fr); }
+  button.primary { width: 100%; }
+  .run-actions button { flex: 1 1 8rem; }
+}

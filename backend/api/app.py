@@ -406,6 +406,10 @@ def create_app(
         def devices_client() -> FileResponse:
             return FileResponse(frontend_dir / "devices.html")
 
+        @app.get("/discussion", include_in_schema=False)
+        def discussion_client() -> FileResponse:
+            return FileResponse(frontend_dir / "discussion.html")
+
         @app.get("/research", include_in_schema=False)
         def research_client() -> FileResponse:
             return FileResponse(frontend_dir / "research.html")

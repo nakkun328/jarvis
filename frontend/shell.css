@@ -113,7 +113,8 @@ button:disabled { cursor: wait; opacity: .55; }
 @media (max-width: 600px) {
   .app-header { position: static; flex-wrap: wrap; padding: .5rem 1rem; }
   .app-nav { order: 3; flex: 1 1 100%; margin-right: 0; gap: .25rem; }
-  .app-nav .nav-link { flex: 1 1 0; padding-inline: .3rem; }
+  .app-nav { gap: .1rem; }
+  .app-nav .nav-link { flex: 1 1 0; min-width: 0; padding-inline: .15rem; font-size: .8rem; }
   .app-header > :not(.brand):not(.app-nav) { order: 2; margin-left: auto; }
   .brand { gap: .5rem; }
   .brand span:not(.brand-mark) { display: none; }
