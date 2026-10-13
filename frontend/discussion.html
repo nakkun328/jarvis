@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b1420" />
+    <title>JARVIS · 議論</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+    <link rel="stylesheet" href="/static/shell.css" />
+    <link rel="stylesheet" href="/static/discussion.css" />
+    <script type="module" src="/static/shell.js"></script>
+    <script type="module" src="/static/discussion.js"></script>
+  </head>
+  <body class="discussion-page">
+    <div class="app-shell">
+      <header class="app-header" data-app-header></header>
+
+      <main class="discussion-main">
+        <h1 id="discussion-heading" tabindex="-1">グループ議論</h1>
+        <p class="lead">
+          複数の参加者（AI）が議題について順番に意見を出し合い、最後にまとめ役が要点をまとめます。
+        </p>
+        <p class="list-status" id="status" role="status" aria-live="polite">読み込み中…</p>
+        <button id="retry" type="button" hidden>再読み込み</button>
+
+        <section class="start-card" id="start-section" aria-labelledby="start-title" hidden>
+          <h2 id="start-title">議論を始める</h2>
+          <form id="start-form" novalidate>
+            <div class="field">
+              <label for="topic">議題</label>
+              <textarea id="topic" rows="4" aria-describedby="topic-counter"></textarea>
+              <p class="counter" id="topic-counter" aria-live="off"></p>
+            </div>
+
+            <fieldset class="field participants" id="participants">
+              <legend id="participants-legend">参加者</legend>
+              <p class="hint" id="participants-hint"></p>
+              <div class="participant-list" id="participant-list"></div>
+            </fieldset>
+
+            <div class="field">
+              <label for="rounds">ラウンド数</label>
+              <select id="rounds"></select>
+              <p class="hint">各ラウンドで全員が1回ずつ発言します。</p>
+            </div>
+
+            <p class="remaining" id="remaining"></p>
+            <ul class="blockers" id="blockers" aria-label="開始できない理由"></ul>
+            <p class="form-error error-text" id="form-error" role="alert"></p>
+            <button class="primary" id="start" type="submit">開始</button>
+          </form>
+        </section>
+
+        <section class="run-card" id="run-section" aria-labelledby="run-title" aria-busy="false" hidden>
+          <div class="run-head">
+            <h2 id="run-title" tabindex="-1">議論</h2>
+            <p class="progress" id="progress" role="status" aria-live="polite"></p>
+            <div class="run-actions">
+              <button class="danger" id="stop" type="button" hidden>停止</button>
+              <button id="again" type="button" hidden>新しい議論を始める</button>
+            </div>
+          </div>
+          <p class="readonly-note" id="readonly-note" hidden>
+            <strong>読み取り専用の表示です</strong>
+            保存された議論を表示しています。
+          </p>
+          <p class="form-error error-text" id="run-error" role="alert"></p>
+          <div class="transcript" id="transcript" role="log" aria-label="議論の発言" aria-live="polite"></div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

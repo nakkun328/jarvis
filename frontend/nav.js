@@ -13,6 +13,7 @@ export const PAGES = [
   { path: "/research", label: "リサーチ" },
   { path: "/memory", label: "記憶" },
   { path: "/devices", label: "端末" },
+  { path: "/discussion", label: "議論" },
 ];
 
 export const NAV_LABEL = "画面の切り替え";
