@@ -520,3 +520,103 @@ def test_doctor_row_off_and_incomplete(monkeypatch):
     assert rows["discussion"].detail == (
         "discussion=on, rounds<=3, per_day<=10, persona_editing=unavailable"
     )
+
+
+# ---- prompt quality: label stripping, fact rules, round focus --------------------------------
+
+
+def _turn_texts(h):
+    return [m.text for m in h.messages if m.kind is MessageKind.TURN]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("【Ann】my point", "my point"),
+        ("【Ann】【Ann】 my point", "my point"),
+        ("【Bob】 【Ann】my point", "my point"),  # another participant's label
+        ("Ann: my point", "my point"),
+        ("Bob：my point", "my point"),
+        ("my point 【Ann】 here", "my point 【Ann】 here"),  # not at the start
+        ("【重要】my point", "【重要】my point"),  # unknown bracketed word
+        ("Annex: my point", "Annex: my point"),  # not exactly a name
+        ("【Ann】【重要】my point", "【重要】my point"),
+    ],
+)
+def test_echoed_speaker_label_is_stripped_from_turns(raw, expected):
+    h = Harness(providers={m: Fake(default=raw) for m in MODELS})
+    h.run(rounds=1)
+    assert set(_turn_texts(h)) == {expected}
+
+
+def test_label_only_reply_counts_as_empty():
+    h = Harness(providers={MODELS[0]: Fake(["【Ann】"]), MODELS[1]: Fake(), MODELS[2]: Fake()})
+    result = h.run(rounds=1)
+    assert result.skipped and result.skipped[0][0] == "Ann"
+
+
+def test_label_is_stripped_before_the_cap():
+    h = Harness(providers={m: Fake(default="【Ann】" + "x" * 5000) for m in MODELS})
+    h.run(rounds=1)
+    assert all(t == "x" * TURN_MAX_CHARS for t in _turn_texts(h))
+
+
+def test_summary_label_is_stripped():
+    h = Harness(moderator=Fake(default="【まとめ】【合意点】none"))
+    h.run(rounds=1)
+    assert h.messages[-1].text == "【合意点】none"
+
+
+def test_stored_text_has_no_doubled_prefix():
+    from backend.discussion.format import format_message, parse_message
+
+    h = Harness(providers={m: Fake(default="【Ann】point") for m in MODELS})
+    h.run(rounds=1)
+    for message in h.messages:
+        if message.kind is MessageKind.TURN:
+            stored = format_message(message.speaker, message.text)
+            assert parse_message(stored).text == "point"
+
+
+def test_fact_rules_are_in_every_persona_prompt_without_leaking():
+    h = Harness()
+    h.run(rounds=2)
+    for model in MODELS:
+        for request in h.providers[model].requests:
+            system = request.messages[0].content
+            for needle in ("要確認", "自分で一行で計算し直", "はっきり訂正"):
+                assert needle in system
+    for model, mine in zip(MODELS, ("Ann", "Bob", "Cy"), strict=True):
+        for request in h.providers[model].requests:
+            text = "\n".join(m.content for m in request.messages)
+            for other in {"Ann", "Bob", "Cy"} - {mine}:
+                assert f"role-of-{other}" not in text
+
+
+def test_round_specific_instruction_per_round():
+    h = Harness()
+    h.run(rounds=3, max_rounds=3)
+    for model in MODELS:
+        users = [r.messages[1].content for r in h.providers[model].requests]
+        assert "第1ラウンド" in users[0] and "最も強い理由" in users[0]
+        assert "第2ラウンド" in users[1] and "引用" in users[1] and "認めて" in users[1]
+        assert "第3ラウンド" in users[2] and "折衷案" in users[2] and "決まっていない" in users[2]
+        for user in users:
+            assert "新しい点はありません" in user
+        assert "第2ラウンド" not in users[0] and "第1ラウンド" not in users[2]
+
+
+def test_checklist_is_points_to_check_not_a_repeat_demand():
+    h = Harness()
+    h.run(rounds=1)
+    system = h.providers[MODELS[0]].requests[0].messages[0].content
+    assert "check-of-Ann" in system and "必ず指摘" not in system
+
+
+def test_summary_prompt_has_five_sections():
+    h = Harness()
+    h.run(rounds=1)
+    user = h.moderator.requests[0].messages[1].content
+    for heading in ("【合意点】", "【対立点】", "【未解決】", "【次の一歩】", "【要確認の数字】"):
+        assert heading in user
+    assert "計算" in user

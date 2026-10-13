@@ -35,11 +35,20 @@ A `Persona` has `name` (1 to 20 characters, no brackets or control characters), 
 - `resolve_provider` maps a model id to an `LLMProvider`; tests pass fakes. `moderator` is the provider for the summary.
 - Turns are a fixed round-robin: in every round each persona speaks once, in the given order.
 - Each turn's prompt is the topic, the earlier transcript and that persona's own role, stance and checklist, plus the instruction not to repeat earlier points. Other personas' settings are never included. The transcript is capped (4000 characters by default); the newest turns are kept and older ones collapse into one line of counts.
-- A turn is cut at 600 characters, the summary at 900. The summary lists agreements, disagreements, open points and the next step.
+- A turn is cut at 600 characters, the summary at 1200. The summary has five sections: agreements, disagreements, open points, the next step and figures to check (see Prompt rules).
 - Stop conditions (`StopCode`): rounds done (`COMPLETED`, then the summary), the `is_cancelled` callback (`CANCELLED`, checked before every call, no summary), the call cap of participants x rounds + 1 (`CALL_CAP`), and three provider failures in a row (`PROVIDER_FAILURES`, no summary). A single failing persona (error, empty reply, timeout, unusable model) is skipped, recorded in `DiscussionResult.skipped` and announced with a notice. A summary failure gives a `SUMMARY_FAILED` notice.
 - Every message goes through `emit(DiscussionMessage(speaker, text, kind, code))`. `kind` is `turn`, `summary` or `notice`; only notices carry a code. The service below posts these into a conversation.
 - Logs contain fixed event names and codes only. Prompt text, turns, topic, persona fields and provider error messages are never logged.
 
+
+## Prompt rules (`engine.py`)
+
+Added after real runs showed copied arithmetic errors, invented statistics, repeated stances and echoed speaker labels. These are prompt text and cleanup only; they reduce the problems but cannot guarantee that a model follows them.
+
+- **Every persona turn** (system prompt): numbers, statistics and named examples only when the model is confident they are true, otherwise marked `要確認` or left out; another participant's figure is never used as a premise without recomputing it in one short line; an arithmetic or logic error in an earlier turn is corrected explicitly; no speaker label at the start of the reply. The persona's checklist is given as points to check, applied when relevant rather than repeated each round.
+- **Round focus** (user prompt): round 1 states the position and the single strongest reason; round 2 answers specific points of others (a short quote) and concedes what is right; round 3 and later propose a revision or compromise and list what is still undecided. Every round: do not restate earlier points, add one new point or say in one sentence that there is nothing new.
+- **Summary** has five headings: 合意点, 対立点, 未解決, 次の一歩 and 要確認の数字 (figures and claims that need recalculation or a source, plus obvious arithmetic errors the moderator can verify, such as hours per year). The automatic memory note stores the summary text whole (cut at 2000 characters), so it does not depend on section names.
+- **Echoed labels.** A leading `【name】` (repeated) of any participant, or `name:` / `name：` for exactly a participant's name, is removed from a turn before it is capped and emitted; a leading `【まとめ】` is removed from the summary (also from the partial summary after a cancel). Brackets in the middle of the text, or other bracketed words, are kept. A reply that is only a label counts as empty.
 
 ## Message format in a conversation (`format.py`)
 

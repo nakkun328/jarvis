@@ -41,6 +41,7 @@ from backend.discussion.engine import (
     DiscussionMessage,
     MessageKind,
     StopCode,
+    strip_speaker_label,
 )
 from backend.discussion.errors import DiscussionError, ErrorCode
 from backend.discussion.format import (
@@ -575,7 +576,8 @@ class DiscussionService:
             _LOG.warning("discussion.summary_failed", extra={"error_type": type(error).__name__})
             return None
         text = response.text.strip() if isinstance(response.text, str) else ""
-        return text[:SUMMARY_MAX_CHARS] or None
+        names = ("まとめ", "まとめ役", *(speaker for speaker, _ in job.turns))
+        return strip_speaker_label(text, names)[:SUMMARY_MAX_CHARS] or None
 
     # ----- the job itself -----
 
