@@ -50,6 +50,28 @@ _SUMMARY_INSTRUCTION = (
 SUMMARY_INSTRUCTION = _SUMMARY_INSTRUCTION
 
 
+# Coarse, fixed failure kinds for the log. The provider adapters raise ProviderError with fixed
+# messages of their own; only these kinds ever reach the log, never the message or upstream text.
+_FAILURE_KINDS = (
+    ("returned no text", "no_text"),
+    ("did not complete", "incomplete"),
+    ("stream", "stream_failed"),
+    ("response was invalid", "invalid_response"),
+    ("request failed", "request_failed"),
+)
+
+
+def provider_failure_kind(exc: BaseException) -> str:
+    """A fixed label for why a provider call failed (``other`` when it is not recognised)."""
+    if type(exc).__name__ != "ProviderError":
+        return "other"
+    message = str(exc).lower()
+    for needle, kind in _FAILURE_KINDS:
+        if needle in message:
+            return kind
+    return "other"
+
+
 class MessageKind(StrEnum):
     TURN = "turn"
     SUMMARY = "summary"
@@ -216,7 +238,7 @@ class DiscussionEngine:
         await self._emit(DiscussionMessage(SYSTEM_NAME, text, MessageKind.NOTICE, code))
 
     async def _complete(
-        self, provider: LLMProvider, request: CompletionRequest, limit: int
+        self, provider: LLMProvider, request: CompletionRequest, limit: int, model: str = ""
     ) -> tuple[str | None, FailureCode | None]:
         """One counted model call. The text is cut at ``limit``; failures give a fixed code."""
         self._calls += 1
@@ -226,7 +248,14 @@ class DiscussionEngine:
         except TimeoutError:
             failure = FailureCode.TIMEOUT
         except Exception as exc:  # CancelledError is a BaseException and propagates.
-            _LOG.warning("discussion.call_failed", extra={"error_type": type(exc).__name__})
+            _LOG.warning(
+                "discussion.call_failed",
+                extra={
+                    "error_type": type(exc).__name__,
+                    "kind": provider_failure_kind(exc),
+                    "model": model,
+                },
+            )
             failure = FailureCode.PROVIDER_ERROR
         else:
             text = response.text.strip() if isinstance(response.text, str) else ""
@@ -252,7 +281,9 @@ class DiscussionEngine:
                 extra={"code": FailureCode.MODEL_UNAVAILABLE.value, "round": round_index},
             )
             return None, FailureCode.MODEL_UNAVAILABLE
-        return await self._complete(provider, self._turn_request(persona), TURN_MAX_CHARS)
+        return await self._complete(
+            provider, self._turn_request(persona), TURN_MAX_CHARS, persona.model
+        )
 
     async def _summarize(self) -> bool:
         request = CompletionRequest(

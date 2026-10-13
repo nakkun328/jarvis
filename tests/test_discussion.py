@@ -440,6 +440,34 @@ def test_logs_never_contain_prompt_turn_or_secret_text(caplog):
         assert forbidden not in logged
 
 
+def test_a_failed_call_logs_the_model_and_a_fixed_failure_kind(caplog):
+    leak = "KEY-LOOKING-VALUE-123"
+    providers = {
+        MODELS[0]: Fake([ProviderError("Groq returned no text " + leak)]),
+        MODELS[1]: Fake(default="reply"),
+        MODELS[2]: Fake(default="reply"),
+    }
+    h = Harness(providers=providers, moderator=Fake(default="sum"))
+    with caplog.at_level(logging.DEBUG):
+        h.run(rounds=1)
+    failed = [r for r in caplog.records if r.getMessage() == "discussion.call_failed"]
+    seen = [(getattr(r, "model", None), getattr(r, "kind", None)) for r in failed]
+    assert (MODELS[0], "no_text") in seen
+    assert leak not in "\n".join(repr(r.__dict__) + r.getMessage() for r in caplog.records)
+
+
+def test_failure_kinds_are_fixed_labels():
+    from backend.discussion.engine import provider_failure_kind
+
+    class ProviderError(Exception):
+        pass
+
+    assert provider_failure_kind(ProviderError("OpenAI request failed")) == "request_failed"
+    assert provider_failure_kind(ProviderError("Gemini response did not complete")) == "incomplete"
+    assert provider_failure_kind(ProviderError("something new")) == "other"
+    assert provider_failure_kind(ValueError("returned no text")) == "other"
+
+
 # ---- settings and doctor ---------------------------------------------------------------------
 
 
