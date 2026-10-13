@@ -1,6 +1,6 @@
 # Group discussion (P1 engine, P2 API and task, P3 screen, P4 custom personas)
 
-Several personas discuss a topic in fixed turns and a moderator closes with a short summary. P1 is the library `backend/discussion/` (engine and personas). P2 adds the background task, the API and the message format below; P3 adds the `/discussion` screen (below); P4 adds the custom persona store and its API below (the editor screen comes after). There is **no schema change** (`SCHEMA_VERSION` stays 10). Plan and later phases: [group-discussion-plan.md](group-discussion-plan.md).
+Several personas discuss a topic in fixed turns and a moderator closes with a short summary. P1 is the library `backend/discussion/` (engine and personas). P2 adds the background task, the API and the message format below; P3 adds the `/discussion` screen (below); P4 adds the custom persona store and its API below, and its editor lives in the screen; there is **no schema change** (`SCHEMA_VERSION` stays 10). Plan and later phases: [group-discussion-plan.md](group-discussion-plan.md).
 
 ## Settings
 
@@ -128,3 +128,20 @@ Behind the login layer. `POST`, `PUT` and `DELETE` need the same origin and `X-J
 | 503 | `PERSONA_STORE_UNAVAILABLE` (no path, missing directory, symlink, I/O failure), `PERSONA_STORE_CORRUPT` |
 
 When starting a discussion with a saved name: `DISCUSSION_PRESET_UNKNOWN` (no such name, or no store), `PERSONA_STORE_CORRUPT`, `PERSONA_MODEL_NOT_ALLOWED` (model left the allowlist) or `DISCUSSION_MODEL_UNAVAILABLE` (provider not ready).
+
+### Persona editor (in the `/discussion` screen)
+
+A collapsible panel **ペルソナを編集** under the start form (hidden while a discussion is shown). It is plain ES modules like the rest of the screen, every server string is placed with `textContent` only, and no route or schema changes: it uses the persona API above.
+
+| File | Role |
+| --- | --- |
+| `discussion-personas-view.js` | Pure helpers: limits mirroring `personas.py` (name 20, role 100, stance 500, checklist 5 x 100), draft validation with a Japanese message per field, copy-from-preset drafts, the notes for the `unavailable` and `corrupt` stores |
+| `discussion-personas-api.js` | list, create, update (`PUT`, the name may change), delete; every write carries `X-Jarvis-Confirm: 1` and only the six persona fields |
+| `discussion-personas-panel.js` | The panel's behaviour, with the DOM and requests injected for tests |
+| `discussion-personas.css` | Layout; at least 44 px tap targets, no sideways scroll at 375 px |
+
+- **Lists.** Presets are read-only with **コピーして編集** (a new custom persona prefilled with a free name such as `設計者のコピー`; a preset model that is not available must be re-chosen). Custom personas have **編集** and **削除**; delete asks first in an inline box (focus on やめる). A custom persona whose model left the allowlist or whose provider is not ready is flagged, stays editable, and cannot join a discussion until another model is picked.
+- **Form.** Name and stance have counters, the checklist is up to 5 rows with add and remove, the model select lists only the available allowlist entries, and the colour is a radio group of swatches with a text label each (keyboard: arrow keys). Blank checklist rows are dropped and texts are trimmed before sending. Errors appear under each field after the first save attempt and are mirrored from the server limits; nothing is sent while a field is invalid. A name of dots only is refused on the page because such a URL path cannot be addressed.
+- **Server errors.** Every `PERSONA_*` code has its own Japanese message in `discussion-view.js` (a test checks the list against `errors.py`). After a write the panel re-reads `GET /api/discussions/personas`, so a stale list (not found, store changed) corrects itself.
+- **Store states.** `unavailable` (no database path or persona file configured): presets only, the editor is disabled and says which setting to make. `corrupt`: the editor is disabled and explains that the file is left untouched and has to be restored by hand from its `.bak` copy; there is no repair action.
+- **Picker.** After a save, rename or delete the participant picker is rebuilt: chosen participants and their chosen models stay, a renamed persona keeps its place, a deleted one leaves the selection. A custom persona is sent by name when its model is unchanged, otherwise as the full persona object, like a preset.

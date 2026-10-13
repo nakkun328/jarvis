@@ -41,11 +41,18 @@ export const SCREEN_IDS = [
   "discussion-heading", "status", "retry", "start-section", "start-form", "topic", "topic-counter",
   "participants-hint", "participant-list", "rounds", "remaining", "blockers", "form-error", "start",
   "run-section", "run-title", "progress", "stop", "again", "readonly-note", "run-error", "transcript",
+  "persona-section", "persona-details", "persona-status", "persona-store-note", "persona-presets",
+  "persona-count", "persona-custom", "persona-empty", "persona-new-note", "persona-new",
+  "persona-confirm", "persona-confirm-text", "persona-confirm-yes", "persona-confirm-no",
+  "persona-form", "pf-title", "pf-name", "pf-name-counter", "pf-name-error", "pf-role",
+  "pf-role-counter", "pf-role-error", "pf-stance", "pf-stance-counter", "pf-stance-error",
+  "pf-checklist", "pf-add-line", "pf-checklist-error", "pf-model", "pf-model-hint", "pf-model-error",
+  "pf-colors", "pf-color-error", "pf-error", "pf-save", "pf-cancel",
 ];
 
 export function fakeDocument() {
   const nodes = new Map(SCREEN_IDS.map((id) => [id, new FakeNode("div", id)]));
-  for (const id of ["start-section", "run-section", "retry", "stop", "again", "readonly-note"]) {
+  for (const id of ["start-section", "run-section", "retry", "stop", "again", "readonly-note", "persona-section", "persona-store-note", "persona-empty", "persona-confirm", "persona-form"]) {
     nodes.get(id).hidden = true;
   }
   return {
@@ -68,5 +75,5 @@ export const rawConfig = (over = {}) => ({
     { name: "批判役", role: "弱点を突く", stance: "s", checklist: [], model: "groq:down", color: "orange" },
     { name: "現実担当", role: "現実的に", stance: "s", checklist: [], model: "openai:mini", color: "green" },
   ],
-  palette: ["blue"], active: null, ...over,
+  palette: ["blue", "green", "orange"], custom_personas: [], personas_store: "ok", max_custom_personas: 20, active: null, ...over,
 });

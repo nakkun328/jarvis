@@ -1,6 +1,6 @@
 # Web shell, Memory screen and PWA
 
-The browser client is plain HTML and JavaScript with no build step and no inline script or style, so a strict Content-Security-Policy would work. Pages share one shell: chat (`/`), [Tasks](tasks.md) (`/tasks`), [Approvals](tool-confirmation.md) (`/approvals`), [Research](research.md) (`/research`), Memory (`/memory`), Devices (`/devices`) and [Group discussion](discussion.md#screen-discussion-p3) (`/discussion`, last in the navigation). Without the [login layer](auth.md) the app is served without authentication, so keep it on `127.0.0.1`; with it, a logout button appears in the header (below).
+The browser client is plain HTML and JavaScript with no build step and no inline script or style, so a strict Content-Security-Policy would work. Pages share one shell: chat (`/`), [Tasks](tasks.md) (`/tasks`), [Approvals](tool-confirmation.md) (`/approvals`), [Research](research.md) (`/research`), Memory (`/memory`), Devices (`/devices`) and [Group discussion](discussion.md#screen-discussion-p3) (`/discussion`, last in the navigation; it also holds the [persona editor](discussion.md#persona-editor-in-the-discussion-screen)). Without the [login layer](auth.md) the app is served without authentication, so keep it on `127.0.0.1`; with it, a logout button appears in the header (below).
 
 ## Shared layout
 
