@@ -16,6 +16,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from backend.core.config import ConfigError, Settings
+from backend.discussion.store import persona_editing_available
 from backend.personality.settings import PersonalityError, load_personality
 from backend.serve import StartupRefused, check_bind, is_loopback_host
 
@@ -243,6 +244,8 @@ def _discussion(settings: Settings, chat: Check) -> Check:
         return Check("discussion", "グループ議論", OFF, "NOT_CONFIGURED", detail)
     detail += f", rounds<={settings.discussion_max_rounds}"
     detail += f", per_day<={settings.discussion_per_day_limit}"
+    editable = persona_editing_available(settings.discussion_personas_path)
+    detail += ", persona_editing=" + ("available" if editable else "unavailable")
     if chat.status != OK:
         return Check("discussion", "グループ議論", INCOMPLETE, "CHAT_PROVIDER_MISSING", detail)
     if not settings.model_choices:

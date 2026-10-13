@@ -36,6 +36,7 @@ _MODEL_CHOICE_ENTRY = re.compile(
 # its switches. Rounds are 1..3 and the per-day count of discussions is 1..100.
 DEFAULT_DISCUSSION_MAX_ROUNDS = 3
 DEFAULT_DISCUSSION_PER_DAY_LIMIT = 10
+DEFAULT_DISCUSSION_PERSONAS_FILE = "discussion-personas.json"
 _MAX_DISCUSSION_ROUNDS = 3
 _MAX_DISCUSSION_PER_DAY_LIMIT = 100
 _MIN_SIGNING_KEY_CHARS = 32
@@ -96,6 +97,18 @@ def parse_model_choices(raw: str) -> tuple[str, ...]:
     return tuple(entries)
 
 
+def _personas_path(raw_db_path: str) -> Path | None:
+    """JARVIS_DISCUSSION_PERSONAS_PATH, else a file next to the DB when JARVIS_DB_PATH is set."""
+    explicit = os.environ.get("JARVIS_DISCUSSION_PERSONAS_PATH")
+    if explicit is not None:
+        if not explicit.strip():
+            raise ConfigError("JARVIS_DISCUSSION_PERSONAS_PATH must not be empty")
+        return Path(explicit).expanduser()
+    if os.environ.get("JARVIS_DB_PATH", "").strip():
+        return Path(raw_db_path).expanduser().parent / DEFAULT_DISCUSSION_PERSONAS_FILE
+    return None
+
+
 @dataclass(frozen=True)
 class Settings:
     db_path: Path
@@ -139,6 +152,8 @@ class Settings:
     discussion: bool = False
     discussion_max_rounds: int = DEFAULT_DISCUSSION_MAX_ROUNDS
     discussion_per_day_limit: int = DEFAULT_DISCUSSION_PER_DAY_LIMIT
+    # JSON file of the owner's custom personas. None: editing is unavailable, presets still work.
+    discussion_personas_path: Path | None = None
     # Owner-approved exception to "only reviewed notes reach a model" (docs/memory.md): approve
     # research-origin memory candidates automatically (needs the memory vault), and stage them
     # when a research session completes (needs research). Both default off.
@@ -233,6 +248,12 @@ class Settings:
         ):
             if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= high:
                 raise ConfigError(f"{name} must be between 1 and {high}")
+        if self.discussion_personas_path is not None and (
+            not isinstance(self.discussion_personas_path, Path)
+            or not self.discussion_personas_path.name
+            or self.discussion_personas_path == self.db_path
+        ):
+            raise ConfigError("JARVIS_DISCUSSION_PERSONAS_PATH is invalid")
         for name, value in (
             ("JARVIS_RESEARCH_MEMORY_AUTO_APPROVE", self.research_memory_auto_approve),
             ("JARVIS_RESEARCH_MEMORY_AUTO_STAGE", self.research_memory_auto_stage),
@@ -467,6 +488,7 @@ class Settings:
             discussion_per_day_limit=_env_int(
                 "JARVIS_DISCUSSION_PER_DAY_LIMIT", DEFAULT_DISCUSSION_PER_DAY_LIMIT
             ),
+            discussion_personas_path=_personas_path(raw_path),
             research_memory_auto_approve=_env_bool("JARVIS_RESEARCH_MEMORY_AUTO_APPROVE", False),
             research_memory_auto_stage=_env_bool("JARVIS_RESEARCH_MEMORY_AUTO_STAGE", False),
             chat_memory_auto=_env_bool("JARVIS_CHAT_MEMORY_AUTO", False),

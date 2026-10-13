@@ -477,6 +477,8 @@ def test_doctor_row_off_and_incomplete(monkeypatch):
         "JARVIS_LLM_PROVIDER",
         "JARVIS_DISCUSSION_MAX_ROUNDS",
         "JARVIS_DISCUSSION_PER_DAY_LIMIT",
+        "JARVIS_DISCUSSION_PERSONAS_PATH",
+        "JARVIS_DB_PATH",
     ):
         monkeypatch.delenv(name, raising=False)
     rows = {c.area: c for c in doctor.run_checks()}
@@ -485,4 +487,6 @@ def test_doctor_row_off_and_incomplete(monkeypatch):
     rows = {c.area: c for c in doctor.run_checks()}
     assert rows["discussion"].status == "INCOMPLETE"
     assert rows["discussion"].code == "CHAT_PROVIDER_MISSING"
-    assert rows["discussion"].detail == "discussion=on, rounds<=3, per_day<=10"
+    assert rows["discussion"].detail == (
+        "discussion=on, rounds<=3, per_day<=10, persona_editing=unavailable"
+    )

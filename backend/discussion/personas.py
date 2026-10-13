@@ -140,7 +140,11 @@ def preset_personas(models: Sequence[str]) -> tuple[Persona, ...]:
     )
 
 
-def _persona_from(raw: object, index: int, allowed: Collection[str]) -> Persona:
+def persona_from_dict(
+    raw: object, index: int = 0, allowed: Collection[str] | None = None
+) -> Persona:
+    """One persona from a decoded object. ``allowed`` None skips the allowlist membership check
+    (a stored persona is re-checked when it is used, see docs/discussion.md)."""
     if not isinstance(raw, Mapping) or set(raw) - _FIELDS:
         raise DiscussionError(
             ErrorCode.FIELD_UNKNOWN if isinstance(raw, Mapping) else ErrorCode.PERSONA_INVALID
@@ -156,7 +160,8 @@ def _persona_from(raw: object, index: int, allowed: Collection[str]) -> Persona:
         model=raw.get("model"),  # type: ignore[arg-type]
         color=raw.get("color", PALETTE[index % len(PALETTE)]),
     )
-    persona.require_allowed(allowed)
+    if allowed is not None:
+        persona.require_allowed(allowed)
     return persona
 
 
@@ -172,7 +177,9 @@ def parse_personas(raw: object, allowed_models: Collection[str]) -> tuple[Person
         raise DiscussionError(ErrorCode.FILE_INVALID)
     if not PERSONAS_MIN <= len(raw) <= PERSONAS_MAX:
         raise DiscussionError(ErrorCode.COUNT_INVALID)
-    personas = tuple(_persona_from(item, index, allowed_models) for index, item in enumerate(raw))
+    personas = tuple(
+        persona_from_dict(item, index, allowed_models) for index, item in enumerate(raw)
+    )
     check_distinct(personas)
     return personas
 
