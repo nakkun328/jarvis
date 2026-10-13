@@ -32,6 +32,12 @@ _MODEL_CHOICE_ENTRY = re.compile(
     r"(?:(?:openai|gemini):[A-Za-z0-9][A-Za-z0-9._-]{0,63}"
     r"|groq:[A-Za-z0-9][A-Za-z0-9._/-]{0,63})\Z"  # Groq model IDs may contain "/"
 )
+# Group discussion (docs/discussion.md): the engine is a library until it is wired in; these are
+# its switches. Rounds are 1..3 and the per-day count of discussions is 1..100.
+DEFAULT_DISCUSSION_MAX_ROUNDS = 3
+DEFAULT_DISCUSSION_PER_DAY_LIMIT = 10
+_MAX_DISCUSSION_ROUNDS = 3
+_MAX_DISCUSSION_PER_DAY_LIMIT = 100
 _MIN_SIGNING_KEY_CHARS = 32
 _SHELL_COMMAND_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}")
 _MAX_SHELL_COMMANDS = 16
@@ -129,6 +135,10 @@ class Settings:
     # The owner-selectable chat models (JARVIS_MODEL_CHOICES): an allowlist of `provider:model`
     # strings. Empty (the default) means no selector and exactly the single configured model.
     model_choices: tuple[str, ...] = ()
+    # Group discussion of several personas (docs/discussion.md). Off by default.
+    discussion: bool = False
+    discussion_max_rounds: int = DEFAULT_DISCUSSION_MAX_ROUNDS
+    discussion_per_day_limit: int = DEFAULT_DISCUSSION_PER_DAY_LIMIT
     # Owner-approved exception to "only reviewed notes reach a model" (docs/memory.md): approve
     # research-origin memory candidates automatically (needs the memory vault), and stage them
     # when a research session completes (needs research). Both default off.
@@ -211,6 +221,18 @@ class Settings:
             self.model_choices
         ):
             raise ConfigError("JARVIS_MODEL_CHOICES is invalid")
+        if not isinstance(self.discussion, bool):
+            raise ConfigError("JARVIS_DISCUSSION must be true or false")
+        for name, value, high in (
+            ("JARVIS_DISCUSSION_MAX_ROUNDS", self.discussion_max_rounds, _MAX_DISCUSSION_ROUNDS),
+            (
+                "JARVIS_DISCUSSION_PER_DAY_LIMIT",
+                self.discussion_per_day_limit,
+                _MAX_DISCUSSION_PER_DAY_LIMIT,
+            ),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= high:
+                raise ConfigError(f"{name} must be between 1 and {high}")
         for name, value in (
             ("JARVIS_RESEARCH_MEMORY_AUTO_APPROVE", self.research_memory_auto_approve),
             ("JARVIS_RESEARCH_MEMORY_AUTO_STAGE", self.research_memory_auto_stage),
@@ -438,6 +460,13 @@ class Settings:
             ),
             chat_research_fallback_main=_env_bool("JARVIS_CHAT_RESEARCH_FALLBACK_MAIN", False),
             model_choices=parse_model_choices(os.environ.get("JARVIS_MODEL_CHOICES", "")),
+            discussion=_env_bool("JARVIS_DISCUSSION", False),
+            discussion_max_rounds=_env_int(
+                "JARVIS_DISCUSSION_MAX_ROUNDS", DEFAULT_DISCUSSION_MAX_ROUNDS
+            ),
+            discussion_per_day_limit=_env_int(
+                "JARVIS_DISCUSSION_PER_DAY_LIMIT", DEFAULT_DISCUSSION_PER_DAY_LIMIT
+            ),
             research_memory_auto_approve=_env_bool("JARVIS_RESEARCH_MEMORY_AUTO_APPROVE", False),
             research_memory_auto_stage=_env_bool("JARVIS_RESEARCH_MEMORY_AUTO_STAGE", False),
             chat_memory_auto=_env_bool("JARVIS_CHAT_MEMORY_AUTO", False),
