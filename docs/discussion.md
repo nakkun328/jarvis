@@ -149,3 +149,7 @@ A collapsible panel **ペルソナを編集** under the start form (hidden while
 - **Server errors.** Every `PERSONA_*` code has its own Japanese message in `discussion-view.js` (a test checks the list against `errors.py`). After a write the panel re-reads `GET /api/discussions/personas`, so a stale list (not found, store changed) corrects itself.
 - **Store states.** `unavailable` (no database path or persona file configured): presets only, the editor is disabled and says which setting to make. `corrupt`: the editor is disabled and explains that the file is left untouched and has to be restored by hand from its `.bak` copy; there is no repair action.
 - **Picker.** After a save, rename or delete the participant picker is rebuilt: chosen participants and their chosen models stay, a renamed persona keeps its place, a deleted one leaves the selection. A custom persona is sent by name when its model is unchanged, otherwise as the full persona object, like a preset.
+
+## Reading a failed call in the log
+
+A failed model call logs `discussion.call_failed` with `model` (the allowlist id, for example `provider:model`), `error_type` and `kind`. `kind` is one of the fixed labels `no_text`, `incomplete`, `stream_failed`, `invalid_response`, `request_failed` or `other`, derived from the provider adapter's own fixed message; no upstream text, prompt or turn ever reaches the log. `no_text` and `incomplete` often mean a reasoning model used its token budget before writing an answer.
