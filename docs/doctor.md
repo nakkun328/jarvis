@@ -29,6 +29,7 @@ The exit code is `0` when nothing is `INCOMPLETE`, otherwise `1`.
 | research_memory | `JARVIS_RESEARCH_MEMORY_AUTO_APPROVE` / `JARVIS_RESEARCH_MEMORY_AUTO_STAGE` ([memory.md](memory.md) exception): `OFF` by default; `OK` with `AUTO_APPROVE_ON` (says plainly that research memory is approved without human review) or `AUTO_STAGE_ONLY`; shows only on/off flags |
 | router | `JARVIS_ROUTER` is `off`, `rule` or `llm`; `llm` needs a ready chat provider |
 | casual | `JARVIS_CASUAL` is on; INCOMPLETE if it is on but the router is off or incomplete, or there is no ready chat provider; OFF when the switch is off (default) |
+| discussion | `JARVIS_DISCUSSION` ([discussion.md](discussion.md)): `OFF` by default; `INCOMPLETE` when on without a ready chat provider (`CHAT_PROVIDER_MISSING`) or without `JARVIS_MODEL_CHOICES` (`DISCUSSION_NEEDS_MODEL_CHOICES`); shows only the on/off word and the two numeric limits |
 | chat_research | a router other than `off` plus research ready |
 | login | `JARVIS_AUTH_PASSPHRASE_HASH`; a non-loopback `--host` needs login and Secure cookies |
 | db, vault, personality | `JARVIS_DB_PATH` (a missing database is created on first start), `JARVIS_MEMORY_VAULT_PATH`, `JARVIS_PERSONALITY_PATH` |

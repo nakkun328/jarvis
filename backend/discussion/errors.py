@@ -1,0 +1,30 @@
+"""Fixed error codes of the discussion package. A message is the code only: never user text."""
+
+from enum import StrEnum
+
+
+class ErrorCode(StrEnum):
+    NAME_INVALID = "PERSONA_NAME_INVALID"
+    ROLE_INVALID = "PERSONA_ROLE_INVALID"
+    STANCE_INVALID = "PERSONA_STANCE_INVALID"
+    CHECKLIST_INVALID = "PERSONA_CHECKLIST_INVALID"
+    MODEL_INVALID = "PERSONA_MODEL_INVALID"
+    MODEL_NOT_ALLOWED = "PERSONA_MODEL_NOT_ALLOWED"
+    COLOR_INVALID = "PERSONA_COLOR_INVALID"
+    FIELD_UNKNOWN = "PERSONA_FIELD_UNKNOWN"
+    PERSONA_INVALID = "PERSONA_INVALID"
+    FILE_UNREADABLE = "PERSONA_FILE_UNREADABLE"
+    FILE_INVALID = "PERSONA_FILE_INVALID"
+    DUPLICATE_NAME = "PERSONA_DUPLICATE_NAME"
+    COUNT_INVALID = "DISCUSSION_PARTICIPANTS_INVALID"
+    TOPIC_INVALID = "DISCUSSION_TOPIC_INVALID"
+    ROUNDS_INVALID = "DISCUSSION_ROUNDS_INVALID"
+    LIMITS_INVALID = "DISCUSSION_LIMITS_INVALID"
+
+
+class DiscussionError(Exception):
+    """Invalid persona or discussion input. ``str(error)`` is the code, nothing else."""
+
+    def __init__(self, code: ErrorCode) -> None:
+        super().__init__(code.value)
+        self.code = code

@@ -44,6 +44,7 @@ REASONS: dict[str, str] = {
         "有効です: Yellow/Red のツール呼び出しはすべて人間の承認(/approvals)が必要です"
         "(Green の読み取りだけは承認なしで実行されます)"
     ),
+    "DISCUSSION_NEEDS_MODEL_CHOICES": "議論にはモデルの許可リスト(JARVIS_MODEL_CHOICES)が必要です",
     "CHAT_RESEARCH_OFF": "チャットからのリサーチは無効です",
     "AUTH_DISABLED": "ログインは無効です(ループバック専用)",
     "BIND_REQUIRES_AUTH": "非ループバック待受にはログインが必要です",
@@ -235,6 +236,21 @@ def _casual(settings: Settings, router: Check, chat: Check) -> Check:
     return Check("casual", "雑談経路", OK, "READY", detail)
 
 
+def _discussion(settings: Settings, chat: Check) -> Check:
+    """The group discussion switch. Fixed words and the numeric limits only."""
+    detail = "discussion=" + ("on" if settings.discussion else "off")
+    if not settings.discussion:
+        return Check("discussion", "グループ議論", OFF, "NOT_CONFIGURED", detail)
+    detail += f", rounds<={settings.discussion_max_rounds}"
+    detail += f", per_day<={settings.discussion_per_day_limit}"
+    if chat.status != OK:
+        return Check("discussion", "グループ議論", INCOMPLETE, "CHAT_PROVIDER_MISSING", detail)
+    if not settings.model_choices:
+        code = "DISCUSSION_NEEDS_MODEL_CHOICES"
+        return Check("discussion", "グループ議論", INCOMPLETE, code, detail)
+    return Check("discussion", "グループ議論", OK, "READY", detail)
+
+
 def _chat_research(settings: Settings, router: Check, research: Check) -> Check:
     answer = "on" if settings.chat_research_answer else "off"
     fallback_main = "on" if settings.chat_research_fallback_main else "off"
@@ -364,6 +380,7 @@ def run_checks(host: str = "127.0.0.1") -> list[Check]:
         router,
         _casual(settings, router, chat),
         _chat_research(settings, router, research),
+        _discussion(settings, chat),
         _login(settings, environment, host),
         _shell(settings),
         _chat_tools(settings, chat),
