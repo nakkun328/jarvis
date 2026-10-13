@@ -41,6 +41,7 @@ from backend.core.config import ConfigError, Settings
 from backend.core.database import Database
 from backend.core.logging import configure_logging
 from backend.discussion.service import DiscussionService
+from backend.discussion.store import PersonaStore
 from backend.memory.auto_approval import AUTO_APPROVER
 from backend.memory.chat_auto import ChatAutoMemory
 from backend.memory.embedding import EmbeddingProvider
@@ -482,6 +483,7 @@ def _build_discussion(
         model_choices=settings.model_choices,
         max_rounds=settings.discussion_max_rounds,
         per_day_limit=settings.discussion_per_day_limit,
+        persona_store=PersonaStore(settings.discussion_personas_path),
     )
 
 
