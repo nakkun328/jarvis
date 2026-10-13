@@ -81,8 +81,9 @@ _LABEL_BRACKET = re.compile(r"【([^【】\n]{1,20})】\s*")
 def strip_speaker_label(text: str, names: Collection[str]) -> str:
     """Remove a speaker label the model echoed at the very start of its reply.
 
-    Leading ``【name】`` (repeated) for any given name, and ``name:`` / ``name：`` only when it is
-    exactly one of the names. Anything later in the text, or any other bracketed word, is kept.
+    Only a leading ``【name】`` (repeated) for any given name is removed. A ``name:`` start is
+    kept because it can be a real sentence. Anything later in the text, or any other bracketed
+    word, is kept.
     """
     known = set(names)
     out = text.strip()
@@ -91,12 +92,7 @@ def strip_speaker_label(text: str, names: Collection[str]) -> str:
         if match and match.group(1).strip() in known:
             out = out[match.end() :]
             continue
-        for name in known:
-            if out.startswith((name + ":", name + "：")):
-                out = out[len(name) + 1 :].lstrip()
-                break
-        else:
-            return out.strip()
+        return out.strip()
 
 
 # Coarse, fixed failure kinds for the log. The provider adapters raise ProviderError with fixed

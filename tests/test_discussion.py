@@ -535,8 +535,8 @@ def _turn_texts(h):
         ("【Ann】my point", "my point"),
         ("【Ann】【Ann】 my point", "my point"),
         ("【Bob】 【Ann】my point", "my point"),  # another participant's label
-        ("Ann: my point", "my point"),
-        ("Bob：my point", "my point"),
+        ("Ann: my point", "Ann: my point"),  # a colon start can be a real sentence: kept
+        ("Bob：my point", "Bob：my point"),
         ("my point 【Ann】 here", "my point 【Ann】 here"),  # not at the start
         ("【重要】my point", "【重要】my point"),  # unknown bracketed word
         ("Annex: my point", "Annex: my point"),  # not exactly a name
