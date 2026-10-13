@@ -462,18 +462,26 @@ def _build_research(
     if chat_provider is None:
         return None, REASON_NO_CHAT_PROVIDER
     try:
-        from backend.research.reader import PageReader
+        from backend.research.reader import (
+            PageReader,
+            ReaderPolicy,
+            trusted_resolver_addresses_from_env,
+        )
         from backend.research.runner import TASK_TIMEOUT_SECONDS, ResearchRunService
     except ImportError as exc:
         raise ConfigError("Install httpx to use web research") from exc
     from backend.tasks.queue import TaskQueue
 
+    try:
+        trusted = trusted_resolver_addresses_from_env()
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from None
     exhausted = getattr(search, "is_exhausted", None)
     service = ResearchRunService(
         repository,
         TaskQueue(TaskRepository(database), timeout_seconds=TASK_TIMEOUT_SECONDS),
         search=search,
-        reader=page_reader or PageReader(),
+        reader=page_reader or PageReader(policy=ReaderPolicy(trusted_resolver_addresses=trusted)),
         llm=chat_provider,
         is_budget_exhausted=exhausted if callable(exhausted) else None,
         on_completed=on_completed,

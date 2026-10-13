@@ -21,6 +21,7 @@ from backend.research.reader import (
     TransportRequest,
     TransportResponse,
     is_blocked_address,
+    trusted_resolver_addresses_from_env,
     validate_url,
 )
 
@@ -314,6 +315,56 @@ def test_one_private_answer_blocks_a_mixed_answer() -> None:
     reader, transport, _ = make_reader({}, resolver)
     assert failure(reader, "https://example.test/") is ReadFailure.BLOCKED_HOST
     assert transport.requests == []
+
+
+GATEWAY = "198.18.0.1"
+PAGE = "<html><head><title>T</title></head><body><p>hello world</p></body></html>"
+
+
+def test_gateway_address_is_blocked_unless_the_owner_trusts_exactly_that_address() -> None:
+    url = "https://example.test/"
+    resolver = FakeResolver({"example.test": [GATEWAY]})
+    reader, transport, _ = make_reader({url: html_response(PAGE)}, resolver)
+    assert failure(reader, url) is ReadFailure.BLOCKED_HOST
+    assert transport.requests == []
+
+    policy = ReaderPolicy(trusted_resolver_addresses=frozenset({GATEWAY}))
+    reader, transport, _ = make_reader({url: html_response(PAGE)}, resolver, policy)
+    assert "hello world" in read(reader, url).text
+    assert [request.address for request in transport.requests] == [GATEWAY]
+
+    other = FakeResolver({"example.test": ["198.18.0.2"]})
+    reader, _, _ = make_reader({url: html_response(PAGE)}, other, policy)
+    assert failure(reader, url) is ReadFailure.BLOCKED_HOST
+
+
+@pytest.mark.parametrize("answer", [["10.0.0.1"], ["127.0.0.1"], ["169.254.169.254"], ["::1"]])
+def test_trusting_the_gateway_never_allows_private_answers(answer: list[str]) -> None:
+    policy = ReaderPolicy(trusted_resolver_addresses=frozenset({GATEWAY}))
+    reader, transport, _ = make_reader({}, FakeResolver({"example.test": answer}), policy)
+    assert failure(reader, "https://example.test/") is ReadFailure.BLOCKED_HOST
+    assert transport.requests == []
+
+
+def test_a_literal_gateway_url_stays_blocked_and_mixed_answers_stay_blocked() -> None:
+    policy = ReaderPolicy(trusted_resolver_addresses=frozenset({GATEWAY}))
+    reader, _, _ = make_reader({}, None, policy)
+    assert failure(reader, f"https://{GATEWAY}/") is ReadFailure.BLOCKED_HOST
+    mixed = FakeResolver({"example.test": [GATEWAY, "10.0.0.1"]})
+    reader, _, _ = make_reader({}, mixed, policy)
+    assert failure(reader, "https://example.test/") is ReadFailure.BLOCKED_HOST
+
+
+def test_trusted_resolver_addresses_are_parsed_strictly() -> None:
+    name = "JARVIS_READER_TRUSTED_RESOLVER_ADDRESSES"
+    assert trusted_resolver_addresses_from_env({}) == frozenset()
+    assert trusted_resolver_addresses_from_env({name: " 198.18.0.1, 198.19.255.254 ,"}) == {
+        "198.18.0.1",
+        "198.19.255.254",
+    }
+    for bad in ("10.0.0.1", "127.0.0.1", "198.18.0.0/15", "198.20.0.1", "::1", "example.com"):
+        with pytest.raises(ValueError):
+            trusted_resolver_addresses_from_env({name: bad})
 
 
 def test_dns_failure_and_empty_answer_are_network_errors() -> None:
