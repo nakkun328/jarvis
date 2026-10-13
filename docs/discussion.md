@@ -1,6 +1,6 @@
-# Group discussion (P1 engine, P2 API and task, P3 screen)
+# Group discussion (P1 engine, P2 API and task, P3 screen, P4 custom personas)
 
-Several personas discuss a topic in fixed turns and a moderator closes with a short summary. P1 is the library `backend/discussion/` (engine and personas). P2 adds the background task, the API and the message format below; P3 adds the `/discussion` screen (below) and there is **no schema change** (`SCHEMA_VERSION` stays 10). Plan and later phases: [group-discussion-plan.md](group-discussion-plan.md).
+Several personas discuss a topic in fixed turns and a moderator closes with a short summary. P1 is the library `backend/discussion/` (engine and personas). P2 adds the background task, the API and the message format below; P3 adds the `/discussion` screen (below); P4 adds the custom persona store and its API below, and its editor lives in the screen; there is **no schema change** (`SCHEMA_VERSION` stays 10). Plan and later phases: [group-discussion-plan.md](group-discussion-plan.md).
 
 ## Settings
 
@@ -10,7 +10,9 @@ Several personas discuss a topic in fixed turns and a moderator closes with a sh
 | `JARVIS_DISCUSSION_MAX_ROUNDS` | 3 | Upper bound for the rounds of one discussion, 1 to 3. |
 | `JARVIS_DISCUSSION_PER_DAY_LIMIT` | 10 | Discussions per day, 1 to 100. Counted from today's discussion tasks (server local day). |
 
-An invalid value makes the server refuse to start (`ConfigError`, without echoing the value). `python -m backend.doctor` has a `discussion` row: `OFF` by default; `INCOMPLETE` when on without a ready chat provider or without `JARVIS_MODEL_CHOICES`; otherwise `OK`. It prints only the on/off word and the two limits.
+| `JARVIS_DISCUSSION_PERSONAS_PATH` | next to the DB | JSON file of the owner's custom personas. Unset: `discussion-personas.json` in the directory of the SQLite file when `JARVIS_DB_PATH` is set, otherwise none (editing is unavailable, presets still work). The directory must already exist; it is never created. |
+
+An invalid value makes the server refuse to start (`ConfigError`, without echoing the value). `python -m backend.doctor` has a `discussion` row: `OFF` by default; `INCOMPLETE` when on without a ready chat provider or without `JARVIS_MODEL_CHOICES`; otherwise `OK`. It prints only the on/off word, the two limits and `persona_editing=available|unavailable` (the path is never printed).
 
 ## Personas (`personas.py`)
 
@@ -92,3 +94,36 @@ The navigation item **議論** (last in `PAGES`) opens `/discussion` (`frontend/
 - **Running view.** Group-chat bubbles: the user's topic first, then each turn with the speaker name and a colour chip (colour is never the only cue), the まとめ in a framed highlighted box, and お知らせ as a muted line with a Japanese meaning per code (`PERSONA_SKIPPED`, `PROVIDER_FAILURES`, `CALL_CAP`, `SUMMARY_FAILED`, `CANCELLED`, `INTERRUPTED`, `EXECUTION_FAILED`, `TIMEOUT`, `INTERNAL_ERROR`, `VERIFICATION_FAILED`; an unknown code gets a generic line). Colours are not stored: the page maps the speaker name to the colour of the persona it sent, falls back to the preset colours for a discussion opened later, and then to neutral. 停止 posts `POST /api/tasks/{id}/cancel`; the progress line comes from the task status (発言 n / m, まとめを作成中, finished, stopped).
 - **Resume and history.** `/discussion?c=<conversation uuid>` shows an existing discussion read-only (no stop button, no polling) even when the feature is off or the discussion is finished; if `config.active` is that conversation the page attaches to it live instead. Without `?c=`, a non-null `config.active` is attached to and put in the address bar (`history.replaceState`). A missing or malformed link is explained on the page.
 - **Phones.** The same breakpoints as [web-shell.md](web-shell.md): controls are at least 44 px tall, the navigation shrinks to fit seven items at 375 px, and the page does not scroll sideways. The look uses the shared dark tokens of `shell.css`.
+
+## Custom personas (P4: `store.py`)
+
+Custom personas live in one JSON file, `{"version": 1, "personas": [...]}`, not in the database (plan option B; `SCHEMA_VERSION` stays 10). Each entry has the fields of a persona (`name`, `role`, `stance`, `checklist`, `model`, `color`).
+
+- Writes are atomic (temp file in the same directory, fsync, `os.replace`), mode `0600`, and the previous good file is kept as `<file>.bak` on every write. The directory must exist; a symlink at the file or the `.bak` is refused. A failure mid-write leaves the old file.
+- At most 20 custom personas and 64 KiB. Names are unique case-folded and cannot be a preset name or one of `まとめ`, `お知らせ`, `まとめ役`, `システム`.
+- The model must be in `JARVIS_MODEL_CHOICES` when saved. It is checked again when a discussion starts: a saved persona whose model later leaves the allowlist or whose provider is not ready is listed with `available: false` (not deleted) and cannot be used until it is edited.
+- A file that is not valid (bad JSON, wrong version, invalid or duplicate entries, over the size cap) is *corrupt*: reads give `store: "corrupt"`, writes fail with `PERSONA_STORE_CORRUPT`, and the file is never overwritten. Fix or remove it by hand (the `.bak` holds the last good write).
+- Access is serialized by a lock inside the process. A running discussion keeps a snapshot of its personas, so edits and deletes never change it.
+
+### Persona API
+
+Behind the login layer. `POST`, `PUT` and `DELETE` need the same origin and `X-Jarvis-Confirm: 1`; bodies are parsed by hand (up to 64 KiB, only the persona fields). Errors are `{"detail": "<CODE>"}`; nothing the client sent is echoed.
+
+| Route | Answer |
+| --- | --- |
+| `GET /api/discussions/personas` | `{"presets": [persona], "custom": [persona + "available"], "max_custom": 20, "store": "ok" or "unavailable" or "corrupt"}` (always 200; `custom` is empty unless `store` is `ok`) |
+| `POST /api/discussions/personas` | 201, the saved persona with `available` |
+| `PUT /api/discussions/personas/{name}` | 200, the replaced persona (the body's `name` may differ: a rename). `{name}` is URL-decoded, matched case-folded, at most 20 characters |
+| `DELETE /api/discussions/personas/{name}` | 200 `{"deleted": true}` |
+
+`GET /api/discussions/config` also carries `custom_personas` (the same objects), `personas_store` and `max_custom_personas`. `POST /api/discussions` accepts the name of a saved custom persona in `personas`, like a preset name; it is read from the store at start time.
+
+| Status | Code |
+| --- | --- |
+| 400 | `PERSONA_*` field errors (`PERSONA_NAME_INVALID`, `PERSONA_ROLE_INVALID`, `PERSONA_MODEL_INVALID`, `PERSONA_MODEL_NOT_ALLOWED`, ...), `PERSONA_NAME_RESERVED`, `DISCUSSION_REQUEST_INVALID` |
+| 404 | `PERSONA_NOT_FOUND` |
+| 409 | `PERSONA_DUPLICATE_NAME`, `PERSONA_LIMIT` |
+| 413 | `PERSONA_STORE_TOO_LARGE` |
+| 503 | `PERSONA_STORE_UNAVAILABLE` (no path, missing directory, symlink, I/O failure), `PERSONA_STORE_CORRUPT` |
+
+When starting a discussion with a saved name: `DISCUSSION_PRESET_UNKNOWN` (no such name, or no store), `PERSONA_STORE_CORRUPT`, `PERSONA_MODEL_NOT_ALLOWED` (model left the allowlist) or `DISCUSSION_MODEL_UNAVAILABLE` (provider not ready).

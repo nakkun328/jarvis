@@ -50,13 +50,16 @@ from backend.discussion.format import (
     format_summary,
 )
 from backend.discussion.personas import (
+    NAME_MAX,
     PALETTE,
     PERSONAS_MAX,
     PERSONAS_MIN,
     Persona,
     parse_personas,
+    persona_from_dict,
     preset_personas,
 )
+from backend.discussion.store import PersonaStore
 from backend.providers.base import ChatMessage, CompletionRequest, LLMProvider
 from backend.providers.choices import ModelChoiceError, ModelRegistry
 from backend.tasks.models import (
@@ -144,8 +147,10 @@ class DiscussionService:
         clock: Callable[[], datetime] | None = None,
         call_timeout_seconds: float = DEFAULT_CALL_TIMEOUT_SECONDS,
         worker_poll_seconds: float = DEFAULT_WORKER_POLL_SECONDS,
+        persona_store: PersonaStore | None = None,
     ) -> None:
         self.queue = queue
+        self._persona_store = persona_store or PersonaStore(None)
         self._store = store
         self._models = models
         self._moderator = moderator
@@ -177,8 +182,57 @@ class DiscussionService:
         ready = [option.id for option in options if option.available]
         return preset_personas(ready or list(self._choices))
 
+    # ----- custom personas (docs/discussion.md) -----
+
+    def _custom_dict(self, persona: Persona, available: Mapping[str, bool]) -> dict[str, Any]:
+        return {**persona.as_dict(), "available": available.get(persona.model, False)}
+
+    def personas(self) -> dict[str, Any]:
+        """Presets and the saved custom personas. A saved persona whose model is no longer usable
+        is listed with ``available`` false, not removed. A store that cannot be read gives no
+        custom personas and a ``store`` state the screen can show."""
+        available = {option.id: option.available for option in self._models.options()}
+        store = self._persona_store
+        state = store.state()
+        custom = [self._custom_dict(p, available) for p in store.list()] if state == "ok" else []
+        return {
+            "presets": [persona.as_dict() for persona in self._presets()],
+            "custom": custom,
+            "max_custom": store.max_personas,
+            "store": state,
+        }
+
+    def _one_persona(self, raw: object, index: int) -> Persona:
+        return persona_from_dict(raw, index, self._choices)
+
+    def create_persona(self, raw: object) -> dict[str, Any]:
+        store = self._persona_store
+        persona = self._one_persona(raw, len(store.list()))
+        saved = store.create(persona, self._choices)
+        return self._custom_dict(saved, self._available())
+
+    @staticmethod
+    def _check_name(name: object) -> None:
+        if not isinstance(name, str) or not 1 <= len(name) <= NAME_MAX or not name.isprintable():
+            raise DiscussionError(ErrorCode.NAME_INVALID)
+
+    def replace_persona(self, name: str, raw: object) -> dict[str, Any]:
+        self._check_name(name)
+        store = self._persona_store
+        persona = self._one_persona(raw, 0)
+        saved = store.replace(name, persona, self._choices)
+        return self._custom_dict(saved, self._available())
+
+    def delete_persona(self, name: str) -> None:
+        self._check_name(name)
+        self._persona_store.delete(name)
+
+    def _available(self) -> dict[str, bool]:
+        return {option.id: option.available for option in self._models.options()}
+
     def config(self) -> dict[str, Any]:
         repository = self.queue.repository
+        listing = self.personas()
         used = self._used_today()
         active = None
         for status in (TaskStatus.RUNNING, TaskStatus.PENDING):
@@ -200,6 +254,9 @@ class DiscussionService:
             "topic_max_chars": TOPIC_MAX_CHARS,
             "models": [option.as_dict() for option in self._models.options()],
             "presets": [persona.as_dict() for persona in self._presets()],
+            "custom_personas": listing["custom"],
+            "personas_store": listing["store"],
+            "max_custom_personas": listing["max_custom"],
             "palette": list(PALETTE),
             "active": active,
         }
@@ -215,7 +272,7 @@ class DiscussionService:
             if isinstance(item, str):
                 preset = presets.get(item)
                 if preset is None:
-                    raise DiscussionError(ErrorCode.PRESET_UNKNOWN)
+                    preset = self._saved_persona(item)
                 items.append(preset.as_dict())
             elif isinstance(item, Mapping):
                 items.append(item)
@@ -230,6 +287,20 @@ class DiscussionService:
             except ModelChoiceError:
                 raise DiscussionError(ErrorCode.MODEL_UNAVAILABLE) from None
         return personas
+
+    def _saved_persona(self, name: str) -> Persona:
+        """A saved custom persona by name, read from the store now (the job then keeps this
+        snapshot). No store, or no such name: an unknown preset."""
+        store = self._persona_store
+        try:
+            found = store.get(name)
+        except DiscussionError as error:
+            if error.code is ErrorCode.STORE_CORRUPT:
+                raise
+            found = None
+        if found is None:
+            raise DiscussionError(ErrorCode.PRESET_UNKNOWN)
+        return found
 
     def _rounds(self, raw: object) -> int:
         if raw is None:
