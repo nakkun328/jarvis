@@ -429,7 +429,7 @@ def test_a_completed_discussion_becomes_one_memory(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-def test_a_cancelled_discussion_with_a_partial_summary_is_staged(tmp_path: Path) -> None:
+def test_a_cancelled_discussion_is_not_staged(tmp_path: Path) -> None:
     discussion, memory = memory_env(tmp_path)
     discussion.providers[MODELS[1]].block_at = 1
 
@@ -448,7 +448,7 @@ def test_a_cancelled_discussion_with_a_partial_summary_is_staged(tmp_path: Path)
             await worker
 
     asyncio.run(scenario())
-    assert len(memory.memory.list_by_status(MemoryStatus.PENDING)) == 1
+    assert memory.memory.list_by_status(MemoryStatus.PENDING) == []
 
 
 def test_cancel_without_a_turn_failed_and_empty_discussions_stage_nothing(

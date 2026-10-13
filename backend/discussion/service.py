@@ -523,12 +523,12 @@ class DiscussionService:
             _LOG.warning("discussion.post_failed", extra={"error_type": type(error).__name__})
         finally:
             self._jobs.pop(parsed[1], None)
-        if job is not None and task.status in (TaskStatus.COMPLETED, TaskStatus.CANCELLED):
+        if job is not None and task.status is TaskStatus.COMPLETED:
             await self._remember(parsed[0], job)
 
     async def _remember(self, conversation_id: UUID, job: _Job) -> None:
-        """Hand the summary to the memory hook. Failed, empty and cancelled-without-summary
-        discussions have no turn or no summary and are skipped. Never affects the discussion."""
+        """Hand the summary to the memory hook. Only completed discussions count: cancelled, failed
+        and empty ones are skipped. Never affects the discussion."""
         hook = self._on_summary
         if hook is None or not job.turns or not job.summary_text:
             return

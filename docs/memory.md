@@ -42,7 +42,7 @@ With `JARVIS_CHAT_MEMORY_AUTO=1`, after a chat turn has been answered, the defau
 
 > **A third deliberate exception**, recorded by the owner (the result of a group discussion should become memory automatically, like research and chat). Both switches default **off**. It stays a disclosed opinion: the note is an AI discussion's conclusion, not a verified fact.
 
-When a discussion finishes with at least one persona turn and a moderator summary (a completed one, or a cancelled one that received its partial summary; failed, empty and cancelled-without-turn ones are skipped), ONE memory note is built from the summary: first line `議論の結果(AIの意見・事実の裏付けなし)`, then `議題:` (the topic, truncated), the summary text, `日付:` and `議論ID:`. Importance and confidence are the fixed lowest values 0.2 / 0.2. Category `conversation`, tag `discussion`, source `discussion:<conversation id>`.
+When a discussion finishes with at least one persona turn and a moderator summary (only a completed one; cancelled, failed and empty ones are skipped), ONE memory note is built from the summary: first line `議論の結果(AIの意見・事実の裏付けなし)`, then `議題:` (the topic, truncated), the summary text, `日付:` and `議論ID:`. Importance and confidence are the fixed lowest values 0.2 / 0.2. Category `conversation`, tag `discussion`, source `discussion:<conversation id>`.
 
 | Variable | Effect | Requires |
 | --- | --- | --- |
