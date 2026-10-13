@@ -23,7 +23,8 @@ _LOG = logging.getLogger(__name__)
 
 TOPIC_MAX_CHARS = 2000
 DEFAULT_ROUNDS = 2
-MAX_ROUNDS = 3
+MAX_ROUNDS = 10  # the hard ceiling; JARVIS_DISCUSSION_MAX_ROUNDS (default 3) lowers it
+DEFAULT_MAX_ROUNDS = 3
 TURN_MAX_CHARS = 600
 SUMMARY_MAX_CHARS = 900
 #: Total characters of earlier turns put into one prompt; older turns collapse to one line.
@@ -132,7 +133,7 @@ class DiscussionEngine:
         moderator: LLMProvider,
         emit: Emit,
         rounds: int = DEFAULT_ROUNDS,
-        max_rounds: int = MAX_ROUNDS,
+        max_rounds: int = DEFAULT_MAX_ROUNDS,
         is_cancelled: CancelCheck | None = None,
         transcript_chars: int = DEFAULT_TRANSCRIPT_CHARS,
         call_timeout_seconds: float = DEFAULT_CALL_TIMEOUT_SECONDS,

@@ -5,7 +5,7 @@ import { DiscussionApiError, loadMessages, loadTaskStatus } from "./discussion-a
 import { isActiveStatus } from "./discussion-view.js";
 
 export const POLL_MS = 2000;
-export const MAX_POLLS = 900; // about 30 minutes
+export const MAX_POLLS = 2100; // about 70 minutes (a 10-round discussion can run an hour)
 
 // callbacks: onMessages(messages), onStatus(task), onFinished(task), onError(error), onGiveUp().
 export function createDiscussionPoller({
