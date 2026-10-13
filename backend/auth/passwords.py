@@ -13,12 +13,15 @@ import base64
 import binascii
 import hashlib
 import hmac
+import os
 import re
 import secrets
 import unicodedata
 
 SCHEME = "scrypt"
 MIN_PASSPHRASE_CHARS = 12
+MIN_PASSPHRASE_FLOOR = 8
+MIN_PASSPHRASE_ENV = "JARVIS_AUTH_MIN_PASSPHRASE_CHARS"
 MAX_PASSPHRASE_CHARS = 1024
 
 DEFAULT_N = 2**15
@@ -96,10 +99,19 @@ def parse_hash(encoded: str) -> tuple[int, int, int, bytes, bytes]:
     return n, r, p, salt, digest
 
 
+def min_passphrase_chars() -> int:
+    """The shortest accepted passphrase: 12 unless the owner lowers it (never below 8)."""
+    raw = os.environ.get(MIN_PASSPHRASE_ENV, "").strip()
+    if not raw.isdecimal():
+        return MIN_PASSPHRASE_CHARS
+    return max(MIN_PASSPHRASE_FLOOR, min(int(raw), MIN_PASSPHRASE_CHARS))
+
+
 def check_passphrase_policy(passphrase: str) -> None:
     text = normalize(passphrase)
-    if len(text) < MIN_PASSPHRASE_CHARS:
-        raise PasswordHashError(f"passphrase must be at least {MIN_PASSPHRASE_CHARS} characters")
+    minimum = min_passphrase_chars()
+    if len(text) < minimum:
+        raise PasswordHashError(f"passphrase must be at least {minimum} characters")
     if len(text) > MAX_PASSPHRASE_CHARS:
         raise PasswordHashError(f"passphrase must be at most {MAX_PASSPHRASE_CHARS} characters")
     if "\x00" in text:

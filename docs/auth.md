@@ -27,7 +27,7 @@ Not protected, by design or limitation:
 
 - **Transport.** JARVIS does not do TLS. Plain HTTP across the internet exposes the passphrase and the session. Terminate TLS in front (see below).
 - **A compromised device or host.** Malware, a keylogger, or someone using an unlocked, signed-in device has full access. There is no second factor.
-- **Phishing of the passphrase**, and a weak passphrase. Use a long unique passphrase (at least 12 characters is enforced; more is better).
+- **Phishing of the passphrase**, and a weak passphrase. Use a long unique passphrase (at least 12 characters is enforced by default; the owner may lower it to 8 with `JARVIS_AUTH_MIN_PASSPHRASE_CHARS=8` when creating the hash, at the cost of easier guessing; more is better).
 - **Per-device revocation.** Sessions are stateless. Logout only clears the cookie in that browser; a copied cookie stays valid until it expires or the signing key changes.
 - **Lockout as denial of service.** Someone who can reach the login endpoint can spend the global failure budget and delay *new* logins for up to 15 minutes. Existing sessions keep working. Restarting JARVIS resets the limiter, and loopback access is unaffected by the proxy.
 - **The limiter is per process and in memory.** Run a single worker (as the rest of JARVIS already requires). With several workers each has its own limiter and an ephemeral key would differ between them.
