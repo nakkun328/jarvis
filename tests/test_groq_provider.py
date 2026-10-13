@@ -175,3 +175,27 @@ def test_registry_helpers_know_groq() -> None:
     assert not provider_ready("groq", {})
     built = build_provider("groq", MODEL, {"GROQ_API_KEY": "fake-key"})
     assert (built.name, built.model) == ("groq", MODEL)
+
+
+@pytest.mark.parametrize(
+    ("code", "bucket"),
+    [(401, "401"), (413, "413"), (429, "429"), (418, "4xx"), (503, "5xx")],
+)
+def test_failed_requests_carry_a_coarse_status_bucket(code: int, bucket: str) -> None:
+    async def action(provider: GroqProvider) -> None:
+        with pytest.raises(ProviderError) as caught:
+            await provider.complete(_request())
+        assert caught.value.status == bucket
+        assert str(caught.value) == "Groq request failed"
+
+    body = {"error": {"message": "UPSTREAM-TEXT"}}
+    _run(lambda _r: httpx.Response(code, json=body), action)
+
+
+def test_status_bucket_helper_recognises_timeouts_and_connection_errors() -> None:
+    from backend.providers.base import status_bucket
+
+    assert status_bucket(httpx.ReadTimeout("x")) == "timeout"
+    assert status_bucket(httpx.ConnectError("x")) == "network"
+    assert status_bucket(ValueError("x")) == "other"
+    assert ProviderError("m", status="bogus").status is None

@@ -8,7 +8,12 @@ from collections.abc import AsyncIterator
 import httpx
 
 from backend.core.config import ConfigError
-from backend.providers.base import CompletionRequest, CompletionResponse, ProviderError
+from backend.providers.base import (
+    CompletionRequest,
+    CompletionResponse,
+    ProviderError,
+    status_bucket,
+)
 
 _API_ROOT = "https://api.groq.com/openai/v1"
 # Groq model IDs may contain "/" (for example "owner/model"); copy them from the models list.
@@ -96,8 +101,8 @@ class GroqProvider:
                 raise ProviderError("Groq returned no text")
         except ProviderError:
             raise
-        except Exception:
-            raise ProviderError("Groq request failed") from None
+        except Exception as exc:
+            raise ProviderError("Groq request failed", status=status_bucket(exc)) from None
         return CompletionResponse(text=text, provider=self.name, model=self.model)
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
@@ -132,5 +137,5 @@ class GroqProvider:
                 raise ProviderError("Groq response stream returned no text")
         except ProviderError:
             raise
-        except Exception:
-            raise ProviderError("Groq request failed") from None
+        except Exception as exc:
+            raise ProviderError("Groq request failed", status=status_bucket(exc)) from None

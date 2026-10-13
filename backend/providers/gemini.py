@@ -8,7 +8,12 @@ from collections.abc import AsyncIterator
 import httpx
 
 from backend.core.config import ConfigError
-from backend.providers.base import CompletionRequest, CompletionResponse, ProviderError
+from backend.providers.base import (
+    CompletionRequest,
+    CompletionResponse,
+    ProviderError,
+    status_bucket,
+)
 
 _API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
 _MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
@@ -110,8 +115,8 @@ class GeminiProvider:
                 raise ProviderError("Gemini returned no text")
         except ProviderError:
             raise
-        except Exception:
-            raise ProviderError("Gemini request failed") from None
+        except Exception as exc:
+            raise ProviderError("Gemini request failed", status=status_bucket(exc)) from None
         return CompletionResponse(text=text, provider=self.name, model=self.model)
 
     @staticmethod
@@ -150,5 +155,5 @@ class GeminiProvider:
                 raise ProviderError("Gemini response stream returned no text")
         except ProviderError:
             raise
-        except Exception:
-            raise ProviderError("Gemini request failed") from None
+        except Exception as exc:
+            raise ProviderError("Gemini request failed", status=status_bucket(exc)) from None
