@@ -12,6 +12,7 @@ import codecs
 import hashlib
 import ipaddress
 import logging
+import os
 import re
 import socket
 from collections.abc import Callable, Mapping, Sequence
@@ -130,6 +131,9 @@ class ReaderPolicy:
     max_text_chars: int = 20_000
     allowed_ports: frozenset[int] = frozenset({80, 443})
     max_address_attempts: int = 3
+    # Exact resolver answers accepted although they sit in the blocked benchmark range
+    # (see ``trusted_resolver_addresses_from_env``). Empty by default.
+    trusted_resolver_addresses: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -181,6 +185,34 @@ def is_blocked_address(address: str) -> bool:
     if any(ip in network for network in BLOCKED_NETWORKS):
         return True
     return not ip.is_global or ip.is_multicast
+
+
+TRUSTED_RESOLVER_ENV = "JARVIS_READER_TRUSTED_RESOLVER_ADDRESSES"
+# Hosts that send all outbound traffic through an egress gateway resolve every name to one
+# address in the benchmark range (RFC 2544). Only that range can be trusted, one exact address
+# at a time; private, loopback, link-local and metadata ranges can never be allowed.
+_TRUSTED_RESOLVER_RANGE = ipaddress.ip_network("198.18.0.0/15")
+
+
+def trusted_resolver_addresses_from_env(environ: Mapping[str, str] | None = None) -> frozenset[str]:
+    """Parse JARVIS_READER_TRUSTED_RESOLVER_ADDRESSES (comma-separated exact IPv4 addresses).
+
+    Raises ValueError for anything that is not a single address inside 198.18.0.0/15.
+    """
+    raw = (environ if environ is not None else os.environ).get(TRUSTED_RESOLVER_ENV, "")
+    addresses: set[str] = set()
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            ip = ipaddress.IPv4Address(item)
+        except ValueError:
+            raise ValueError(f"{TRUSTED_RESOLVER_ENV} must list exact IPv4 addresses") from None
+        if ip not in _TRUSTED_RESOLVER_RANGE:
+            raise ValueError(f"{TRUSTED_RESOLVER_ENV} only accepts addresses in 198.18.0.0/15")
+        addresses.add(str(ip))
+    return frozenset(addresses)
 
 
 def validate_url(url: str, policy: ReaderPolicy | None = None) -> UrlTarget:
@@ -394,7 +426,8 @@ class PageReader:
         if not resolved:
             raise ReaderError(ReadFailure.NETWORK_ERROR)
         # One private answer taints the whole name: a rebinding resolver may mix answers.
-        if any(is_blocked_address(address) for address in resolved):
+        trusted = self._policy.trusted_resolver_addresses
+        if any(is_blocked_address(address) and address not in trusted for address in resolved):
             raise ReaderError(ReadFailure.BLOCKED_HOST)
         return resolved
 
