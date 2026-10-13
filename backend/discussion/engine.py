@@ -254,6 +254,7 @@ class DiscussionEngine:
                 extra={
                     "error_type": type(exc).__name__,
                     "kind": provider_failure_kind(exc),
+                    "status": getattr(exc, "status", None),
                     "model": model,
                 },
             )

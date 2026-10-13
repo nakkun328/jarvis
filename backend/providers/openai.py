@@ -6,7 +6,12 @@ from collections.abc import AsyncIterator
 from openai import APIError, AsyncOpenAI
 
 from backend.core.config import ConfigError
-from backend.providers.base import CompletionRequest, CompletionResponse, ProviderError
+from backend.providers.base import (
+    CompletionRequest,
+    CompletionResponse,
+    ProviderError,
+    status_bucket,
+)
 
 
 class OpenAIResponsesProvider:
@@ -45,7 +50,7 @@ class OpenAIResponsesProvider:
                 store=False,
             )
         except APIError as exc:
-            raise ProviderError("OpenAI request failed") from exc
+            raise ProviderError("OpenAI request failed", status=status_bucket(exc)) from exc
         if response.status != "completed":
             raise ProviderError("OpenAI response did not complete")
         if not response.output_text:
@@ -77,4 +82,4 @@ class OpenAIResponsesProvider:
             if not received_text:
                 raise ProviderError("OpenAI response stream returned no text")
         except APIError as exc:
-            raise ProviderError("OpenAI request failed") from exc
+            raise ProviderError("OpenAI request failed", status=status_bucket(exc)) from exc
