@@ -305,7 +305,7 @@ class DiscussionEngine:
                 self._transcript.append((persona.name, text))
                 round_texts.append(text)
                 await self._emit(DiscussionMessage(persona.name, text, MessageKind.TURN))
-            if round_index < self._rounds - 1 and self._nothing_new(round_texts):
+            if 1 <= round_index < self._rounds - 1 and self._nothing_new(round_texts):
                 await self._notice("CONVERGED", _NOTICE_TEXT["CONVERGED"])
                 break
         return StopCode.COMPLETED

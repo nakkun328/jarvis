@@ -666,9 +666,9 @@ def test_early_stop_when_every_turn_says_nothing_new():
 
 
 def test_accepts_the_short_variant_phrase():
-    h = Harness(providers=nothing_new_providers(["新しい点なし"]))
+    h = Harness(providers=nothing_new_providers(["新しい点なし"] * 2))
     result = h.run(rounds=3, max_rounds=3)
-    assert result.calls == 3 + 1
+    assert result.calls == 3 * 2 + 1  # never after round 1: stops after round 2
 
 
 def test_no_early_stop_when_one_turn_has_something_new():
@@ -692,8 +692,8 @@ def test_phrase_inside_a_long_answer_does_not_count():
 
 def test_long_answer_ending_with_the_phrase_counts():
     long = "あ" * 150 + "。したがって、" + NOTHING_NEW + "。"
-    h = Harness(providers=nothing_new_providers([long]))
-    assert h.run(rounds=3, max_rounds=3).calls == 3 + 1
+    h = Harness(providers=nothing_new_providers([long] * 2))
+    assert h.run(rounds=3, max_rounds=3).calls == 3 * 2 + 1
 
 
 def test_single_turn_round_never_converges():
@@ -720,3 +720,12 @@ def test_turn_prompt_asks_for_the_phrase_alone():
     h.run(rounds=1)
     user = h.providers[MODELS[0]].requests[0].messages[1].content
     assert "「新しい点はありません」とだけ書き" in user
+
+
+def test_round_one_alone_never_stops_the_discussion():
+    # everyone says nothing new in round 1 only; round 2 has real points
+    providers = {m: Fake(replies=[NOTHING_NEW, "real point", "real point"]) for m in MODELS}
+    h = Harness(providers=providers)
+    result = h.run(rounds=3, max_rounds=3)
+    assert result.calls == 3 * 3 + 1
+    assert all(m.code != "CONVERGED" for m in h.messages)
