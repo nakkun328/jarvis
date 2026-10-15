@@ -392,6 +392,8 @@ class DiscussionService:
             await self._post(job, format_notice(message.text, code))
             if code == "PERSONA_SKIPPED":
                 self._advance(job, StepStatus.FAILED, "skipped")
+            elif code == "CONVERGED":
+                self._skip_to_summary(job)
             else:
                 job.noticed = True
 
@@ -425,6 +427,22 @@ class DiscussionService:
             self._step(lambda: progress.start_step(index))
             job.open_step = index
             job.next_step += 1
+
+    def _skip_to_summary(self, job: _Job) -> None:
+        """Skip the unused turn steps so that the summary runs on the last step."""
+        progress = job.progress
+        if progress is None:
+            return
+        if job.open_step is not None:
+            index = job.open_step
+            self._step(lambda: progress.finish_step(index, status=StepStatus.SKIPPED))
+            job.open_step = None
+        while job.next_step < job.steps_total - 1:
+            index = job.next_step
+            self._step(partial(progress.start_step, index))
+            self._step(partial(progress.finish_step, index, status=StepStatus.SKIPPED))
+            job.next_step += 1
+        self._advance(job)
 
     def _close_steps(self, job: _Job, status: StepStatus) -> None:
         progress = job.progress

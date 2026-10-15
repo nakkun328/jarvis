@@ -20,7 +20,7 @@
 "use strict";
 
 const CACHE_PREFIX = "jarvis-shell-";
-const CACHE_VERSION = "v8";
+const CACHE_VERSION = "v9";
 const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;
 
 const SHELL_FILES = [
