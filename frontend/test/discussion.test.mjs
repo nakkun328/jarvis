@@ -49,7 +49,7 @@ test("noticeCode reads only a trailing full-width-parenthesised code", () => {
 
 test("every notice code has a readable Japanese meaning and unknown ones a fallback", () => {
   const codes = [
-    "PERSONA_SKIPPED", "PROVIDER_FAILURES", "CALL_CAP", "SUMMARY_FAILED", "CANCELLED",
+    "PERSONA_SKIPPED", "PROVIDER_FAILURES", "CALL_CAP", "SUMMARY_FAILED", "CONVERGED", "CANCELLED",
     "INTERRUPTED", "EXECUTION_FAILED", "TIMEOUT", "INTERNAL_ERROR", "VERIFICATION_FAILED",
   ];
   const meanings = codes.map(noticeMeaning);

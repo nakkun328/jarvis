@@ -620,3 +620,112 @@ def test_summary_prompt_has_five_sections():
     for heading in ("【合意点】", "【対立点】", "【未解決】", "【次の一歩】", "【要確認の数字】"):
         assert heading in user
     assert "計算" in user
+
+
+# ---- convergence pass -----------------------------------------------------------------------
+
+NOTHING_NEW = "新しい点はありません"
+
+
+def test_summary_prompt_has_conclusion_instruction_and_topic():
+    topic = "朝型と夜型、どちらが効率的か。最後に結論を3行で。"
+    h = Harness()
+    asyncio.run(h.engine(topic, rounds=1).run())
+    user = h.moderator.requests[0].messages[1].content
+    assert topic in user
+    assert user.index("【結論】") < user.index("【合意点】")
+    assert "結論を3行で" in user and "正確に従" in user and "1〜3文" in user
+
+
+def test_critic_guidance_is_in_every_persona_prompt():
+    h = Harness()
+    h.run(rounds=1)
+    for model in MODELS:
+        system = h.providers[model].requests[0].messages[0].content
+        assert "正しい点" in system and "1つだけ" in system and "言い回しを変えて" in system
+
+
+def test_round_three_focus_stays_on_topic():
+    text = DiscussionEngine.round_focus(2)
+    assert "元の議題から離れ" in text and "枝葉" in text and "決めるべき" in text
+
+
+def nothing_new_providers(texts):
+    return {m: Fake(replies=list(texts)) for m in MODELS}
+
+
+def test_early_stop_when_every_turn_says_nothing_new():
+    h = Harness(providers=nothing_new_providers(["a point", NOTHING_NEW]))
+    result = h.run(rounds=3, max_rounds=3)
+    # round 1 has points, round 2 has none: stop before round 3, then the summary
+    assert result.calls == 3 * 2 + 1 and result.summarized and result.stop is StopCode.COMPLETED
+    codes = [m.code for m in h.messages if m.kind is MessageKind.NOTICE]
+    assert codes == ["CONVERGED"]
+    assert h.messages[-1].kind is MessageKind.SUMMARY
+    assert h.messages[-2].code == "CONVERGED"
+
+
+def test_accepts_the_short_variant_phrase():
+    h = Harness(providers=nothing_new_providers(["新しい点なし"] * 2))
+    result = h.run(rounds=3, max_rounds=3)
+    assert result.calls == 3 * 2 + 1  # never after round 1: stops after round 2
+
+
+def test_no_early_stop_when_one_turn_has_something_new():
+    h = Harness(providers={
+        MODELS[0]: Fake(replies=[NOTHING_NEW] * 3),
+        MODELS[1]: Fake(replies=[NOTHING_NEW] * 3),
+        MODELS[2]: Fake(replies=["real argument"] * 3),
+    })
+    result = h.run(rounds=3, max_rounds=3)
+    assert result.calls == 3 * 3 + 1
+    assert all(m.code != "CONVERGED" for m in h.messages)
+
+
+def test_phrase_inside_a_long_answer_does_not_count():
+    long = "あ" * 150 + NOTHING_NEW + "とは言えない。むしろ次の点が重要だ。" + "い" * 20
+    assert len(long) > 120
+    h = Harness(providers=nothing_new_providers([long]))
+    assert h.run(rounds=2).calls == 3 * 2 + 1
+    assert all(m.code != "CONVERGED" for m in h.messages)
+
+
+def test_long_answer_ending_with_the_phrase_counts():
+    long = "あ" * 150 + "。したがって、" + NOTHING_NEW + "。"
+    h = Harness(providers=nothing_new_providers([long] * 2))
+    assert h.run(rounds=3, max_rounds=3).calls == 3 * 2 + 1
+
+
+def test_single_turn_round_never_converges():
+    h = Harness(
+        providers={
+            MODELS[0]: Fake(replies=[NOTHING_NEW] * 3),
+            MODELS[1]: Fake(replies=[ProviderError("request failed")] * 3 + ["x"]),
+            MODELS[2]: Fake(replies=[""] * 3),
+        }
+    )
+    h.run(rounds=3, max_rounds=3)
+    assert all(m.code != "CONVERGED" for m in h.messages)
+
+
+def test_converged_in_the_last_round_adds_no_notice():
+    h = Harness(providers=nothing_new_providers([NOTHING_NEW]))
+    result = h.run(rounds=1)
+    assert result.calls == 4
+    assert all(m.code != "CONVERGED" for m in h.messages)
+
+
+def test_turn_prompt_asks_for_the_phrase_alone():
+    h = Harness()
+    h.run(rounds=1)
+    user = h.providers[MODELS[0]].requests[0].messages[1].content
+    assert "「新しい点はありません」とだけ書き" in user
+
+
+def test_round_one_alone_never_stops_the_discussion():
+    # everyone says nothing new in round 1 only; round 2 has real points
+    providers = {m: Fake(replies=[NOTHING_NEW, "real point", "real point"]) for m in MODELS}
+    h = Harness(providers=providers)
+    result = h.run(rounds=3, max_rounds=3)
+    assert result.calls == 3 * 3 + 1
+    assert all(m.code != "CONVERGED" for m in h.messages)

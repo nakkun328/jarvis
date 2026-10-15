@@ -29,6 +29,7 @@ const NOTICE_MEANINGS = {
   PROVIDER_FAILURES: "モデルの応答が3回続けて失敗したため、議論を終了しました。",
   CALL_CAP: "モデル呼び出しの上限に達したため、議論を終了しました。",
   SUMMARY_FAILED: "まとめを作成できませんでした。",
+  CONVERGED: "これ以上新しい論点が出なかったため、まとめに進みました。",
   CANCELLED: "停止されたため、議論を終了しました。",
   INTERRUPTED: "サーバーの再起動などで議論が中断されました。",
   EXECUTION_FAILED: "議論を実行できませんでした。",
