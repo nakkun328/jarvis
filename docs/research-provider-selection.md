@@ -1,6 +1,6 @@
 # Search provider selection (JAR-36 decision document)
 
-Status: proposal for maintainer decision. A Tavily adapter exists but is off by default,
+Status: **decided 2026-10-16: Tavily** (maintainer; JAR-36). The adapter stays off by default. Terms, query retention and Japanese result quality are still to be checked on the first live trial. Original status: proposal for maintainer decision. A Tavily adapter exists but is off by default,
 unwired, and has not been run against the real service ([research-search.md](research-search.md#tavily-adapter-off-by-default));
 the owner's first trial and terms check decide whether it is adopted. The `SearchProvider`
 contract and the mock are in place; this page compares candidates for the first live adapter.

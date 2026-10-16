@@ -51,3 +51,7 @@ Casual turns are stored as ordinary conversation messages under the existing ret
 ## Tests
 
 `tests/test_casual.py` (fakes only): route used only with switch, router and provider; history cut to 6 turns; spies prove memory and research are never called; cap and failure fallbacks; output cut; activity events; doctor; config validation; switch-off equivalence. Frontend: `frontend/test/activity.test.mjs`.
+
+## Latency measurement (JAR-103)
+
+`scripts/measure_casual.py` times the casual path on ten artificial small-talk sentences with the real Gemini provider (live API; run it in your own shell with `GEMINI_API_KEY` and `JARVIS_GEMINI_MODEL=gemini-2.5-flash`, a few passes at most). It reports the median and maximum of the time to the first token, the total time and the output length, and with `--with-router` the router call's time. It records no prompt or reply text and refuses to write inside the repository. **No live result exists yet**: the unit test (`tests/test_measure_casual.py`) uses a fake provider and proves only the script's behaviour. Copy a reviewed summary of the report into `docs/evidence/` when you have run it.
