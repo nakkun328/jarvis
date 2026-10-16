@@ -10,6 +10,7 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
+from time import monotonic
 
 from backend.core.config import DEFAULT_CASUAL_DAILY_CALL_LIMIT
 from backend.personality.prompt import SYSTEM_PROMPT
@@ -22,6 +23,12 @@ CASUAL_HISTORY_TURNS = 6
 # The providers have no output-token option, so the limit is applied to the text instead: the
 # stream is cut (and the model call closed) at this many characters. About 300 tokens.
 CASUAL_MAX_OUTPUT_CHARS = 600
+# Circuit breaker: after this many failures in a row before the first token, the casual path is
+# not tried for CASUAL_CIRCUIT_OPEN_SECONDS; those turns run on the Main Agent at once instead of
+# paying for a failing call first. After the pause one attempt is made again: a success closes
+# the circuit, another failure opens it for a new pause.
+CASUAL_CIRCUIT_FAILURES = 3
+CASUAL_CIRCUIT_OPEN_SECONDS = 60.0
 
 # Appended to the personality prompt. Fixed text; no setting can change it.
 CASUAL_RULES = (
@@ -48,9 +55,14 @@ class CasualService:
         history_turns: int = CASUAL_HISTORY_TURNS,
         max_output_chars: int = CASUAL_MAX_OUTPUT_CHARS,
         today: Callable[[], date] = _today,
+        circuit_failures: int = CASUAL_CIRCUIT_FAILURES,
+        circuit_open_seconds: float = CASUAL_CIRCUIT_OPEN_SECONDS,
+        clock: Callable[[], float] = monotonic,
     ) -> None:
         if daily_call_limit < 1 or history_turns < 1 or max_output_chars < 1:
             raise ValueError("casual limits must be positive")
+        if circuit_failures < 1 or circuit_open_seconds <= 0:
+            raise ValueError("casual circuit limits must be positive")
         self._prompt = system_prompt + CASUAL_RULES
         self.daily_call_limit = daily_call_limit
         self.history_turns = history_turns
@@ -60,6 +72,28 @@ class CasualService:
         # zero on a restart. The day is the UTC date.
         self._day = today()
         self._calls = 0
+        # The circuit breaker lives in this process only, like the call counter.
+        self.circuit_failures = circuit_failures
+        self.circuit_open_seconds = circuit_open_seconds
+        self._clock = clock
+        self._failures = 0
+        self._open_until: float | None = None
+
+    def circuit_open(self) -> bool:
+        """True while the casual path is paused after repeated failures."""
+        return self._open_until is not None and self._clock() < self._open_until
+
+    def _succeeded(self) -> None:
+        self._failures = 0
+        self._open_until = None
+
+    def _failed(self, error_type: str) -> None:
+        _LOG.warning("chat.casual_failed", extra={"error_type": error_type})
+        self._failures += 1
+        if self._failures >= self.circuit_failures:
+            if not self.circuit_open():
+                _LOG.warning("chat.casual_circuit_opened")
+            self._open_until = self._clock() + self.circuit_open_seconds
 
     def reserve(self) -> bool:
         """Count one model call for today. False (and nothing counted) at the daily cap."""
@@ -89,12 +123,13 @@ class CasualService:
         try:
             response = await provider.complete(request)
         except Exception as exc:  # CancelledError is a BaseException and propagates.
-            _LOG.warning("chat.casual_failed", extra={"error_type": type(exc).__name__})
+            self._failed(type(exc).__name__)
             return None
         text = response.text[: self.max_output_chars]
         if not text.strip():
-            _LOG.warning("chat.casual_failed", extra={"error_type": "EmptyReply"})
+            self._failed("EmptyReply")
             return None
+        self._succeeded()
         return replace(response, text=text)
 
     async def start(
@@ -109,11 +144,12 @@ class CasualService:
         try:
             async for first in deltas:
                 if first:
+                    self._succeeded()
                     return CasualStream(first, deltas, self.max_output_chars)
         except Exception as exc:  # CancelledError is a BaseException and propagates.
-            _LOG.warning("chat.casual_failed", extra={"error_type": type(exc).__name__})
+            self._failed(type(exc).__name__)
         else:
-            _LOG.warning("chat.casual_failed", extra={"error_type": "EmptyReply"})
+            self._failed("EmptyReply")
         await _close(deltas)
         return None
 

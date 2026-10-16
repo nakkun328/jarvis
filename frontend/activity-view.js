@@ -32,11 +32,12 @@ export const STEPS = ["started", "planning", "searching", "reading", "verifying"
 export const SKIPS = ["busy", "not_configured", "budget_exhausted", "refused", "low_confidence"];
 // Why a casual decision ran on the Main Agent (only a server with the casual path switched on
 // says so). `low_confidence` is shared with the research list above.
-export const CASUAL_SKIPS = ["over_budget", "provider", "low_confidence"];
+export const CASUAL_SKIPS = ["over_budget", "provider", "low_confidence", "circuit_open"];
 export const CASUAL_SKIP_TEXT = {
   over_budget: "雑談経路の1日の利用上限に達しているため、メインのエージェントで処理します",
   provider: "雑談経路で応答を得られなかったため、メインのエージェントで処理します",
   low_confidence: "経路の確信度が足りないため雑談経路を使わず、メインのエージェントで処理します",
+  circuit_open: "雑談経路で失敗が続いたため一時的に止めており、メインのエージェントで処理します",
 };
 // Shown for a turn in which a research really was started: it runs in the background.
 export const RESEARCH_STARTED_TEXT =

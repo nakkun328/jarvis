@@ -90,6 +90,7 @@ class CasualSkip(StrEnum):
     OVER_BUDGET = "over_budget"
     PROVIDER = "provider"
     LOW_CONFIDENCE = "low_confidence"
+    CIRCUIT_OPEN = "circuit_open"
 
 
 class ActivityErrorCode(StrEnum):

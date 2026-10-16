@@ -7,6 +7,7 @@ import { createMessagePoller, isToolRequested } from "./chat-poll.js";
 import { createConversationMemory, restoreConversation } from "./chat-restore.js";
 import { createHistoryController } from "./chat-history.js";
 import { createHistoryPanel } from "./history-panel.js";
+import { createVoice, recordLatency, summarizeLatency } from "./voice.js";
 import { ChatSession, MAX_MESSAGE_LENGTH, messageLength } from "./chat-session.js";
 
 const conversation = document.querySelector("#conversation");
@@ -27,6 +28,28 @@ function safeStorage() {
     return null;
   }
 }
+
+const micButton = document.querySelector("#mic");
+const speakToggle = document.querySelector("#speak-toggle");
+const voiceNote = document.querySelector("#voice-note");
+const SPEAK_KEY = "jarvis.voice.speak";
+
+function showVoiceNote(text) {
+  voiceNote.textContent = text;
+  voiceNote.hidden = !text;
+}
+
+// Browser voice: push-to-talk fills the message box (never sends); replies are read aloud
+// chunk by chunk only when the person turned it on. No audio is stored (docs/voice.md).
+const voice = createVoice({
+  env: window,
+  onNotice: showVoiceNote,
+  onListening: (on) => micButton.setAttribute("aria-pressed", String(on)),
+  onFirstSound: (ms) => {
+    const stats = summarizeLatency(recordLatency(safeStorage(), ms));
+    showVoiceNote(`最初の音まで ${Math.round(ms)} ms（直近${stats.count}回の中央値 ${stats.median} ms）`);
+  },
+});
 
 const memory = createConversationMemory(safeStorage());
 const activity = createActivityView(document, document.querySelector("#activity"), window);
@@ -61,6 +84,7 @@ void mountModelSelect(document, modelMount, {
 });
 
 const PENDING_TEXT = "考えています…";
+let lastReply = "";
 const COUNTER_FROM = 3600;
 let limitNoticeShown = false;
 
@@ -112,11 +136,14 @@ function beginTurn(text, onRetry) {
 
   return {
     showText(full) {
+      lastReply = full;
+      voice.feed(full);
       assistant.item.classList.remove("message-pending");
       renderReply(document, assistant.content, full);
       scrollToLatest();
     },
     complete({ provider, model }) {
+      voice.finish(lastReply);
       activity.settle("done");
       poller.turnDone(session.conversationId);
       poller.watch();
@@ -133,6 +160,7 @@ function beginTurn(text, onRetry) {
     },
     // Text received before a failure is shown as an unsaved partial, never as the reply.
     fail({ message, partial, kind, retryable }) {
+      voice.cancel();
       activity.settle(kind === "aborted" ? "cancelled" : "error");
       assistant.item.classList.remove("message-pending");
       assistant.item.classList.add(kind === "aborted" ? "message-aborted" : "message-error");
@@ -167,6 +195,8 @@ function beginTurn(text, onRetry) {
     reset() {
       memoryPoller.stop();
       activity.begin();
+      voice.beginTurn();
+      lastReply = "";
       clearExtras();
       assistant.content.classList.remove("message-partial");
       assistant.content.textContent = PENDING_TEXT;
@@ -201,6 +231,10 @@ const session = new ChatSession({
       poller.stop();
       memoryPoller.stop();
       activity.begin();
+      voice.stopListening();
+      voice.beginTurn();
+      showVoiceNote("");
+      lastReply = "";
       return beginTurn(text, () => session.retry());
     },
     setBusy(value) {
@@ -252,10 +286,65 @@ input.addEventListener("keydown", (event) => {
 
 input.addEventListener("input", resizeInput);
 
-stopButton.addEventListener("click", () => session.stop());
+// Stop: the request is aborted first, then the speech is cleared.
+stopButton.addEventListener("click", () => {
+  session.stop();
+  voice.cancel();
+});
+
+if (voice.support.speak) {
+  speakToggle.hidden = false;
+  let saved = false;
+  try {
+    saved = safeStorage()?.getItem(SPEAK_KEY) === "1";
+  } catch {
+    saved = false;
+  }
+  const apply = (on) => {
+    const value = voice.setSpeaking(on);
+    speakToggle.setAttribute("aria-pressed", String(value));
+    try {
+      safeStorage()?.setItem(SPEAK_KEY, value ? "1" : "0");
+    } catch {
+      // The choice then lasts only for this page.
+    }
+  };
+  apply(saved);
+  speakToggle.addEventListener("click", () => apply(!voice.speaking));
+}
+
+if (voice.support.listen) {
+  micButton.hidden = false;
+  const down = () => {
+    if (session.busy) return;
+    voice.startListening((text) => {
+      input.value = text;
+      resizeInput();
+    });
+  };
+  const up = () => voice.stopListening();
+  micButton.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    down();
+  });
+  for (const type of ["pointerup", "pointerleave", "pointercancel"]) {
+    micButton.addEventListener(type, up);
+  }
+  micButton.addEventListener("keydown", (event) => {
+    if ((event.key === " " || event.key === "Enter") && !event.repeat) {
+      event.preventDefault();
+      down();
+    }
+  });
+  micButton.addEventListener("keyup", (event) => {
+    if (event.key === " " || event.key === "Enter") up();
+  });
+}
 
 newChatButton.addEventListener("click", () => {
   if (!session.reset()) return;
+  voice.cancel();
+  showVoiceNote("");
   poller.sync(null, null);
   memory.clear();
   chatHistory.forget();
