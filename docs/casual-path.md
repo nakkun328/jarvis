@@ -26,7 +26,7 @@ With the switch off, behavior is exactly as before: no extra calls, events or fi
 
 - **Output:** the providers have no output-token option here, so the reply is cut at 600 characters (about 300 tokens) and the model call is closed. The turn ends normally with the cut text.
 - **Daily cap:** an in-process counter per UTC day. It is not stored and starts from zero when the server restarts, so it is a spend guard, not an accounting figure. A turn that reaches the cap runs on the Main Agent with `casual_skip: over_budget`; the user sees an ordinary answer, never an error. Set a limit at the vendor too.
-- No circuit breaker yet (the design's `circuit_open`).
+- **Circuit breaker:** after 3 failures in a row before the first token, the casual path is not tried for 60 seconds. Those turns go straight to the Main Agent with `casual_skip: circuit_open` (no wasted call, no daily-cap use). After the pause one attempt is made again: a success closes the circuit, a failure opens it for another 60 seconds. Like the daily counter it lives in the process only.
 
 ## Failures
 
@@ -36,6 +36,7 @@ With the switch off, behavior is exactly as before: no extra calls, events or fi
 | Confidence below the threshold | Main Agent, `casual_skip: low_confidence` |
 | Daily cap reached | Main Agent, `casual_skip: over_budget` |
 | Provider error, no text, or any exception before the first token | Main Agent, `casual_skip: provider` |
+| Circuit open (3 failures in a row, 60 s pause) | Main Agent, `casual_skip: circuit_open` |
 | Provider fails after the first token | `error{provider}`; the partial text is not saved |
 
 `route_selected` is sent after the first token arrives, so it never says `casual` for a turn that fell back. Events carry fixed codes only; no upstream text.

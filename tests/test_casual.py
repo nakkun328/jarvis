@@ -601,3 +601,89 @@ def test_doctor_casual_row(clean_env, monkeypatch, capsys) -> None:
     assert "casual=on" in out
     monkeypatch.setenv("JARVIS_ROUTER", "off")
     assert casual_check().code == "CASUAL_NEEDS_ROUTER"
+
+
+# --- circuit breaker -------------------------------------------------------------------------
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_three_failures_open_the_circuit_and_skip_the_provider_for_a_while() -> None:
+    clock = Clock()
+    casual = CasualService(clock=clock)
+    provider = FakeProvider()
+    provider.mode = "error"
+    service, _, _ = make(provider, casual=casual)
+
+    for _ in range(3):
+        # The casual call fails; the Main Agent call on the same provider then fails too.
+        with pytest.raises(ProviderError):
+            stream(service)
+    assert casual.circuit_open()
+
+    provider.mode = "ok"
+    provider.requests.clear()
+    items = stream(service)
+    events = payloads(items)
+    assert events[2] == {
+        "stage": "route_selected", "route": "main", "decided": "casual", "fallback": False,
+        "casual_skip": "circuit_open",
+    }
+    # Only the Main Agent call happened: the casual provider was not tried first.
+    assert len(provider.requests) == 1
+    assert reply_of(items) == "Hello."
+
+
+def test_the_circuit_closes_after_the_pause_and_a_success_resets_the_count() -> None:
+    clock = Clock()
+    casual = CasualService(clock=clock, circuit_failures=2, circuit_open_seconds=60)
+    provider = FakeProvider()
+    service, _, _ = make(provider, casual=casual)
+
+    provider.mode = "error"
+    for _ in range(2):
+        with pytest.raises(ProviderError):
+            stream(service)
+    assert casual.circuit_open()
+    clock.now += 59
+    assert casual.circuit_open()
+    clock.now += 2
+    assert not casual.circuit_open()
+
+    provider.mode = "ok"
+    assert payloads(stream(service)) == CASUAL_EVENTS
+    assert not casual.circuit_open()
+
+    # One failure after a success does not open it again (the count was reset).
+    provider.mode = "error"
+    with pytest.raises(ProviderError):
+        stream(service)
+    assert not casual.circuit_open()
+
+
+def test_a_failed_trial_after_the_pause_opens_the_circuit_again() -> None:
+    clock = Clock()
+    casual = CasualService(clock=clock, circuit_failures=1, circuit_open_seconds=30)
+    provider = FakeProvider()
+    provider.mode = "error"
+    service, _, _ = make(provider, casual=casual)
+    with pytest.raises(ProviderError):
+        stream(service)
+    clock.now += 31
+    assert not casual.circuit_open()
+    with pytest.raises(ProviderError):
+        stream(service)
+    assert casual.circuit_open()
+
+
+def test_the_circuit_limits_are_validated() -> None:
+    with pytest.raises(ValueError):
+        CasualService(circuit_failures=0)
+    with pytest.raises(ValueError):
+        CasualService(circuit_open_seconds=0)

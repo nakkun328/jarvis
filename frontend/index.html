@@ -56,9 +56,12 @@
           <form class="composer" id="chat-form" novalidate>
             <label class="sr-only" for="message">JARVIS へのメッセージ</label>
             <textarea id="message" name="message" rows="1" maxlength="4000" placeholder="メッセージを入力"></textarea>
+            <button id="mic" class="voice-button" type="button" aria-pressed="false" aria-label="押している間だけ話す（音声入力）" title="押している間だけ話す" hidden>🎤</button>
+            <button id="speak-toggle" class="voice-button" type="button" aria-pressed="false" aria-label="返信を読み上げる" title="返信を読み上げる" hidden>読み上げ</button>
             <button id="stop" class="stop" type="button" aria-label="応答を停止する" hidden>停止</button>
             <button id="send" type="submit" aria-label="メッセージを送信する">送信</button>
           </form>
+          <p class="voice-note" id="voice-note" role="status" aria-live="polite" hidden></p>
           <p class="counter" id="counter" hidden></p>
           <p class="hint">Enter で送信 · Shift + Enter で改行</p>
         </div>

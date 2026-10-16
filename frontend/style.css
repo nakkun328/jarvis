@@ -83,3 +83,8 @@
 .composer .stop:hover:not(:disabled) { background: #52303f; }
 .counter { margin: .25rem 0 0; text-align: right; color: #a9c1d1; font-size: .72rem; }
 .counter.limit { color: #ffc6be; }
+
+.composer .voice-button { background: #172838; color: #cfe4f1; border: 1px solid #426077; font-weight: 600; }
+.composer .voice-button:hover:not(:disabled) { background: #20394d; }
+.composer .voice-button[aria-pressed="true"] { background: #82dce8; color: #09202b; border-color: #82dce8; }
+.voice-note { margin: .25rem 0 0; color: #a9c1d1; font-size: .72rem; }

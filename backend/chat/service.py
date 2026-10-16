@@ -277,6 +277,8 @@ class ChatService:
         if self.casual is not None and casual_wanted:
             if decision.confidence < DEFAULT_CONFIDENCE_THRESHOLD:
                 skip_casual = CasualSkip.LOW_CONFIDENCE
+            elif self.casual.circuit_open():
+                skip_casual = CasualSkip.CIRCUIT_OPEN
             elif not self.casual.reserve():
                 skip_casual = CasualSkip.OVER_BUDGET
             else:
